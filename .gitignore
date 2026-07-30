@@ -1,0 +1,96 @@
+# =============================================================================
+# Cpp_Hub .gitignore
+# =============================================================================
+
+# ---- Build artifacts ----
+build/
+build_*/
+out/
+cmake-build-*/
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+*.exp
+*.pdb
+*.ilk
+
+# ---- CMake generated ----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+ALL_BUILD.*
+INSTALL.*
+RUN_TESTS.*
+ZERO_CHECK.*
+CppHub.sln
+CppHub.slnx
+compile_commands.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+*.whl
+.eggs/
+.pytest_cache/
+python/build_python/
+python/src/cpphub/_core.*.pyd
+python/src/cpphub/_core.*.so
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+.vs/
+
+# ---- vcpkg / conan ----
+vcpkg_installed/
+conan.lock
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Archives / tarballs ----
+*.tar.gz
+*.zip
+
+# ---- Dependencies ----
+# third_party/autodiff/ 是精挑的头文件子集, 提交 (vendor)
+# third_party/autodiff-src/ 是上游完整 clone, 不提交 (太大, 含 examples/tests/docs)
+third_party/autodiff-src/
+third_party/*/build/
+
+# ---- Local research / private artifacts (not for public repo) ----
+# 研究发现文档 (潜在论文素材, 研究 IP)
+docs/discoveries/
+# 研究调研 / 基础设施配置 (含 A/B 站主机名等)
+docs/research/
+# 多 Agent 远程任务过程产物 (A/B 站生成代码, 非最终代码)
+validation_results/
+# 任务派发脚本 (含 SSH 主机名等基础设施信息)
+dispatch/
+# 多 Agent 内部工具脚本 (含本地网络 IP / LM Studio 端口等基础设施信息)
+scripts/
+
+# ---- Logs / temp ----
+*.log
+*.tmp
+*.bak
+*.orig

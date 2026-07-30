@@ -1,0 +1,112 @@
+{
+  "metadata": {
+    "generator": "cross_validate_calibration.py",
+    "version": "1.0",
+    "description": "\u6807\u5b9a\u6a21\u5757 Python \u4ea4\u53c9\u9a8c\u8bc1\u57fa\u51c6 (scipy.optimize)",
+    "cpp_reference": [
+      "include/cpphub/models/vol_surface/svi.hpp",
+      "include/cpphub/models/vol_surface/ssvi.hpp"
+    ],
+    "references": [
+      "Gatheral-Jacquier (2014) arXiv:1204.0646",
+      "Gatheral-Jacquier (2013) Arbitrage-free SVI volatility surfaces"
+    ]
+  },
+  "market_data": {
+    "n_points": 36,
+    "n_maturities": 4,
+    "forward": 100.0,
+    "maturities": [
+      0.25,
+      0.5,
+      1.0,
+      2.0
+    ],
+    "true_params": {
+      "rho": -0.3,
+      "eta": 1.0,
+      "gamma": 0.25
+    }
+  },
+  "svi_slices": {
+    "T_0.25": {
+      "a": 0.004497561325082118,
+      "b": 0.015895033170981406,
+      "rho": -0.29544679962313286,
+      "m": 0.09580582341786603,
+      "sigma": 0.3030920365597025,
+      "cost": 1.945139732269247e-14,
+      "nfev": 230,
+      "success": true,
+      "rmse": 6.574597127106804e-08
+    },
+    "T_0.5": {
+      "a": 0.008934916336536525,
+      "b": 0.026817452280471082,
+      "rho": -0.29276816082302826,
+      "m": 0.11454513349665567,
+      "sigma": 0.3613578668916058,
+      "cost": 5.5150956528830915e-14,
+      "nfev": 269,
+      "success": true,
+      "rmse": 1.1070577273800126e-07
+    },
+    "T_1.0": {
+      "a": 0.018020637653810536,
+      "b": 0.04493304502523254,
+      "rho": -0.2958894178274305,
+      "m": 0.13531468693644624,
+      "sigma": 0.42825256563268527,
+      "cost": 1.8469545968802948e-14,
+      "nfev": 106,
+      "success": true,
+      "rmse": 6.406515081245714e-08
+    },
+    "T_2.0": {
+      "a": 0.03441085538297192,
+      "b": 0.07720171964723015,
+      "rho": -0.2775336623547471,
+      "m": 0.16706304001322778,
+      "sigma": 0.5178801381928746,
+      "cost": 5.701504275929434e-13,
+      "nfev": 154,
+      "success": true,
+      "rmse": 3.55949568086062e-07
+    }
+  },
+  "ssvi_calibration": {
+    "rho": -0.15276170219815144,
+    "eta": 2.824598368760933,
+    "gamma": 0.12502489306673092,
+    "theta_slice": [
+      0.009315219300058897,
+      0.018625613688074985,
+      0.03726332946755534,
+      0.07439209262260704
+    ],
+    "cost": 7.837951003644875e-05,
+    "nfev": 10,
+    "success": true,
+    "rmse": 0.0020867240412299737
+  },
+  "ssvi_formula_validation": {
+    "theta_test": 0.16,
+    "phi_test": 1.5811388300841898,
+    "k_test": -0.2,
+    "total_variance": 0.17844272511244674,
+    "implied_vol": 0.42242481592875997
+  },
+  "no_arbitrage_check": {
+    "rho_valid": true,
+    "phi_positive": true,
+    "butterfly_sufficient": true,
+    "gamma_valid": true
+  },
+  "tolerances": {
+    "svi_slice_params": 0.0001,
+    "ssvi_global_params": 0.001,
+    "total_variance": 1e-12,
+    "implied_vol": 1e-12,
+    "rmse": 1e-08
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "generator": "cross_validate_var.py",
+    "version": "1.0",
+    "seed": 42,
+    "n_samples": 5000,
+    "statsmodels_available": true,
+    "description": "VaR \u4ea4\u53c9\u9a8c\u8bc1\u57fa\u51c6 (Python numpy/scipy/statsmodels)",
+    "cpp_reference": [
+      "include/cpphub/risk/var/historical_var.hpp",
+      "include/cpphub/risk/var/parametric_var.hpp",
+      "include/cpphub/risk/var/mc_var.hpp"
+    ]
+  },
+  "inputs": {
+    "pnl_history_first10": [
+      0.007094341595088627,
+      -0.01979968212480991,
+      0.016009023916129145,
+      0.01981129432782428,
+      -0.04250024277196833,
+      -0.02504359013724636,
+      0.0035568080633457074,
+      -0.005324851846871644,
+      0.0006639768499142241,
+      -0.0160608785514716
+    ],
+    "pnl_mean": 0.00027092810659017487,
+    "pnl_std": 0.023828037914391854,
+    "pnl_min": -0.23826826049717983,
+    "pnl_max": 0.13930656803943836
+  },
+  "historical_var": {
+    "confidence_99": {
+      "linear": 0.05910310244416151,
+      "conservative": 0.059277249320146594,
+      "empirical": 0.05910134338480814
+    },
+    "confidence_95": {
+      "linear": 0.036544794871616576,
+      "conservative": 0.03656641813439645,
+      "empirical": 0.036543656805154486
+    }
+  },
+  "parametric_var": {
+    "confidence_99": 0.05516137723811986,
+    "confidence_95": 0.03892270648003446,
+    "z_alpha_99": -2.3263478740408408,
+    "z_alpha_95": -1.6448536269514729
+  },
+  "weighted_var": {
+    "decay_0_99": {
+      "confidence_99": 0.08147060691879862,
+      "confidence_95": 0.038982627925107434
+    },
+    "decay_0_95": {
+      "confidence_99": 0.04227981125165634
+    }
+  },
+  "mc_var": {
+    "n_paths_10000": {
+      "var_99": 51.5464104319783,
+      "var_95": 30.676561128841346,
+      "tolerance": 0.02,
+      "note": "MC VaR \u7edf\u8ba1\u4e00\u81f4\u6027\u53c2\u8003 (\u4e0d\u540c RNG,\u5bb9\u5dee 2e-2)"
+    }
+  },
+  "tolerances": {
+    "historical_linear": 1e-12,
+    "historical_conservative": 1e-12,
+    "historical_empirical": 1e-12,
+    "parametric": 1e-12,
+    "weighted": 1e-10,
+    "mc": 0.02
+  },
+  "statsmodels_validation": {
+    "available": false,
+    "error": "'mean'"
+  }
+}
