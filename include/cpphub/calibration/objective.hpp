@@ -1,6 +1,8 @@
 #pragma once
 // SOURCE: PHASE3_SPEC §4.1 - Objective functions for calibration
-// TODO: Implement by A station agent
+// STUB: Interface declarations only, no implementation yet.
+//       ObjectiveFunction is planned for v1.1+ (used by HestonCalibrator/SABRCalibrator).
+//       SVI calibration uses SVI::calibrate() directly without this class.
 #include "cpphub/core/types.hpp"
 #include "cpphub/calibration/optimizer.hpp"
 #include <vector>

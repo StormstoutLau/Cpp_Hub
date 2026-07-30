@@ -1,6 +1,8 @@
 #pragma once
 // SOURCE: PHASE3_SPEC §4.1 - Model calibrators (Heston/SABR/SVI)
-// TODO: Implement by A station agent
+// STUB: Interface declarations only, no implementation yet.
+//       HestonCalibrator / SABRCalibrator are planned for v1.1+.
+//       SVI calibration is available via SVI::calibrate() in svi.hpp.
 // NOTE: CalibrationResult and CalibConfig are defined in optimizer.hpp
 #include "cpphub/core/types.hpp"
 #include "cpphub/calibration/optimizer.hpp"

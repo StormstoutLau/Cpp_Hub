@@ -19,7 +19,7 @@
 | ADR-007 | AAD (伴随模式) 统一 Greeks | Accepted | 2026-07-29 | Phase 3 |
 | ADR-008 | COS/FFT 谱方法作为解析引擎补充 | Accepted | 2026-07-29 | Phase 2 |
 | ADR-009 | C ABI 稳定边界 + 版本化 | Proposed | 2026-07-29 | Phase 4 |
-| ADR-010 | GPU 后端可选编译 + 运行时回退 | Proposed | 2026-07-29 | Phase 4 |
+| ADR-010 | GPU 后端可选编译 + 运行时回退 | Accepted | 2026-07-31 | Phase 4 LITE |
 | ADR-011 | 分布式计算: MPI Master-Worker + 确定性聚合 | Proposed | 2026-07-29 | Phase 4 |
 | ADR-012 | xlOil XLL 加载项 (异步 UDF + 缓存) | Proposed | 2026-07-29 | Phase 4 |
 
@@ -478,26 +478,26 @@ int cpphub_v1_get_abi_version();
 
 ## ADR-010: GPU 后端可选编译 + 运行时回退
 
-**状态**: Proposed  
-**日期**: 2026-07-29  
-**关联 Phase**: 4
+**状态**: Accepted (2026-07-31, Phase 4 LITE 已实施)
+**日期**: 2026-07-29 (Proposed) / 2026-07-31 (Accepted)
+**关联 Phase**: 4 LITE
 
 ### 背景
 GPU 加速显著但非所有部署环境有 CUDA/ROCm。
 
 ### 提议决策
-- **CMake 选项**: `CPPHUB_USE_CUDA=ON/OFF` (默认 OFF)
+- **CMake 选项**: `CPPHUB_ENABLE_CUDA=ON/OFF` (默认 OFF)
 - **编译时**: 仅启用时编译 `.cu`，链接 `cudart`
-- **运行时**: `GpuDispatcher::is_available()` 检测设备，不可用自动回退 CPU
-- **统一接口**: `MCEngine::set_backend(Backend::Auto)` 透明切换
+- **运行时**: 无 CUDA 时自动编译 CPU stub (`gpu_mc_cpu_stub.cpp`),15 个 GPU MC 测试仍可在 CPU 上运行
+- **RNG 一致性**: GPU Philox4x64-10 与 CPU `cpphub::core::rng` 算法完全一致,同 seed+counter → 同 Z (位精确)
 
 ```cmake
-option(CPPHUB_USE_CUDA "Enable CUDA backend" OFF)
-if(CPPHUB_USE_CUDA)
-    find_package(CUDA REQUIRED)
-    list(APPEND CPPHUB_SOURCES src/performance/gpu/gpu_mc.cu)
-    target_link_libraries(cpphub PRIVATE ${CUDA_LIBRARIES})
-    target_compile_options(cpphub PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+option(CPPHUB_ENABLE_CUDA "Build CUDA GPU MC kernel (requires NVIDIA GPU + nvcc)" OFF)
+if(CPPHUB_ENABLE_CUDA)
+    enable_language(CUDA)
+    # ... gpu_mc.cu compiled with nvcc
+else()
+    # ... gpu_mc_cpu_stub.cpp compiled as fallback
 endif()
 ```
 

@@ -71,7 +71,7 @@ docs/
 ├── audit/
 │   └── AUDIT_CHECKLIST.md       # 审计清单 (架构/C++规范/数值/性能/Python/测试)
 ├── decisions/
-│   └── ADR_INDEX.md             # 12项 ADR 详细记录
+│   └── ADR_INDEX.md             # 14项 ADR 详细记录
 └── discoveries/                 # 发现日志 (实现过程发现的底层问题与前人遗漏)
     ├── README.md                # 发现索引 (6项: 1 RESOLVED + 5 OPEN)
     ├── 001_bh_fdr_correlated_gaussian.md  # [RESOLVED] BH-FDR 在相关双侧高斯检验下失效
@@ -96,7 +96,7 @@ docs/
 | **PHASE3_SPEC.md** | Week 7-9 AAD Greeks、VaR/ES、联合标定、SVI无套利 | 4种Greeks方法一致性1e-6 |
 | **PHASE4_SPEC.md** | Week 10-12 GPU/分布式/Excel/云/发布 | GPU 500M paths/s、多平台Wheel |
 | **AUDIT_CHECKLIST.md** | 4阶段加权审计：架构20%/C++15%/数值30%/性能15%/Python10%/测试10% | 量化评分、签名确认 |
-| **ADR_INDEX.md** | 12项决策记录：Header-only、Bridge、Factory、RNG、SIMD、nanobind、AAD、COS、C ABI、GPU、MPI、xlOil | 状态跟踪、替代方案评估 |
+| **ADR_INDEX.md** | 14项决策记录：Header-only、Bridge、Factory、RNG、SIMD、nanobind、AAD、COS、C ABI、GPU、MPI、xlOil、双层linalg、标定vs估计 | 状态跟踪、替代方案评估 |
 
 ---
 
@@ -116,52 +116,27 @@ Phase 1-4 执行规格书 (PHASEx_SPEC.md)
 
 ---
 
-## 🚀 进入代码实施阶段
+## 🚀 项目状态
 
-### 当前状态
-- ✅ 文档阶段完成 (12个核心文档)
-- ✅ 架构设计冻结 (ADR Accepted 8项)
-- ✅ 验收标准量化 (每阶段数值/性能/工程指标)
-- ✅ 审计清单就绪 (加权评分制)
+### v1.0 已交付 (Phase 1-3 + Phase 4 LITE)
 
-### 下一步行动 (Day 1)
+- ✅ Phase 1-3: 286/286 测试通过 (Core/PayOff/BS/Heston/MC/Sobol QMC/PDE/Tree/Greeks/VaR/Calibration/SVI)
+- ✅ Phase 4 LITE: 320/320 测试通过 (SSVI 跨期限 / Python 绑定 / GPU MC)
+- ✅ 跨平台验收: MSVC (Win10) + GCC (Ubuntu NEX/GTR-Pro) 三平台 286/286 位精确一致
+- ✅ ADR: 14 项 (Accepted 9 项 + Proposed 5 项,Proposed 均为 v2.0+ 范围)
 
-```bash
-# 1. 初始化仓库 (按 PHASE1_SPEC.md §2.1)
-cd F:\Cpp_Hub
-git init
+### v1.0 维护状态 (2026-07-31)
 
-# 2. 创建目录骨架
-mkdir -p include/cpphub/{core,instruments/payoff,pricing/{analytic,monte_carlo},python}
-mkdir -p src/{core,python}
-mkdir -p tests/{unit,validation}
-mkdir -p benchmarks
-mkdir -p third_party/{nanobind,catch2,fmt,simde,random123}
-mkdir -p python/cpphub
+- ✅ ADR-010 (GPU) 状态同步: Proposed → Accepted (Phase 4 LITE 已实施)
+- ⚠️ 3 个占位头文件 (calibrator/objective/vol_surface) 标注为 STUB,待 v1.1+ 实现
+- ⚠️ ADR-009/011/012 (C ABI/MPI/xlOil) 仍为 Proposed,属 v2.0+ 范围
 
-# 3. 添加子模块 (锁定版本)
-git submodule add https://github.com/nanobind/nanobind third_party/nanobind
-git submodule add https://github.com/catchorg/Catch2 third_party/catch2
-git submodule add https://github.com/fmtlib/fmt third_party/fmt
-git submodule add https://github.com/simd-everywhere/simde third_party/simde
-git submodule add https://github.com/DES-Distributed-Environment/Random123 third_party/random123
+### 下一步方向
 
-# 4. 编写 CMakeLists.txt + vcpkg.json + conanfile.py
-# 5. 实现 core/simd.hpp + core/rng.hpp (最高优先级)
-# 6. 实现 instruments/payoff/ (Bridge + Factory)
-# 7. 实现 pricing/analytic/black_scholes.hpp
-# 8. 编写 Python 绑定骨架
-# 9. 配置 GitHub Actions CI
-# 10. 跑通 `pip install -e python/`
-```
-
-### Phase 1 关键路径 (Week 1-3)
-
-| 周 | 关键交付 | 阻塞风险 | 缓解 |
-|----|----------|----------|------|
-| 1 | core/ 11个头文件 + 单测 | SIMD/RNG 实现复杂度 | 参考 pricer/R123 现成代码 |
-| 2 | PayOff Bridge/Factory + MC/解析解引擎 | Sobol 方向数验证 | 对比 Duffy 书中 Table 2.1 |
-| 3 | Python 绑定 + CI 三平台 + 文档 | MSVC nanobind 兼容 | CI 矩阵包含 MSVC 测试 |
+| 版本 | 范围 | 状态 |
+|------|------|------|
+| **v1.1+** | SSVI 跨期限扩展 / 利率模型 (Hull-White/CIR) / LSMC 美式定价 / 计量估计模块 | 规划中 |
+| **v2.0+** | MPI 分布式 / Excel XLL / gRPC / 云原生 / 多平台 Wheel | 推迟 (PhD 入学后评估) |
 
 ---
 
@@ -187,5 +162,5 @@ git submodule add https://github.com/DES-Distributed-Environment/Random123 third
 ---
 
 **文档集完成度**: 100% (12/12 核心文档)  
-**下一里程碑**: M1 基础设施就绪 (2026-08-02)  
-**项目状态**: **READY FOR IMPLEMENTATION**
+**v1.0 交付状态**: **DELIVERED** (Phase 1-3 + Phase 4 LITE, 320/320 测试通过)  
+**下一里程碑**: v1.1+ 研究优先模块 (SSVI 跨期限 / 利率模型 / LSMC)

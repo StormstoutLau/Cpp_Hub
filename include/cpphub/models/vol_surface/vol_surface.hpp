@@ -1,6 +1,10 @@
 #pragma once
 // SOURCE: PHASE3_SPEC §4.2 - Volatility surface (interpolation + SVI parameterization)
-// TODO: Implement by B station agent
+// STUB: Interface declarations only, no implementation yet.
+//       VolSurface class is planned for v1.1+.
+//       For Dupire local volatility, use DupireLocalVol (dupire_local_vol.hpp)
+//       which has a self-contained IV grid path and does not depend on this class.
+//       For SVI slice calibration, use SVI::calibrate() in svi.hpp.
 #include "cpphub/core/types.hpp"
 #include "cpphub/models/vol_surface/svi.hpp"
 #include <vector>
