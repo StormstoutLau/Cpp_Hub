@@ -79,6 +79,17 @@ endif()
 # GPU MC 子目录 (CUDA 可用时编译 .cu, 不可用时编译 CPU stub)
 add_subdirectory(src/performance/gpu)
 
+# Phase 4 LITE - ADR-009: C ABI 稳定边界 (可选, 默认 OFF)
+# 启用方式: cmake -DCPPHUB_ENABLE_C_API=ON ..
+# 编译静态库 cpphub_c_api, 暴露 cpphub_v1_* 版本化符号
+option(CPPHUB_ENABLE_C_API "Build C ABI library for cross-language bindings" OFF)
+if(CPPHUB_ENABLE_C_API)
+    message(STATUS "C ABI library: ENABLED")
+    add_subdirectory(src/c_api)
+else()
+    message(STATUS "C ABI library: DISABLED (set CPPHUB_ENABLE_C_API=ON to enable)")
+endif()
+
 # Phase 4 LITE - M2: Python 绑定 (nanobind, 可选)
 # 启用方式: cmake -DCPPHUB_ENABLE_PYTHON=ON ..
 #           或 pip install . (自动设置)

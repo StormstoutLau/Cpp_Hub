@@ -56,7 +56,7 @@ inline Real bessel_i1(Real x) noexcept {
     return (x >= 0) ? y : -y;
 }
 
-Real inv_normal_cdf(Real p) {
+inline Real inv_normal_cdf(Real p) {
     if (p <= 0) return -std::numeric_limits<Real>::infinity();
     if (p >= 1) return std::numeric_limits<Real>::infinity();
 

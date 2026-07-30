@@ -1,0 +1,116 @@
+# CppHub CI — multi-platform build & test
+# Runs on Windows (MSVC) and Ubuntu (GCC) to catch cross-platform regressions.
+# Core library is always built; optional modules (C API, CUDA, Python) are tested
+# in separate jobs to keep the matrix manageable.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CMAKE_BUILD_TYPE: Release
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Core build + test: Windows MSVC and Ubuntu GCC
+  # No optional features — validates the header-only core + test suite.
+  # ---------------------------------------------------------------------------
+  build-test:
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            compiler: MSVC
+            cmake_generator: "Visual Studio 17 2022"
+            cmake_extra: ""
+          - os: ubuntu-latest
+            compiler: GCC
+            cmake_generator: "Ninja"
+            cmake_extra: "-DCMAKE_CXX_FLAGS=-ffp-contract=off"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.os == 'Windows' && 'build/_deps' || 'build/_deps' }}
+          key: gtest-1.14.0-${{ runner.os }}-${{ matrix.compiler }}
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build \
+            -G "${{ matrix.cmake_generator }}" \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            ${{ matrix.cmake_extra }}
+
+      - name: Build
+        run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel 4
+
+      - name: Run Tests
+        working-directory: build
+        run: ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure --parallel 4
+
+  # ---------------------------------------------------------------------------
+  # C ABI build + test: validates the ADR-009 stable boundary
+  # Runs on both platforms with CPPHUB_ENABLE_C_API=ON.
+  # ---------------------------------------------------------------------------
+  c-api:
+    name: C ABI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: gtest-1.14.0-${{ runner.os }}-capi
+
+      - name: Configure CMake (C API enabled)
+        run: |
+          cmake -S . -B build \
+            -G "${{ runner.os == 'Windows' && 'Visual Studio 17 2022' || 'Ninja' }}" \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCPPHUB_ENABLE_C_API=ON
+
+      - name: Build
+        run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel 4
+
+      - name: Run C API Tests
+        working-directory: build
+        run: ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} -R "CApi" --output-on-failure --parallel 4

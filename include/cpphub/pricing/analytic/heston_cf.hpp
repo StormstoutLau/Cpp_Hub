@@ -39,13 +39,14 @@ inline Complex heston_characteristic_function(Complex u, Real tau,
 
     Complex D = (x - d) / (p.sigma * p.sigma) * (Real(1) - e_dt) / (Real(1) - g * e_dt);
 
-    // Direct log form: log(1 - g*e^{-dτ}) - log(1 - g).
-    // When Feller condition (2κθ > σ²) holds, |g| < 1 for real u, so both
-    // 1 - g*e^{-dτ} and 1 - g lie in the right half-plane (Re > 0), and the
-    // principal log is continuous — no branch-cut discontinuity.
-    // The previous "Little Trap" rewrite log(1/g - e^{-dτ}) - log(1/g - 1)
-    // introduced a spurious branch jump when Im(log(g)) crossed zero.
-    Complex log_term = std::log(Real(1) - g * e_dt) - std::log(Real(1) - g);
+    // Log-of-ratio form: log((1 - g*e^{-dτ}) / (1 - g)).
+    // This is mathematically equivalent to log(1 - g*e^{-dτ}) - log(1 - g) but
+    // avoids branch-cut discontinuities that arise when the two individual logs
+    // land on different branches (which happens for complex u in the P1 Carr-Madan
+    // integral, where u_shifted = u_real - i).
+    // For real u with Feller satisfied, |g| < 1, so the ratio is real and positive,
+    // and the principal log is continuous — matching the RISK-015 direct form.
+    Complex log_term = std::log((Real(1) - g * e_dt) / (Real(1) - g));
 
     Complex C = p.kappa * p.theta / (p.sigma * p.sigma) * ((x - d) * tau - Real(2) * log_term);
     C += i * u * (std::log(S0) + (p.r - p.q) * tau);
@@ -70,8 +71,8 @@ inline Complex heston_variance_cf(Complex u, Real tau, const HestonCFParams& p) 
 
     Complex D = (x - d) / (p.sigma * p.sigma) * (Real(1) - e_dt) / (Real(1) - g * e_dt);
 
-    // Direct log form (see heston_characteristic_function for rationale)
-    Complex log_term = std::log(Real(1) - g * e_dt) - std::log(Real(1) - g);
+    // Log-of-ratio form (see heston_characteristic_function for rationale)
+    Complex log_term = std::log((Real(1) - g * e_dt) / (Real(1) - g));
 
     Complex C = p.kappa * p.theta / (p.sigma * p.sigma) * ((x - d) * tau - Real(2) * log_term);
 

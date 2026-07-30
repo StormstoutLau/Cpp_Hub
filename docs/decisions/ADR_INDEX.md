@@ -18,7 +18,7 @@
 | ADR-006 | nanobind Python 绑定 + 批量 NumPy API | Accepted | 2026-07-29 | Phase 1 |
 | ADR-007 | AAD (伴随模式) 统一 Greeks | Accepted | 2026-07-29 | Phase 3 |
 | ADR-008 | COS/FFT 谱方法作为解析引擎补充 | Accepted | 2026-07-29 | Phase 2 |
-| ADR-009 | C ABI 稳定边界 + 版本化 | Proposed | 2026-07-29 | Phase 4 |
+| ADR-009 | C ABI 稳定边界 + 版本化 | Accepted | 2026-07-31 | Phase 4 LITE |
 | ADR-010 | GPU 后端可选编译 + 运行时回退 | Accepted | 2026-07-31 | Phase 4 LITE |
 | ADR-011 | 分布式计算: MPI Master-Worker + 确定性聚合 | Proposed | 2026-07-29 | Phase 4 |
 | ADR-012 | xlOil XLL 加载项 (异步 UDF + 缓存) | Proposed | 2026-07-29 | Phase 4 |
@@ -423,17 +423,17 @@ COS: N=256 达机器精度，单期权 < 1ms，无插值误差。
 
 ## ADR-009: C ABI 稳定边界 + 版本化
 
-**状态**: Proposed  
-**日期**: 2026-07-29  
-**关联 Phase**: 4
+**状态**: Accepted (2026-07-31, Phase 4 LITE 已实施)
+**日期**: 2026-07-29 (Proposed) / 2026-07-31 (Accepted)
+**关联 Phase**: 4 LITE
 
 ### 背景
 C++ ABI 不稳定，需为多语言绑定 (Rust, C#, Julia, Excel XLL) 提供稳定接口。
 
-### 提议决策
+### 决策
 导出纯 C 接口 (`extern "C"`), 版本化符号 `cpphub_v1_*`:
 ```c
-// cpphub_c_api.h
+// include/cpphub/c_api/cpphub_c_api.h
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -448,12 +448,16 @@ int cpphub_v1_bsm_price_batch(const double* spots, const double* strikes,
                               const double* expiries, double* prices,
                               size_t n, char opt_type);
 
-int cpphub_v1_heston_cos_price(const double* params, const double* strikes,
-                               const double* expiries, double* prices,
-                               size_t n);
+int cpphub_v1_heston_price(double S, double K, double T, double r, double q,
+                           double v0, double kappa, double theta,
+                           double sigma_v, double rho, double* price);
 
-int cpphub_v1_mc_price(const char* model_json, const char* option_json,
-                       const char* config_json, cpphub_mc_result_t* result);
+int cpphub_v1_bsm_implied_vol(double C_market, double S, double K, double T,
+                              double r, double q, int is_call, double* iv);
+
+int cpphub_v1_mc_price(double S, double K, double T, double r, double q,
+                       double sigma, int is_call, size_t n_paths,
+                       unsigned long long seed, cpphub_mc_result_t* result);
 
 const char* cpphub_v1_get_last_error();
 int cpphub_v1_get_abi_version();
@@ -462,17 +466,32 @@ int cpphub_v1_get_abi_version();
 }
 #endif
 ```
-实现文件 `src/c_api.cpp` 仅依赖 C++ 核心内部符号，不暴露任何 C++ 类型。
+实现文件 `src/c_api/c_api.cpp` 仅依赖 C++ 核心内部符号，不暴露任何 C++ 类型。
+
+### 实施细节 (Phase 4 LITE)
+- **构建**: `src/c_api/CMakeLists.txt` 编译为静态库 `cpphub_c_api`, 条件编译 `CPPHUB_ENABLE_C_API=ON` (默认 OFF, 不影响 header-only 核心)
+- **错误处理**: 所有 C++ 异常在 C 边界捕获, 转为错误码 (0=success, -1=invalid_argument, -2=runtime_error, -3=unknown)
+- **线程安全**: `cpphub_v1_get_last_error()` 使用 `thread_local` 存储, 每个 OS 线程独立错误消息
+- **已实现函数**:
+  - `cpphub_v1_bsm_price_batch`: 批量 BSM 定价 (委托 `bsm_call_price`/`bsm_put_price`)
+  - `cpphub_v1_heston_price`: Heston call 定价 (委托 `detail::heston_call_price_cf`, Carr-Madan 傅里叶反演)
+  - `cpphub_v1_bsm_implied_vol`: Newton-Raphson IV 反推 (委托 `bsm_implied_vol`)
+  - `cpphub_v1_mc_price`: GBM 蒙特卡洛定价 (Philox RNG + Box-Muller)
+  - `cpphub_v1_get_abi_version`: 返回 `CPPHUB_ABI_VERSION` (=1)
+  - `cpphub_v1_get_last_error`: 返回 `thread_local` 错误字符串
+- **未实现 (留待 v2.0+)**: `cpphub_v1_mc_price` 的 JSON 配置版本 (需 JSON 解析依赖), Excel XLL 直接调用接口 (ADR-012)
 
 ### 理由
-1. **语言无关**: 任何支持 C FFI 的语言可直接调用
+1. **语言无关**: 任何支持 C FFI 的语言可直接调用 (Rust `extern "C"`, C# `DllImport`, Python `ctypes`)
 2. **ABI 稳定**: 仅 POD 类型、错误码、不变符号
 3. **版本共存**: `v1` `v2` 同进程加载互不干扰
-4. **Excel XLL**: 直接加载 DLL 调用 `cpphub_v1_*`
+4. **Excel XLL**: 直接加载 DLL 调用 `cpphub_v1_*` (ADR-012)
+5. **零开销**: 静态链接时 LTO 内联, 动态链接时仅一次指针间接
 
 ### 后果
-- C++ 异常需在 C 边界捕获转错误码
-- 生命周期管理: opaque handle `cpphub_context_t*` 引用计数
+- C++ 异常需在 C 边界捕获转错误码 (已实现 `try/catch` 包装)
+- 生命周期管理: 当前仅无状态函数, 不需 opaque handle; v2.0+ 引入 `cpphub_context_t*` 时再加引用计数
+- 版本兼容: `CPPHUB_ABI_VERSION` 编译期常量, 不兼容变更需升 v2
 
 ---
 
