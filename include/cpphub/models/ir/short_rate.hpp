@@ -397,6 +397,167 @@ public:
         }
     }
 
+    // Jamshidian (1989) 分解: 求 r* 使 Σ_i c_i * A(T_opt, t_i) * exp(-B(T_opt, t_i) * r*) = K
+    // P(T_opt, t_i) = A(T_opt, t_i) * exp(-B(T_opt, t_i) * r(T_opt))
+    // 用带括号保护的 Newton 迭代求解 (通常在 20 步内二次收敛)
+    Real jamshidian_r_star(Real T_opt,
+                           const std::vector<Real>& payment_times,
+                           const std::vector<Real>& cashflows,
+                           Real K) const {
+        if (payment_times.size() != cashflows.size()) {
+            throw std::invalid_argument("HullWhite::jamshidian_r_star: size mismatch");
+        }
+        if (payment_times.empty()) {
+            throw std::invalid_argument("HullWhite::jamshidian_r_star: empty schedule");
+        }
+        if (T_opt <= 0.0) {
+            throw std::invalid_argument("HullWhite::jamshidian_r_star: require T_opt > 0");
+        }
+        if (K <= 0.0) {
+            throw std::invalid_argument("HullWhite::jamshidian_r_star: require K > 0");
+        }
+        std::vector<Real> times, cfs;
+        filter_payments(T_opt, payment_times, cashflows, times, cfs);
+        if (times.empty()) {
+            throw std::invalid_argument("HullWhite::jamshidian_r_star: no payments after T_opt");
+        }
+        std::vector<Real> A_terms, B_terms;
+        build_affine_terms(T_opt, times, A_terms, B_terms);
+        return solve_r_star(K, A_terms, B_terms, cfs);
+    }
+
+    // Coupon-bearing bond option via Jamshidian 分解
+    // cashflows[i] 在 payment_times[i] 时支付; call = Σ c_i * ZBP(T_opt, t_i, K_i)
+    Real coupon_bond_option(Real T_opt,
+                            const std::vector<Real>& payment_times,
+                            const std::vector<Real>& cashflows,
+                            Real K, bool is_call) const {
+        if (payment_times.size() != cashflows.size()) {
+            throw std::invalid_argument("HullWhite::coupon_bond_option: size mismatch");
+        }
+        if (payment_times.empty()) {
+            throw std::invalid_argument("HullWhite::coupon_bond_option: empty schedule");
+        }
+        if (T_opt <= 0.0) {
+            throw std::invalid_argument("HullWhite::coupon_bond_option: require T_opt > 0");
+        }
+        if (K <= 0.0) {
+            throw std::invalid_argument("HullWhite::coupon_bond_option: require K > 0");
+        }
+        std::vector<Real> times, cfs;
+        filter_payments(T_opt, payment_times, cashflows, times, cfs);
+        if (times.empty()) {
+            // T_opt 之后无剩余现金流: 期权无内在价值
+            return is_call ? 0.0 : K * interpolate_bond(T_opt);
+        }
+        Real r_star = jamshidian_r_star(T_opt, times, cfs, K);
+        std::vector<Real> A_terms, B_terms;
+        build_affine_terms(T_opt, times, A_terms, B_terms);
+        Real sum = 0.0;
+        for (Size i = 0; i < times.size(); ++i) {
+            Real K_i = A_terms[i] * std::exp(-B_terms[i] * r_star);
+            sum += cfs[i] * bond_option(T_opt, times[i], K_i, is_call);
+        }
+        return sum;
+    }
+
+    // Swaption (payer/receiver) via Jamshidian 分解
+    // 把 payer swap 视为组合: +1 at T_start, -K*τ 在中间支付日, -(1+K*τ) at T_end
+    // V_payer(r) 关于 r 单调递增, V_payer(r*)=0 ⟹
+    //   payer   = -Σ_i c_i * put(ZCB_i, K_i),   receiver = -Σ_i c_i * call(ZCB_i, K_i)
+    Real swaption(Real T_opt, Real T_start, Real T_end,
+                  Size n_periods, Real K, bool is_payer) const {
+        if (T_opt <= 0.0 || T_opt > T_start) {
+            throw std::invalid_argument("HullWhite::swaption: require 0 < T_opt <= T_start");
+        }
+        if (T_start >= T_end) {
+            throw std::invalid_argument("HullWhite::swaption: require T_start < T_end");
+        }
+        if (n_periods == 0) {
+            throw std::invalid_argument("HullWhite::swaption: n_periods must be positive");
+        }
+        if (K < 0.0) {
+            throw std::invalid_argument("HullWhite::swaption: require K >= 0");
+        }
+        Real tau = (T_end - T_start) / static_cast<Real>(n_periods);
+        std::vector<Real> times;
+        std::vector<Real> coeffs;
+        times.reserve(n_periods + 1);
+        coeffs.reserve(n_periods + 1);
+        times.push_back(T_start);
+        coeffs.push_back(1.0);
+        for (Size i = 1; i <= n_periods; ++i) {
+            times.push_back(T_start + static_cast<Real>(i) * tau);
+            coeffs.push_back((i == n_periods) ? -(1.0 + K * tau) : -K * tau);
+        }
+        std::vector<Real> A_terms, B_terms;
+        build_affine_terms(T_opt, times, A_terms, B_terms);
+        Real r_star = solve_r_star(0.0, A_terms, B_terms, coeffs);
+        Real sum = 0.0;
+        for (Size i = 0; i < times.size(); ++i) {
+            if (times[i] <= T_opt + 1e-12) continue;  // 到期时确定, 期权价值为 0
+            Real K_i = A_terms[i] * std::exp(-B_terms[i] * r_star);
+            sum += -coeffs[i] * bond_option(T_opt, times[i], K_i, !is_payer);
+        }
+        return sum;
+    }
+
+    // HW 下 caplet = put on ZCB: caplet = (1 + τ*K) * put(T_start, T_end, 1/(1 + τ*K))
+    // 推导: τ*max(L-K,0) = (1/P)*max(1 - (1+τK)*P, 0), 在 Q^{t_start} 测度下取期望
+    Real caplet(Real t_start, Real t_end, Real K_cap) const {
+        if (t_end <= t_start) return 0.0;
+        if (K_cap < 0.0) {
+            throw std::invalid_argument("HullWhite::caplet: require K_cap >= 0");
+        }
+        Real tau = t_end - t_start;
+        if (t_start <= 0.0) {
+            // 起始 LIBOR 已知, 直接取内在价值
+            Real P_end = interpolate_bond(t_end);
+            Real L0 = (1.0 / tau) * (1.0 / P_end - 1.0);
+            return P_end * tau * std::max(L0 - K_cap, 0.0);
+        }
+        Real factor = 1.0 + tau * K_cap;
+        Real put = bond_option(t_start, t_end, 1.0 / factor, false);
+        return factor * put;
+    }
+
+    // Floorlet = call on ZCB (对称)
+    Real floorlet(Real t_start, Real t_end, Real K_floor) const {
+        if (t_end <= t_start) return 0.0;
+        if (K_floor < 0.0) {
+            throw std::invalid_argument("HullWhite::floorlet: require K_floor >= 0");
+        }
+        Real tau = t_end - t_start;
+        if (t_start <= 0.0) {
+            Real P_end = interpolate_bond(t_end);
+            Real L0 = (1.0 / tau) * (1.0 / P_end - 1.0);
+            return P_end * tau * std::max(K_floor - L0, 0.0);
+        }
+        Real factor = 1.0 + tau * K_floor;
+        Real call = bond_option(t_start, t_end, 1.0 / factor, true);
+        return factor * call;
+    }
+
+    // Cap = Σ caplets, 每个 caplet 覆盖 [reset_times[i], reset_times[i+1])
+    Real cap(const std::vector<Real>& reset_times, Real K_cap) const {
+        if (reset_times.size() < 2) return 0.0;
+        Real sum = 0.0;
+        for (Size i = 0; i + 1 < reset_times.size(); ++i) {
+            sum += caplet(reset_times[i], reset_times[i + 1], K_cap);
+        }
+        return sum;
+    }
+
+    // Floor = Σ floorlets
+    Real floor(const std::vector<Real>& reset_times, Real K_floor) const {
+        if (reset_times.size() < 2) return 0.0;
+        Real sum = 0.0;
+        for (Size i = 0; i + 1 < reset_times.size(); ++i) {
+            sum += floorlet(reset_times[i], reset_times[i + 1], K_floor);
+        }
+        return sum;
+    }
+
     // 模拟路径 (Euler, 使用 θ(t))
     void simulate_path(Real T, Size n_steps, std::vector<Real>& path, Philox4x64& rng) const {
         path.resize(n_steps + 1);
@@ -482,6 +643,128 @@ private:
         Real w = (T - T1) / (T2 - T1);
         Real lnP = std::log(P1) + w * (std::log(P2) - std::log(P1));
         return std::exp(lnP);
+    }
+
+    // P(t,T) = A(t,T) * exp(-B(t,T) * r(t)), 校准到初始期限结构
+    // A(t,T) = P(0,T)/P(0,t) * exp( B(t,T) f(0,t) - σ²/(4κ)(1-e^{-2κt}) B(t,T)² )
+    // (Brigo-Mercurio 2006 eq 3.33; 与 bond_option 的 Black 形式一致)
+    Real hw_A(Real t, Real T) const {
+        if (T <= t) return 1.0;
+        Real B = affine_B(params_.kappa, T - t);
+        Real P0T = interpolate_bond(T);
+        Real P0t = interpolate_bond(t);
+        Real f0t = forward_rate(t);
+        Real kappa = params_.kappa;
+        Real sigma = params_.sigma;
+        Real correction = sigma * sigma / (4.0 * kappa)
+                        * (1.0 - std::exp(-2.0 * kappa * t)) * B * B;
+        return (P0T / P0t) * std::exp(B * f0t - correction);
+    }
+
+    // 仅保留 T_opt 之后的支付
+    void filter_payments(Real T_opt,
+                         const std::vector<Real>& payment_times,
+                         const std::vector<Real>& cashflows,
+                         std::vector<Real>& times,
+                         std::vector<Real>& cfs) const {
+        times.clear();
+        cfs.clear();
+        for (Size i = 0; i < payment_times.size(); ++i) {
+            if (payment_times[i] > T_opt + 1e-12) {
+                times.push_back(payment_times[i]);
+                cfs.push_back(cashflows[i]);
+            }
+        }
+    }
+
+    void build_affine_terms(Real T_opt, const std::vector<Real>& times,
+                            std::vector<Real>& A_terms,
+                            std::vector<Real>& B_terms) const {
+        A_terms.resize(times.size());
+        B_terms.resize(times.size());
+        for (Size i = 0; i < times.size(); ++i) {
+            A_terms[i] = hw_A(T_opt, times[i]);
+            B_terms[i] = affine_B(params_.kappa, times[i] - T_opt);
+        }
+    }
+
+    // F(r) = Σ c_i * A_i * exp(-B_i * r) - target 及其导数
+    void value_and_deriv(Real r,
+                         const std::vector<Real>& A_terms,
+                         const std::vector<Real>& B_terms,
+                         const std::vector<Real>& cashflows,
+                         Real target,
+                         Real& val, Real& deriv) const {
+        val = -target;
+        deriv = 0.0;
+        for (Size i = 0; i < cashflows.size(); ++i) {
+            Real e = A_terms[i] * std::exp(-B_terms[i] * r);
+            val += cashflows[i] * e;
+            deriv -= cashflows[i] * B_terms[i] * e;
+        }
+    }
+
+    // 带括号保护的 Newton 迭代 (coupon bond: F 单调递减; swaption: F 单调递增)
+    Real solve_r_star(Real target,
+                      const std::vector<Real>& A_terms,
+                      const std::vector<Real>& B_terms,
+                      const std::vector<Real>& cashflows) const {
+        if (cashflows.empty()) {
+            throw std::invalid_argument("HullWhite::solve_r_star: empty schedule");
+        }
+        auto F = [&](Real r) {
+            Real v, d;
+            value_and_deriv(r, A_terms, B_terms, cashflows, target, v, d);
+            return v;
+        };
+        auto dF = [&](Real r) {
+            Real v, d;
+            value_and_deriv(r, A_terms, B_terms, cashflows, target, v, d);
+            return d;
+        };
+        // 初始括号, 双向倍增外扩直至符号相反
+        Real r_lo = -0.25;
+        Real r_hi = 0.25;
+        Real f_lo = F(r_lo);
+        Real f_hi = F(r_hi);
+        for (Size i = 0; i < 200 && f_lo * f_hi > 0.0; ++i) {
+            Real width = r_hi - r_lo;
+            r_lo -= width;
+            r_hi += width;
+            f_lo = F(r_lo);
+            f_hi = F(r_hi);
+        }
+        if (f_lo * f_hi > 0.0) {
+            throw std::runtime_error("HullWhite::solve_r_star: failed to bracket root");
+        }
+        // Newton 迭代 (20 步内二次收敛), 越界时退化为二分
+        Real r = 0.5 * (r_lo + r_hi);
+        for (Size iter = 0; iter < 60; ++iter) {
+            Real f = F(r);
+            if (std::abs(f) < 1e-13) break;
+            Real df = dF(r);
+            Real r_new = (std::abs(df) < 1e-18) ? 0.5 * (r_lo + r_hi) : r - f / df;
+            if (!(r_new > r_lo && r_new < r_hi)) r_new = 0.5 * (r_lo + r_hi);
+            Real f_new = F(r_new);
+            if (f_lo * f_new <= 0.0) {
+                r_hi = r_new;
+                f_hi = f_new;
+            } else {
+                r_lo = r_new;
+                f_lo = f_new;
+            }
+            r = r_new;
+            if (std::abs(r_hi - r_lo) < 1e-14 * std::max(1.0, std::abs(r))) break;
+        }
+        // 二分抛光保证精度
+        for (Size i = 0; i < 60; ++i) {
+            if (r_hi - r_lo < 1e-15 * std::max(1.0, std::abs(r_lo))) break;
+            Real mid = 0.5 * (r_lo + r_hi);
+            Real f_mid = F(mid);
+            if (f_lo * f_mid <= 0.0) r_hi = mid;
+            else r_lo = mid;
+        }
+        return 0.5 * (r_lo + r_hi);
     }
 };
 

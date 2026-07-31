@@ -535,3 +535,328 @@ TEST(ShortRateModelsTest, CIRAndVasicekBothMeanReverting) {
     EXPECT_LT(y_v_long, 0.1);
     EXPECT_LT(y_c_long, 0.1);
 }
+
+// ============================================================================
+// Hull-White 扩展 (P3): Jamshidian 分解 / Swaption / Cap-Floor
+// 参考: Jamshidian (1989), Brigo-Mercurio (2006) Ch.3.3, 3.11
+// ============================================================================
+
+namespace {
+// 复现 HullWhite::A(t,T) 系数 (P(t,T) = A(t,T) * exp(-B(t,T) * r(t)))
+// A(t,T) = P(0,T)/P(0,t) * exp( B(t,T) f(0,t) - σ²/(4κ)(1-e^{-2κt}) B(t,T)² )
+Real hw_test_A(const HullWhite& hw, Real t, Real T) {
+    Real kappa = hw.params().kappa;
+    Real sigma = hw.params().sigma;
+    Real B = affine_B(kappa, T - t);
+    Real P0T = hw.zero_coupon_bond(T);
+    Real P0t = hw.zero_coupon_bond(t);
+    Real f0t = hw.forward_rate(t);
+    Real corr = sigma * sigma / (4.0 * kappa)
+              * (1.0 - std::exp(-2.0 * kappa * t)) * B * B;
+    return (P0T / P0t) * std::exp(B * f0t - corr);
+}
+
+// 组合价格 V(r) = Σ_i c_i * A(T_opt, t_i) * exp(-B(T_opt, t_i) * r)
+Real hw_test_portfolio_value(const HullWhite& hw, Real T_opt,
+                             const std::vector<Real>& times,
+                             const std::vector<Real>& cfs, Real r) {
+    Real kappa = hw.params().kappa;
+    Real sum = 0.0;
+    for (Size i = 0; i < times.size(); ++i) {
+        Real A = hw_test_A(hw, T_opt, times[i]);
+        Real B = affine_B(kappa, times[i] - T_opt);
+        sum += cfs[i] * A * std::exp(-B * r);
+    }
+    return sum;
+}
+}  // namespace
+
+// --- Jamshidian 分解 (4 tests) ---
+
+TEST(HullWhiteTest, JamshidianRStarSolvesEquation) {
+    // r* 代回 Σ c_i * P(T_i) 应等于 K
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> times = {1.0, 2.0, 3.0, 4.0, 5.0};
+    std::vector<Real> cfs = {0.05, 0.05, 0.05, 0.05, 1.05};
+    Real T_opt = 0.5;
+
+    for (Real K : {0.90, 0.95, 1.00, 1.05, 1.10}) {
+        Real r_star = hw.jamshidian_r_star(T_opt, times, cfs, K);
+        Real value = hw_test_portfolio_value(hw, T_opt, times, cfs, r_star);
+        EXPECT_NEAR(value, K, 1e-10) << "K=" << K;
+    }
+}
+
+TEST(HullWhiteTest, JamshidianRStarMonotonicInK) {
+    // K 越高, r* 越低 (V(r) 关于 r 单调递减)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> times = {1.0, 2.0, 3.0, 4.0, 5.0};
+    std::vector<Real> cfs = {0.05, 0.05, 0.05, 0.05, 1.05};
+
+    std::vector<Real> r_stars;
+    for (Real K = 0.90; K <= 1.10; K += 0.05) {
+        r_stars.push_back(hw.jamshidian_r_star(0.5, times, cfs, K));
+    }
+    for (Size i = 1; i < r_stars.size(); ++i) {
+        EXPECT_LT(r_stars[i], r_stars[i - 1])
+            << "i=" << i << " r*_prev=" << r_stars[i - 1] << " r*_cur=" << r_stars[i];
+    }
+}
+
+TEST(HullWhiteTest, CouponBondOptionCallPutParity) {
+    // C - P = P(0,T_opt) * (Σ c_i * P(0,T_i)/P(0,T_opt) - K) = Σ c_i P(0,t_i) - K P(0,T_opt)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> times = {1.0, 2.0, 3.0, 4.0, 5.0};
+    std::vector<Real> cfs = {0.05, 0.05, 0.05, 0.05, 1.05};
+    Real T_opt = 0.5, K = 1.0;
+
+    Real C = hw.coupon_bond_option(T_opt, times, cfs, K, true);
+    Real P_put = hw.coupon_bond_option(T_opt, times, cfs, K, false);
+
+    Real sum = 0.0;
+    for (Size i = 0; i < times.size(); ++i) sum += cfs[i] * hw.zero_coupon_bond(times[i]);
+    Real expected = sum - K * hw.zero_coupon_bond(T_opt);
+
+    EXPECT_NEAR(C - P_put, expected, 1e-8);
+}
+
+TEST(HullWhiteTest, CouponBondOptionVsZCB) {
+    // 单一 cashflow 时退化为 bond_option
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> times = {5.0};
+    std::vector<Real> cfs = {1.0};
+    Real T_opt = 1.0, K = 0.95;
+
+    Real cb_call = hw.coupon_bond_option(T_opt, times, cfs, K, true);
+    Real cb_put = hw.coupon_bond_option(T_opt, times, cfs, K, false);
+    Real zcb_call = hw.bond_option(T_opt, 5.0, K, true);
+    Real zcb_put = hw.bond_option(T_opt, 5.0, K, false);
+
+    EXPECT_NEAR(cb_call, zcb_call, 1e-10);
+    EXPECT_NEAR(cb_put, zcb_put, 1e-10);
+}
+
+// --- Swaption (4 tests) ---
+
+TEST(HullWhiteTest, SwaptionCallPutParity) {
+    // Payer - Receiver = 远期互换价值
+    //   = P(0,T_start) - P(0,T_end) - K*τ*Σ_i P(0,t_i)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    Real T_opt = 1.0, T_start = 1.0, T_end = 5.0;
+    Size n_periods = 8;
+    Real tau = (T_end - T_start) / static_cast<Real>(n_periods);
+    Real K = 0.05;
+
+    Real payer = hw.swaption(T_opt, T_start, T_end, n_periods, K, true);
+    Real receiver = hw.swaption(T_opt, T_start, T_end, n_periods, K, false);
+
+    Real sum = 0.0;
+    for (Size i = 1; i <= n_periods; ++i) {
+        sum += hw.zero_coupon_bond(T_start + static_cast<Real>(i) * tau);
+    }
+    Real expected = hw.zero_coupon_bond(T_start) - hw.zero_coupon_bond(T_end)
+                    - K * tau * sum;
+
+    EXPECT_NEAR(payer - receiver, expected, 1e-8);
+}
+
+TEST(HullWhiteTest, SwaptionPositive) {
+    // ATM payer/receiver swaption 价值 > 0 (时变价值)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    Real T_opt = 1.0, T_start = 1.0, T_end = 5.0;
+    Size n_periods = 8;
+    Real K = 0.05;  // 平坦 5% 曲线下近似 ATM
+
+    Real payer = hw.swaption(T_opt, T_start, T_end, n_periods, K, true);
+    Real receiver = hw.swaption(T_opt, T_start, T_end, n_periods, K, false);
+    EXPECT_GT(payer, 0.0);
+    EXPECT_GT(receiver, 0.0);
+}
+
+TEST(HullWhiteTest, SwaptionMonotonicInStrike) {
+    // Payer 随 K 单调递减, Receiver 随 K 单调递增
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    Real p1 = hw.swaption(1.0, 1.0, 5.0, 8, 0.04, true);
+    Real p2 = hw.swaption(1.0, 1.0, 5.0, 8, 0.05, true);
+    Real p3 = hw.swaption(1.0, 1.0, 5.0, 8, 0.06, true);
+    EXPECT_GT(p1, p2);
+    EXPECT_GT(p2, p3);
+
+    Real r1 = hw.swaption(1.0, 1.0, 5.0, 8, 0.04, false);
+    Real r2 = hw.swaption(1.0, 1.0, 5.0, 8, 0.05, false);
+    Real r3 = hw.swaption(1.0, 1.0, 5.0, 8, 0.06, false);
+    EXPECT_LT(r1, r2);
+    EXPECT_LT(r2, r3);
+}
+
+TEST(HullWhiteTest, SwaptionDecreasesWithExpiry) {
+    // 短 expiry 的 swaption 价值较低 (波动累积更少)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    Real K = 0.05;
+    Real short_opt = hw.swaption(0.5, 0.5, 5.0, 9, K, true);  // τ=0.5
+    Real long_opt = hw.swaption(2.0, 2.0, 5.0, 6, K, true);   // τ=0.5
+
+    EXPECT_LT(short_opt, long_opt);
+}
+
+// --- Cap / Floor (4 tests) ---
+
+TEST(HullWhiteTest, CapletNonNegative) {
+    // caplet / floorlet >= 0
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    for (Real t_start : {0.5, 1.0, 2.0}) {
+        for (Real t_end : {t_start + 0.5, t_start + 1.0, t_start + 2.0}) {
+            for (Real K : {0.02, 0.05, 0.08}) {
+                Real cap = hw.caplet(t_start, t_end, K);
+                Real flr = hw.floorlet(t_start, t_end, K);
+                EXPECT_GE(cap, 0.0) << "t_start=" << t_start << " t_end=" << t_end << " K=" << K;
+                EXPECT_GE(flr, 0.0) << "t_start=" << t_start << " t_end=" << t_end << " K=" << K;
+            }
+        }
+    }
+}
+
+TEST(HullWhiteTest, CapMonotonicInStrike) {
+    // Cap 随 K 单调递减, Floor 随 K 单调递增
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> reset = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0};
+    Real c1 = hw.cap(reset, 0.03);
+    Real c2 = hw.cap(reset, 0.05);
+    Real c3 = hw.cap(reset, 0.07);
+    EXPECT_GT(c1, c2);
+    EXPECT_GT(c2, c3);
+
+    Real f1 = hw.floor(reset, 0.03);
+    Real f2 = hw.floor(reset, 0.05);
+    Real f3 = hw.floor(reset, 0.07);
+    EXPECT_LT(f1, f2);
+    EXPECT_LT(f2, f3);
+}
+
+TEST(HullWhiteTest, CapFloorParity) {
+    // Cap - Floor = Σ_i [P(0,t_i) - (1 + τ_i*K) * P(0,t_{i+1})] (单期 FRA 之和)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> reset = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0};
+    Real K = 0.05;
+
+    Real cap = hw.cap(reset, K);
+    Real floor = hw.floor(reset, K);
+
+    Real expected = 0.0;
+    for (Size i = 0; i + 1 < reset.size(); ++i) {
+        Real tau = reset[i + 1] - reset[i];
+        expected += hw.zero_coupon_bond(reset[i])
+                    - (1.0 + tau * K) * hw.zero_coupon_bond(reset[i + 1]);
+    }
+    EXPECT_NEAR(cap - floor, expected, 1e-8);
+}
+
+TEST(HullWhiteTest, CapletVsZCBPut) {
+    // caplet = (1+τK) * put_ZCB(1/(1+τK)), floorlet = (1+τK) * call_ZCB(1/(1+τK))
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    Real t_start = 1.0, t_end = 2.0, K = 0.05;
+    Real tau = t_end - t_start;
+    Real K_prime = 1.0 / (1.0 + tau * K);
+
+    Real caplet = hw.caplet(t_start, t_end, K);
+    Real put = hw.bond_option(t_start, t_end, K_prime, false);
+    Real call = hw.bond_option(t_start, t_end, K_prime, true);
+
+    EXPECT_NEAR(caplet, (1.0 + tau * K) * put, 1e-10);
+    EXPECT_NEAR(hw.floorlet(t_start, t_end, K), (1.0 + tau * K) * call, 1e-10);
+}
+
+// --- 数值稳定性 (3 tests) ---
+
+TEST(HullWhiteTest, SwaptionFlatCurveMatchesBS) {
+    // 平坦曲线下 1 期 payer swaption ≡ caplet ≡ (1+τK)*put_ZCB (Black 形式)
+    // 并与标准市场模型 (Black 公式 on forward LIBOR) 近似一致
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{r_flat, 0.5, 0.01}, mats, bonds);
+
+    Real T_start = 1.0, T_end = 2.0;
+    Real K = 0.05;
+    Real tau = T_end - T_start;
+
+    Real swpt = hw.swaption(T_start, T_start, T_end, 1, K, true);
+    Real caplet = hw.caplet(T_start, T_end, K);
+    EXPECT_NEAR(swpt, caplet, 1e-10);
+
+    // Black 标准市场公式 (冻结系数 vol: σ_L = σ_bond / (1 - F_bond))
+    Real P_start = hw.zero_coupon_bond(T_start);
+    Real P_end = hw.zero_coupon_bond(T_end);
+    Real F_bond = P_end / P_start;
+    Real F = (1.0 / tau) * (P_start / P_end - 1.0);
+    Real sigma_bond = affine_B(0.5, tau)
+                    * std::sqrt(0.01 * 0.01 * (1.0 - std::exp(-2.0 * 0.5 * T_start)) / (2.0 * 0.5));
+    Real sigma_L = sigma_bond / (1.0 - F_bond);
+    Real d1 = (std::log(F / K) + 0.5 * sigma_L * sigma_L) / sigma_L;
+    Real d2 = d1 - sigma_L;
+    Real black = P_end * tau * (F * normal_cdf(d1) - K * normal_cdf(d2));
+    EXPECT_NEAR(caplet, black, 5e-2 * black + 1e-6);
+}
+
+TEST(HullWhiteTest, CapletAtZeroMaturity) {
+    // t_start = t_end 时 caplet / floorlet = 0
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    for (Real t : {0.5, 1.0, 2.0}) {
+        EXPECT_NEAR(hw.caplet(t, t, 0.05), 0.0, 1e-12) << "t=" << t;
+        EXPECT_NEAR(hw.floorlet(t, t, 0.05), 0.0, 1e-12) << "t=" << t;
+    }
+}
+
+TEST(HullWhiteTest, JamshidianConvergence) {
+    // Newton 迭代收敛到高精度 (二次收敛, 20 步内)
+    Real r_flat = 0.05;
+    auto [mats, bonds] = flat_term_structure(r_flat);
+    HullWhite hw(HullWhiteParams{0.05, 0.5, 0.01}, mats, bonds);
+
+    std::vector<Real> times = {1.0, 2.0, 3.0, 4.0, 5.0};
+    std::vector<Real> cfs = {0.05, 0.05, 0.05, 0.05, 1.05};
+
+    for (Real K : {0.90, 0.95, 1.00, 1.05, 1.10}) {
+        Real r_star = hw.jamshidian_r_star(0.5, times, cfs, K);
+        Real value = hw_test_portfolio_value(hw, 0.5, times, cfs, r_star);
+        EXPECT_NEAR(value, K, 1e-12) << "K=" << K;
+    }
+}
