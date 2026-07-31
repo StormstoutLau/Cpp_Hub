@@ -145,6 +145,12 @@ cpphub_add_test(test_bates unit/models/test_bates.cpp)
 # v1.2 Batch 12: Variance Gamma 模型 (Madan-Carr-Chang 1998, 纯跳跃 Levy 过程, CF + Gamma 时变 Brownian + COS 定价)
 cpphub_add_test(test_vg unit/models/test_vg.cpp)
 
+# v1.2 Batch 13: Rough Bergomi 模型 (rBergomi) — 粗糙波动率
+# (a) 解析层: 近似特征函数 + 累积量展开 (Gatheral-Jaisson-Rosenbaum 2018)
+cpphub_add_test(test_rough_bergomi_analytic unit/models/test_rough_bergomi_analytic.cpp)
+# (b) 过程层: RL-fBm Hybrid Scheme 采样器 (Bennedsen-Lunde-Pakkanen 2017, O(N·b) per path)
+cpphub_add_test(test_rbergomi_hybrid unit/models/test_rbergomi_hybrid.cpp)
+
 # Phase 4 LITE - ADR-009: C ABI 测试 (条件编译, 需 CPPHUB_ENABLE_C_API=ON)
 if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)

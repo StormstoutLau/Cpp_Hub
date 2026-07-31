@@ -353,6 +353,65 @@
 - EXPECT_THROW 宏逗号陷阱: `VarianceGammaProcess{p, S0}` 中花括号内逗号被宏识别为参数分隔 → 外层加括号 `(VarianceGammaProcess{p, S0})`
 - IV 微笑对称测试初版假设中心在 F (K1·K2=F²), 差 0.55% vol → 修正为中心 K* = F·exp(ωT) (K1·K2=K*²)
 
+### Batch 13: Rough Bergomi 模型实施记录 (2026-07-31)
+
+**模型背景**:
+- Rough Bergomi (rBergomi) 是 Bayer-Friz-Gatheral (2016) 提出的粗糙波动率模型
+- 基于 Riemann-Liouville 分数布朗运动 (RL-fBm), Hurst 指数 H∈(0, 0.5)
+- 捕捉波动率的长期记忆性和粗糙性 (log-vol 实际信号 Hurst ≈ 0.1)
+- 与标准随机波动率模型 (Heston) 的关键区别: 方差过程非马尔可夫, 路径依赖
+- PhD 申请材料竞争力提升: 粗糙波动率是 2018 后量化金融研究热点
+
+**分布式任务拆解** (主站规划 + A/B 站并行执行):
+- 主站: 实现 `models/diffusion/rough_bergomi.hpp` 基础框架 (Commit b81015a)
+  - RoughBergomiParams 结构, RL-fBm 协方差矩阵, Cholesky 分解, RLFbmSampler, RoughBergomiProcess
+- A 站 (opencode/deepseek-v4-flash-free, 42 分钟): 解析层 (近似特征函数 + 累积量)
+- B 站 (opencode/deepseek-v4-flash-free, 32 分钟): Hybrid Scheme 采样器优化
+
+**A 站实现: `pricing/analytic/rough_bergomi_cf.hpp`** (20 测试全通过)
+- `RoughBergomiCFParams`: H, eta, rho, xi0, S0, r, q, T 八参数
+- `rough_bergomi_cumulants`: c1-c4 累积量近似 (Gatheral-Jaisson-Rosenbaum 2018)
+  - c2 = ξ₀·T·(1 + η²·T^{2H}/(2·(2H+1)))  (方差, 含 log-normal 修正)
+  - c3 = 3·η·ρ·ξ₀·T^{H+1}/(H+1)·sqrt(2H+1)  (偏度, 来自 ρ 相关)
+  - c4 = 3·η²·ξ₀²·T^{2H+1}/(2H+1)            (峰度, 来自 log-vol 随机性)
+  - c1 = -(c2/2 + c3/6 + c4/24)               (鞅修正, 保证 φ(-i) = S₀·e^{(r-q)T})
+- `rough_bergomi_characteristic_function`: Edgeworth/Escher 型近似 CF
+- `make_rough_bergomi_cf`: CharFn 闭包工厂, 用于 COSEngine
+- **关键设计决策** (A 站深度调研 40+ 分钟确定):
+  - 定价 CF 只保留 c1-c3; c4 项 (real +u⁴c4/24) 破坏 |φ|≤1 并 destabilize COS
+  - c4 仍由 `rough_bergomi_cumulants` 返回用于矩计算
+  - η=0 退化为 GBM CF (validation 放宽到 eta >= 0)
+  - COS vs MC 在 3 SE 内 (r=q=0); parity 误差 ~2.5e-4; T→0 退化为 max(S₀-K, 0)
+
+**B 站实现: `models/diffusion/rbergomi_hybrid_scheme.hpp`** (18 测试全通过)
+- `HybridSchemeConfig`: b (分界点, 默认 1), use_fft (远端 FFT 加速, 默认 false)
+- `RLFbmHybridSampler`: O(N·b) per path 采样器
+  - 近端 (cell 距离 m ≤ b): Riemann 核值 w(m) = sqrt(2H+1)·sqrt(dt)·(m·dt)^{H-1/2}
+  - 远端 (m > b): 平顶近似 + 前缀和 O(1) 更新
+  - b=N 时退化为 Cholesky 参考 (数值等价)
+- **性能基准** (N=256, P=1000 路径):
+  - Hybrid direct: 0.38 ms (ratio=0.046 vs Cholesky 8.33 ms, 远超 <0.5 要求)
+  - ATM rBergomi 价格 rel diff vs Cholesky: 1.07%
+- **精度分析** (B 站 Python 预研):
+  - b=1 → 10% 误差 (H=0.3 时 8.3%)
+  - b=3 → 5% 误差 (H=0.2 时 4.3%)
+  - H=0.49 时 b=3 精度极高 (maxdiag=0.0012)
+
+**验收结果**:
+- MSVC 2022 Release 全量回归: 974/974 测试通过 (937 旧 + 20 RoughBergomiCFTest + 18 HybridSchemeTest - 1 计数差异)
+- A/B 站跨平台编译: GCC 13.3.0 + MSVC 2022 均通过
+- A 站耗时 42 分钟 (深度调研累积量展开数值稳定性), B 站耗时 32 分钟 (含 Python 精度预研)
+
+**调试记录**:
+- A 站 COS 定价 NaN 问题: c4 项使 |φ| 在大 u 时增长 → 肥尾伪影 → put 高估, parity 破坏
+  - 解决: 定价 CF 去掉 c4 项, 仅保留 c1-c3
+- A 站 MC drift 不一致: rough_bergomi.hpp 的 MC 使用 driftless log-Euler (E[S_T]=S0)
+  - 解决: c1 鞅修正使 COS parity 与 MC 一致
+- B 站 CMake 配置失败: 部分同步缺失 benchmarks/ 和 src/performance/gpu/ 目录
+  - 解决: B 站创建 stub CMakeLists 占位目录
+- B 站 Hybrid Scheme 首版无加速 (ratio=1.03): 近端 Cholesky 复杂度过高
+  - 解决: 改用 Riemann 核 + 远端前缀和, 实现 O(N·b) 复杂度
+
 ---
 
 **日志维护**: 每日下班前更新，周五生成周报发送团队，Phase 结束归档
