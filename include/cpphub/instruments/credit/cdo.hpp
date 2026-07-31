@@ -86,6 +86,8 @@
 #include <algorithm>
 #include <string>
 #include <numeric>
+#include <functional>
+#include <limits>
 
 namespace cpphub {
 inline namespace v1 {
@@ -520,6 +522,248 @@ inline std::vector<CDOTrancheConfig> make_cdx_ig_tranches(Real maturity = 5.0,
     }
     return tranches;
 }
+
+// ============ Base Correlation 标定器 ============
+// SOURCE: McGinty & Ahluwalia (2004) "A model for base correlation calculation" JPMorgan
+// SOURCE: O'Kane (2008) "Modelling Single-Name and Multi-Name Credit Derivatives" Ch.12-13
+// 用于: (1) compound correlation 反推 (单分券隐含 rho)
+//       (2) base correlation curve 标定 (CDX/iTraxx 标准分券)
+//       (3) 非标准分券定价 (base corr 插值)
+//
+// Base correlation 方法 (McGinty-Ahluwalia):
+//   每个标准分券 (A_k, D_k) 对应一个 0-D_k 的"基准分券".
+//   用递归方式标定: 对 D_k, 找 rho_k 使
+//     E[L_{0-D_k}(t; rho_k)] - E[L_{0-D_{k-1}}(t; rho_{k-1})]
+//   构成的分券 par spread = market spread_k.
+//   得到 base corr curve {(D_k, rho_k)}, 对任意 (A, D) 分券:
+//     rho_A = interp(A), rho_D = interp(D)
+//     E[L_{A-D}(t)] = E[L_{0-D}(t; rho_D)] - E[L_{0-A}(t; rho_A)]
+class CDOBaseCorrelationCalibrator {
+public:
+    CDOBaseCorrelationCalibrator(Real pd_maturity, Real lgd,
+                                 const ZeroCurve& discount, Real maturity)
+        : pd_maturity_(pd_maturity), lgd_(lgd),
+          discount_(discount), maturity_(maturity) {
+        if (pd_maturity_ < 0.0 || pd_maturity_ > 1.0) {
+            throw std::invalid_argument("CDOBaseCorr: pd must be in [0, 1]");
+        }
+        if (lgd_ < 0.0 || lgd_ > 1.0) {
+            throw std::invalid_argument("CDOBaseCorr: lgd must be in [0, 1]");
+        }
+        if (maturity_ <= 0.0) {
+            throw std::invalid_argument("CDOBaseCorr: maturity must be positive");
+        }
+    }
+
+    // Compound correlation (单分券隐含 rho)
+    // 返回 rho 使 CDOLHPPricer(ρ,...).price(cfg).par_spread = market_spread
+    // 返回 nan 表示无解 (rho > 0.95 或 < 0)
+    Real compound_correlation(Real A, Real D, Real market_spread,
+                              Real tol = 1e-6, Size max_iter = 100) const {
+        if (!(A >= 0.0 && D > A && D <= 1.0)) {
+            throw std::invalid_argument("CDOBaseCorr: need 0 <= A < D <= 1");
+        }
+        auto par_spread_fn = [&](Real rho) -> Real {
+            return lhp_par_spread_(rho, A, D);
+        };
+        return root_find_spread_(par_spread_fn, market_spread, tol, max_iter);
+    }
+
+    // 标定 base correlation curve (CDX/iTraxx 标准分券)
+    // 输入: 标准分券 detachment points [0.03, 0.07, 0.10, 0.15, 0.30]
+    //      对应 market par spreads (每个 (attachment, detachment) 分券)
+    // 输出: 每个 detachment 的 base correlation
+    std::vector<Real> calibrate_base_correlation(
+        const std::vector<Real>& detachments,
+        const std::vector<Real>& market_spreads,
+        Real attachment_first = 0.0) const {
+        if (detachments.size() != market_spreads.size()) {
+            throw std::invalid_argument("CDOBaseCorr: detachments/market_spreads size mismatch");
+        }
+        if (detachments.empty()) return {};
+
+        std::vector<Real> base_dets;
+        std::vector<Real> base_corrs;
+        base_dets.reserve(detachments.size());
+        base_corrs.reserve(detachments.size());
+
+        Real A = attachment_first;
+        for (Size k = 0; k < detachments.size(); ++k) {
+            Real D = detachments[k];
+            if (D <= A) {
+                throw std::invalid_argument("CDOBaseCorr: detachments must be strictly increasing");
+            }
+            base_dets.push_back(D);
+
+            // 对 0-D_k 基准分券找 rho_k, 使 (A, D_k) 分券 par spread = market_spread_k
+            // 其中 0-A 损失用已标定的 (D_{k-1}, rho_{k-1}) 插值得到 rho_A
+            auto par_spread_fn = [&](Real rho) -> Real {
+                base_corrs.push_back(rho);
+                Real ps = base_corr_par_spread_(A, D, base_dets, base_corrs);
+                base_corrs.pop_back();
+                return ps;
+            };
+            Real rho_k = root_find_spread_(par_spread_fn, market_spreads[k], 1e-6, 100);
+            base_corrs.push_back(rho_k);
+            A = D;
+        }
+        return base_corrs;
+    }
+
+    // 用 base correlation curve 给非标准分券定价
+    // 算法: 对 D 和 A 在 base corr curve 上插值得 rho_D, rho_A
+    //   E[L_{A-D}(t)] = E[L_{0-D}(t; rho_D)] - E[L_{0-A}(t; rho_A)]
+    // 返回: spread=0 时 par spread; 否则该 spread 下的 PV (卖方视角)
+    Real price_off_market_tranche(
+        Real A, Real D,
+        const std::vector<Real>& base_detachments,
+        const std::vector<Real>& base_correlations,
+        Real spread = 0.0) const {
+        if (!(A >= 0.0 && D > A && D <= 1.0)) {
+            throw std::invalid_argument("CDOBaseCorr: need 0 <= A < D <= 1");
+        }
+        Real rho_D = interpolate_base_corr(D, base_detachments, base_correlations);
+        Real rho_A = interpolate_base_corr(A, base_detachments, base_correlations);
+
+        CDOLHPPricer pricer_D(rho_D, pd_maturity_, lgd_, discount_, maturity_);
+        CDOLHPPricer pricer_A(rho_A, pd_maturity_, lgd_, discount_, maturity_);
+
+        Real pv_protection = 0.0;
+        Real rpv01 = 0.0;
+        Real prev_el = 0.0;
+        for (Size i = 0; i < n_premiums_(); ++i) {
+            Real t_i = payment_time_(i);
+            Real t_prev = (i == 0) ? 0.0 : payment_time_(i - 1);
+            Real t_mid = 0.5 * (t_prev + t_i);
+            Real tau = tau_();
+
+            // E[L_{0-D}(t_i)] - E[L_{0-A}(t_i)]
+            Real el_D = pricer_D.expected_tranche_loss(t_i, 0.0, D);
+            Real el_A = pricer_A.expected_tranche_loss(t_i, 0.0, A);
+            Real el = std::max(0.0, el_D - el_A);
+            Real delta_loss = std::max(0.0, el - prev_el);
+            Real remaining = std::max(0.0, (D - A) - el);
+
+            Real P_i = discount_.discount_factor(t_i);
+            Real P_mid = discount_.discount_factor(t_mid);
+
+            rpv01 += tau * (remaining + 0.5 * delta_loss) * P_i;
+            pv_protection += delta_loss * P_mid;
+            prev_el = el;
+        }
+
+        if (spread == 0.0) {
+            return (rpv01 > 0.0) ? pv_protection / rpv01 : 0.0;
+        }
+        return spread * rpv01 - pv_protection;
+    }
+
+    // 一致性诊断: base correlation 是否单调递增 (detachment ↑ → rho ↑)
+    static bool is_base_correlation_monotonic(const std::vector<Real>& corrs) noexcept {
+        for (Size i = 1; i < corrs.size(); ++i) {
+            if (corrs[i] < corrs[i - 1]) return false;
+        }
+        return true;
+    }
+
+    Real pd_maturity() const noexcept { return pd_maturity_; }
+    Real lgd() const noexcept { return lgd_; }
+    Real maturity() const noexcept { return maturity_; }
+
+private:
+    Real pd_maturity_;
+    Real lgd_;
+    const ZeroCurve& discount_;
+    Real maturity_;
+
+    // 季度支付频率
+    Size n_premiums_() const noexcept {
+        Size n = static_cast<Size>(std::round(maturity_ * 4.0));
+        return (n > 0) ? n : 1;
+    }
+
+    Real tau_() const noexcept { return maturity_ / static_cast<Real>(n_premiums_()); }
+
+    Real payment_time_(Size i) const noexcept {
+        return static_cast<Real>(i + 1) * tau_();
+    }
+
+    // LHP par spread (单一 rho)
+    Real lhp_par_spread_(Real rho, Real A, Real D) const {
+        CDOLHPPricer pricer(rho, pd_maturity_, lgd_, discount_, maturity_);
+        CDOTrancheConfig cfg;
+        cfg.attachment = A;
+        cfg.detachment = D;
+        cfg.spread = 0.0;
+        cfg.maturity = maturity_;
+        cfg.n_premiums = n_premiums_();
+        return pricer.price(cfg).par_spread;
+    }
+
+    // base corr par spread: E[L_{A-D}(t)] = E[L_{0-D}(t; rho_D)] - E[L_{0-A}(t; rho_A)]
+    Real base_corr_par_spread_(Real A, Real D,
+                               const std::vector<Real>& dets,
+                               const std::vector<Real>& corrs) const {
+        return price_off_market_tranche(A, D, dets, corrs, 0.0);
+    }
+
+    // 一维求根: 找 rho ∈ [0, 0.95] 使 par_spread_fn(rho) = market_spread
+    // par_spread_fn 对 rho 单调 (方向不限), 用 bisection
+    // 无解 (端点同号) 返回 nan
+    Real root_find_spread_(const std::function<Real(Real)>& par_spread_fn,
+                           Real market_spread, Real tol, Size max_iter) const {
+        const Real rho_lo = 0.0;
+        const Real rho_hi = 0.95;
+        Real f_lo = par_spread_fn(rho_lo) - market_spread;
+        Real f_hi = par_spread_fn(rho_hi) - market_spread;
+
+        if (std::abs(f_lo) <= tol) return rho_lo;
+        if (std::abs(f_hi) <= tol) return rho_hi;
+        if (!std::isfinite(f_lo) || !std::isfinite(f_hi)) {
+            return std::numeric_limits<Real>::quiet_NaN();
+        }
+        // 端点同号 → 区间内无根 (单调函数)
+        if ((f_lo > 0.0) == (f_hi > 0.0)) {
+            return std::numeric_limits<Real>::quiet_NaN();
+        }
+
+        Real lo = rho_lo;
+        Real hi = rho_hi;
+        for (Size it = 0; it < max_iter; ++it) {
+            Real mid = 0.5 * (lo + hi);
+            Real f_mid = par_spread_fn(mid) - market_spread;
+            if (std::abs(f_mid) <= tol || (hi - lo) < 1e-12) return mid;
+            if ((f_mid > 0.0) == (f_lo > 0.0)) {
+                lo = mid;
+                f_lo = f_mid;
+            } else {
+                hi = mid;
+                f_hi = f_mid;
+            }
+        }
+        return 0.5 * (lo + hi);
+    }
+
+    // 线性插值 base corr curve (extrapolation flat)
+    Real interpolate_base_corr(Real D,
+                               const std::vector<Real>& detachments,
+                               const std::vector<Real>& corrs) const {
+        if (detachments.empty() || detachments.size() != corrs.size()) {
+            return std::numeric_limits<Real>::quiet_NaN();
+        }
+        if (D <= detachments.front()) return corrs.front();
+        if (D >= detachments.back()) return corrs.back();
+        for (Size i = 0; i + 1 < detachments.size(); ++i) {
+            if (D >= detachments[i] && D <= detachments[i + 1]) {
+                Real width = detachments[i + 1] - detachments[i];
+                if (width <= 0.0) return corrs[i];
+                Real w = (D - detachments[i]) / width;
+                return corrs[i] + w * (corrs[i + 1] - corrs[i]);
+            }
+        }
+        return corrs.back();
+    }
+};
 
 }  // namespace v1
 }  // namespace cpphub
