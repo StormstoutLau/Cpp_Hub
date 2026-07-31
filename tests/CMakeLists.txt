@@ -163,6 +163,10 @@ cpphub_add_test(test_rough_bergomi_analytic unit/models/test_rough_bergomi_analy
 # (b) 过程层: RL-fBm Hybrid Scheme 采样器 (Bennedsen-Lunde-Pakkanen 2017, O(N·b) per path)
 cpphub_add_test(test_rbergomi_hybrid unit/models/test_rbergomi_hybrid.cpp)
 
+# v1.3 G: Rough Heston CF (分数阶 Riccati) + 分数阶 Adams 求解器
+cpphub_add_test(test_fractional_adams unit/numerics/test_fractional_adams.cpp)
+cpphub_add_test(test_rough_heston_cf unit/pricing/test_rough_heston_cf.cpp)
+
 # Phase 4 LITE - ADR-009: C ABI 测试 (条件编译, 需 CPPHUB_ENABLE_C_API=ON)
 if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)
