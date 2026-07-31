@@ -137,6 +137,125 @@ inline CharFn make_nig_cf(Real S0, Real r, Real q,
     };
 }
 
+// ============ CGMY (Carr-Geman-Madan-Yor 2002) 特征函数 ============
+// X_T ~ CGMY(C, G, M, Y) 纯跳跃 Levy 过程
+// Levy 密度: k(x) = C * exp(-G|x|)/|x|^{1+Y} (x<0), C * exp(-M|x|)/|x|^{1+Y} (x>0)
+// 鞍条件: 0 < Y < 2, C > 0, G > 0, M > 0
+//
+// X_T 的特征函数:
+//   phi_X(u) = exp(T * C * Gamma(-Y) * [(M-iu)^Y - M^Y + (G+iu)^Y - G^Y])
+//
+// 风险中性价格: S_T = S_0 * exp((r-q+omega)T + X_T)
+//   鞅条件 E[S_T/S_0]=e^{(r-q)T} 要求 E[e^{X_T}]=1, 即 phi_X(-i)=1
+//   phi_X(-i) = exp(T*C*Gamma(-Y)*[(M-1)^Y - M^Y + (G+1)^Y - G^Y])
+//   omega = -ln(phi_X(-i))/T = -C*Gamma(-Y)*[(M-1)^Y - M^Y + (G+1)^Y - G^Y]
+//   phi_S(u) = exp(iu*(ln S0 + (r-q+omega)T)) * phi_X(u)
+//
+// 特殊情况: Y=0 → VG (theta=C*(M-G), sigma=sqrt(2*C), nu=1/(C*M*G))
+//           Y=1 -> CGMY 临界情形需极限处理
+inline CharFn make_cgmy_cf(Real S0, Real r, Real q,
+                            Real C, Real G, Real M, Real Y, Real T) {
+    if (S0 <= 0.0) throw std::invalid_argument("cgmy_cf: S0 must be positive");
+    if (C <= 0.0) throw std::invalid_argument("cgmy_cf: C must be positive");
+    if (G <= 0.0) throw std::invalid_argument("cgmy_cf: G must be positive");
+    if (M <= 0.0) throw std::invalid_argument("cgmy_cf: M must be positive");
+    if (Y <= 0.0 || Y >= 2.0) throw std::invalid_argument("cgmy_cf: require 0 < Y < 2");
+    if (T <= 0.0) throw std::invalid_argument("cgmy_cf: T must be positive");
+
+    Real ln_S0 = std::log(S0);
+    Real gamma_neg_Y = std::tgamma(-Y);  // Gamma(-Y), Y∈(0,2) \ {1}
+    // 鞅修正: omega = -C*Gamma(-Y)*[(M-1)^Y - M^Y + (G+1)^Y - G^Y]
+    Real omega = -C * gamma_neg_Y *
+                 (std::pow(M - 1.0, Y) - std::pow(M, Y) +
+                  std::pow(G + 1.0, Y) - std::pow(G, Y));
+    Real drift = (r - q + omega) * T;
+    Real C_T_gamma = C * T * gamma_neg_Y;
+    Real M_Y = std::pow(M, Y);
+    Real G_Y = std::pow(G, Y);
+
+    return [ln_S0, drift, C_T_gamma, M, G, Y, M_Y, G_Y](Complex u) -> Complex {
+        Real u_re = u.real();
+        Real u_im = u.imag();
+        // (M - iu): M - i*(u_re + i*u_im) = (M + u_im) - i*u_re
+        Complex M_minus_iu(M + u_im, -u_re);
+        // (G + iu): G + i*(u_re + i*u_im) = (G - u_im) + i*u_re
+        Complex G_plus_iu(G - u_im, u_re);
+        // (M-iu)^Y - M^Y + (G+iu)^Y - G^Y
+        Complex term = std::pow(M_minus_iu, Y) - Complex(M_Y, 0.0)
+                     + std::pow(G_plus_iu, Y) - Complex(G_Y, 0.0);
+        // phase: exp(iu*(ln_S0 + drift))
+        Real real_shift = ln_S0 + drift;
+        Complex iu_shift(-u_im * real_shift, u_re * real_shift);
+        Complex phase = std::exp(iu_shift);
+        // exp(C*T*Gamma(-Y)*term)
+        Complex exponent = Complex(C_T_gamma, 0.0) * term;
+        return phase * std::exp(exponent);
+    };
+}
+
+// ============ Kou (2002) 双指数跳跃扩散特征函数 ============
+// dS/S = (r-q-lambda*xi)dt + sigma*dW + dJ
+// J = sum jumps, jump size ~ 双指数分布:
+//   f(x) = p*(1/eta1)*exp(x/eta1) for x<0 (eta1>0)
+//        + q*(1/eta2)*exp(-x/eta2) for x>0 (eta2>0)
+//   p+q=1, p=负跳概率, q=1-p=正跳概率
+//
+// phi_J(u) = p/(1+iu*eta1) + q/(1-iu*eta2)
+// E[e^J] = phi_J(-i) = p/(1+eta1) + q/(1-eta2)  (要求 eta2<1)
+// xi = E[e^J] - 1 = p/(1+eta1) + q/(1-eta2) - 1
+// omega = -lambda * xi  (鞅修正)
+//
+// ln S_T = ln S0 + (r-q+omega-sigma²/2)*T + sigma*W_T + Σ J_i
+// phi(u) = exp(iu*(ln S0 + (r-q+omega-sigma²/2)*T) - sigma²*u²*T/2
+//           + lambda*T*(phi_J(u) - 1))
+inline CharFn make_kou_cf(Real S0, Real r, Real q, Real sigma,
+                           Real lambda, Real p, Real eta1, Real eta2, Real T) {
+    if (S0 <= 0.0) throw std::invalid_argument("kou_cf: S0 must be positive");
+    if (sigma <= 0.0) throw std::invalid_argument("kou_cf: sigma must be positive");
+    if (lambda <= 0.0) throw std::invalid_argument("kou_cf: lambda must be positive");
+    if (p <= 0.0 || p >= 1.0) throw std::invalid_argument("kou_cf: p must be in (0,1)");
+    if (eta1 <= 0.0) throw std::invalid_argument("kou_cf: eta1 must be positive");
+    if (eta2 <= 0.0) throw std::invalid_argument("kou_cf: eta2 must be positive");
+    if (eta2 >= 1.0) throw std::invalid_argument("kou_cf: eta2 must be < 1 for martingale");
+    if (T <= 0.0) throw std::invalid_argument("kou_cf: T must be positive");
+
+    Real q_prob = 1.0 - p;
+    // phi_J(u) = p/(1+iu*eta1) + q/(1-iu*eta2)
+    // E[e^J] = phi_J(-i) = p/(1+eta1) + q/(1-eta2)
+    //   负跳 x<0: E[e^x|x<0] = 1/(1+eta1) < 1
+    //   正跳 x>0: E[e^x|x>0] = 1/(1-eta2) > 1 (要求 eta2<1)
+    Real E_exp_J = p / (1.0 + eta1) + q_prob / (1.0 - eta2);
+    Real xi = E_exp_J - 1.0;
+    Real omega = -lambda * xi;
+    Real ln_S0 = std::log(S0);
+    // Kou 是跳跃扩散 (含 Brownian 部分), drift 必须含 -sigma²/2
+    Real drift = (r - q + omega - 0.5 * sigma * sigma) * T;
+    Real half_sigma2_T = 0.5 * sigma * sigma * T;
+    Real lambda_T = lambda * T;
+
+    return [ln_S0, drift, half_sigma2_T, lambda_T, p, q_prob, eta1, eta2](Complex u) -> Complex {
+        Real u_re = u.real();
+        Real u_im = u.imag();
+        // phase: exp(iu*(ln_S0 + drift) - sigma^2*u^2*T/2)
+        // iu = i*(u_re + i*u_im) = -u_im + i*u_re
+        Real real_shift = ln_S0 + drift;
+        Complex iu_shift(-u_im * real_shift, u_re * real_shift);
+        // u^2 (复数平方): (u_re+i*u_im)^2 = u_re^2 - u_im^2 + 2i*u_re*u_im
+        Complex u_sq = u * u;
+        Complex phase = std::exp(iu_shift - Complex(half_sigma2_T, 0.0) * u_sq);
+        // phi_J(u) = p/(1+iu*eta1) + q/(1-iu*eta2)
+        // iu*eta1 = i*(u_re+i*u_im)*eta1 = (-u_im*eta1) + i*(u_re*eta1)
+        Complex iu_eta1(-u_im * eta1, u_re * eta1);
+        Complex denom1 = Complex(1.0, 0.0) + iu_eta1;
+        Complex iu_eta2(-u_im * eta2, u_re * eta2);
+        Complex denom2 = Complex(1.0, 0.0) - iu_eta2;
+        Complex phi_J = Complex(p, 0.0) / denom1 + Complex(q_prob, 0.0) / denom2;
+        // lambda*T*(phi_J(u) - 1)
+        Complex jump_term = Complex(lambda_T, 0.0) * (phi_J - Complex(1.0, 0.0));
+        return phase * std::exp(jump_term);
+    };
+}
+
 // ============ 辅助: 累积分布截断区间 (用于 COS 方法) ============
 // 给定 CF, 数值估计 X = ln S_T 的 [a, b] 截断区间
 // 基于 Fang-Oosterlee (2009) eq 27-30: 通过 CF 反演求 cdf, 找 1e-8 / 1-1e-8 分位数

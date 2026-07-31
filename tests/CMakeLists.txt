@@ -29,6 +29,9 @@ cpphub_add_test(test_heston_cf unit/pricing/test_heston_cf.cpp)
 # v1.3 P5 (Discovery 002): Heston CF 极端参数稳定性测试
 cpphub_add_test(test_heston_cf_edge unit/pricing/test_heston_cf_edge.cpp)
 
+# v1.3 F: CGMY + Kou Levy 过程特征函数测试
+cpphub_add_test(test_levy_cf unit/pricing/test_levy_cf.cpp)
+
 # Phase 2 M2: PDE 引擎测试 (A 站实现)
 cpphub_add_test(test_pde_engine unit/pricing/test_pde_engine.cpp)
 
