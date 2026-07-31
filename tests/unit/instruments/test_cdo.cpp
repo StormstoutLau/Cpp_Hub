@@ -574,3 +574,240 @@ TEST(CDOFactoryTest, MakeCDXIGTranchesCustomMaturity) {
         EXPECT_EQ(t.n_premiums, 12u);
     }
 }
+
+// ============================================================
+// 8. CDOBaseCorrelationCalibrator - Compound Correlation
+// ============================================================
+namespace {
+const Real kBaseCorrPd = 0.05;       // PD(0, 5Y)
+const Real kBaseCorrLgd = 0.60;      // LGD = 1 - 40% recovery
+const Real kBaseCorrMaturity = 5.0;
+
+// 标准 CDX/iTraxx 分券 detachment points
+std::vector<Real> base_corr_detachments() {
+    return {0.03, 0.07, 0.10, 0.15, 0.30};
+}
+
+// 对应 market par spreads (0-3%, 3-7%, 7-10%, 10-15%, 15-30%)
+std::vector<Real> base_corr_market_spreads() {
+    return {0.20, 0.03, 0.012, 0.005, 0.002};
+}
+
+CDOBaseCorrelationCalibrator make_calibrator(const ZeroCurve& discount) {
+    return CDOBaseCorrelationCalibrator(kBaseCorrPd, kBaseCorrLgd, discount,
+                                         kBaseCorrMaturity);
+}
+
+// 用单一 rho 的 LHP 定价器计算 par spread (与 calibrator 内部 schedule 一致)
+Real lhp_price_par(Real rho, Real A, Real D, const ZeroCurve& discount) {
+    CDOLHPPricer lhp(rho, kBaseCorrPd, kBaseCorrLgd, discount, kBaseCorrMaturity);
+    CDOTrancheConfig cfg;
+    cfg.attachment = A;
+    cfg.detachment = D;
+    cfg.spread = 0.0;
+    cfg.maturity = kBaseCorrMaturity;
+    cfg.n_premiums = 20;
+    return lhp.price(cfg).par_spread;
+}
+}  // namespace
+
+// 1. 用求得的 rho 重新 price, par_spread 应等于输入
+TEST(CDOBaseCorrelationCalibratorTest, CompoundCorrelationRecoversMarketSpread) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    // equity 0-3% @ 10%
+    Real rho_eq = cal.compound_correlation(0.0, 0.03, 0.10);
+    EXPECT_NEAR(lhp_price_par(rho_eq, 0.0, 0.03, discount), 0.10, 1e-5);
+
+    // senior 7-10% @ 0.5%
+    Real rho_sen = cal.compound_correlation(0.07, 0.10, 0.005);
+    EXPECT_NEAR(lhp_price_par(rho_sen, 0.07, 0.10, discount), 0.005, 1e-5);
+}
+
+// 2. spread 越高, rho 越低 (高 spread = 高损失 = 低相关)
+TEST(CDOBaseCorrelationCalibratorTest, CompoundCorrelationMonotonicInSpread) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    Real rho_high = cal.compound_correlation(0.0, 0.03, 0.30);
+    Real rho_mid = cal.compound_correlation(0.0, 0.03, 0.20);
+    Real rho_low = cal.compound_correlation(0.0, 0.03, 0.10);
+
+    EXPECT_LT(rho_high, rho_mid);
+    EXPECT_LT(rho_mid, rho_low);
+}
+
+// 3. ρ ∈ (0, 0.95)
+TEST(CDOBaseCorrelationCalibratorTest, CompoundCorrelationInRange) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    struct Case { Real A; Real D; Real s; };
+    std::vector<Case> cases = {
+        {0.0, 0.03, 0.20},
+        {0.07, 0.10, 0.005},
+        {0.10, 0.15, 0.005},
+        {0.15, 0.30, 0.002},
+    };
+    for (const auto& c : cases) {
+        Real rho = cal.compound_correlation(c.A, c.D, c.s);
+        EXPECT_TRUE(std::isfinite(rho));
+        EXPECT_GT(rho, 0.0);
+        EXPECT_LT(rho, 0.95);
+    }
+}
+
+// 4. equity tranche (0-3%) 的 rho 应显著高于 senior
+TEST(CDOBaseCorrelationCalibratorTest, CompoundCorrelationEquityTrancheHighRho) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    Real rho_eq = cal.compound_correlation(0.0, 0.03, 0.20);    // equity
+    Real rho_sen = cal.compound_correlation(0.07, 0.10, 0.005);  // senior 7-10%
+
+    EXPECT_GT(rho_eq, rho_sen + 0.05);
+}
+
+// ============================================================
+// 9. CDOBaseCorrelationCalibrator - Base Correlation Curve
+// ============================================================
+// 5. base corr 随 detachment 单调递增
+TEST(CDOBaseCorrelationCalibratorTest, BaseCorrelationCurveMonotonicIncreasing) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    ASSERT_EQ(bc.size(), dets.size());
+    EXPECT_TRUE(CDOBaseCorrelationCalibrator::is_base_correlation_monotonic(bc));
+    for (Size i = 1; i < bc.size(); ++i) {
+        EXPECT_GT(bc[i], bc[i - 1]);
+    }
+}
+
+// 6. 用 base corr curve 重定价标准分券, par_spread 应等于市场价 (容差 1bp)
+TEST(CDOBaseCorrelationCalibratorTest, BaseCorrelationRecoversMarketSpreads) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    Real A = 0.0;
+    for (Size i = 0; i < dets.size(); ++i) {
+        Real ps = cal.price_off_market_tranche(A, dets[i], dets, bc, 0.0);
+        EXPECT_NEAR(ps, spreads[i], 1e-4);
+        A = dets[i];
+    }
+}
+
+// 7. 0-3% 分券的 base corr = compound corr
+TEST(CDOBaseCorrelationCalibratorTest, BaseCorrelationEquityTrancheMatchesCompound) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    Real compound = cal.compound_correlation(0.0, 0.03, spreads[0]);
+    EXPECT_NEAR(bc[0], compound, 1e-8);
+}
+
+// 8. 中间 detachment 的插值合理 (0-5% 在 0-3% 与 0-7% 之间)
+TEST(CDOBaseCorrelationCalibratorTest, BaseCorrelationInterpolationMidpoint) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    Real ps03 = cal.price_off_market_tranche(0.0, 0.03, dets, bc, 0.0);
+    Real ps05 = cal.price_off_market_tranche(0.0, 0.05, dets, bc, 0.0);  // 插值中点
+    Real ps07 = cal.price_off_market_tranche(0.0, 0.07, dets, bc, 0.0);
+
+    EXPECT_NEAR(ps03, spreads[0], 1e-4);
+    EXPECT_GT(ps05, ps07);
+    EXPECT_LT(ps05, ps03);
+}
+
+// ============================================================
+// 10. CDOBaseCorrelationCalibrator - Off-Market Tranche Pricing
+// ============================================================
+// 9. 4%-6% 分券 (在 3%-7% 之间) 的 par spread 在 3-7% 与 0-3% 之间
+TEST(CDOBaseCorrelationCalibratorTest, OffMarketTrancheBetweenStandard) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    Real ps46 = cal.price_off_market_tranche(0.04, 0.06, dets, bc, 0.0);
+    Real ps37 = cal.price_off_market_tranche(0.03, 0.07, dets, bc, 0.0);
+    Real ps03 = cal.price_off_market_tranche(0.0, 0.03, dets, bc, 0.0);
+
+    EXPECT_GT(ps46, ps37);
+    EXPECT_LT(ps46, ps03);
+}
+
+// 10. 固定 attachment, detachment ↑ → par_spread ↓
+TEST(CDOBaseCorrelationCalibratorTest, OffMarketTrancheSpreadMonotonic) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    std::vector<Real> Ds = {0.07, 0.10, 0.15, 0.30};
+    Real prev = cal.price_off_market_tranche(0.03, Ds[0], dets, bc, 0.0);
+    for (Size i = 1; i < Ds.size(); ++i) {
+        Real ps = cal.price_off_market_tranche(0.03, Ds[i], dets, bc, 0.0);
+        EXPECT_LT(ps, prev);
+        prev = ps;
+    }
+}
+
+// 11. A=0.03, D=0.07 (标准分券) 应等于 base corr 标定输入
+TEST(CDOBaseCorrelationCalibratorTest, OffMarketTrancheAtStandardMatches) {
+    auto discount = flat_zero_curve(0.03);
+    auto cal = make_calibrator(discount);
+
+    auto dets = base_corr_detachments();
+    auto spreads = base_corr_market_spreads();
+    auto bc = cal.calibrate_base_correlation(dets, spreads);
+
+    Real ps37 = cal.price_off_market_tranche(0.03, 0.07, dets, bc, 0.0);
+    EXPECT_NEAR(ps37, spreads[1], 1e-4);
+
+    Real ps710 = cal.price_off_market_tranche(0.07, 0.10, dets, bc, 0.0);
+    EXPECT_NEAR(ps710, spreads[2], 1e-4);
+}
+
+// ============================================================
+// 11. CDOBaseCorrelationCalibrator - 一致性诊断
+// ============================================================
+// 12. 检测器能识别非单调的 base corr curve (模拟异常市场数据)
+TEST(CDOBaseCorrelationCalibratorTest, BaseCorrelationNonMonotonicDetection) {
+    // 单调递增 → 检测通过
+    std::vector<Real> monotonic = {0.20, 0.28, 0.35, 0.42, 0.55};
+    EXPECT_TRUE(CDOBaseCorrelationCalibrator::is_base_correlation_monotonic(monotonic));
+
+    // 平台期 (非严格递增但非降) → 检测通过
+    std::vector<Real> flat = {0.20, 0.25, 0.25, 0.30};
+    EXPECT_TRUE(CDOBaseCorrelationCalibrator::is_base_correlation_monotonic(flat));
+
+    // 非单调 (异常市场数据) → 检测失败
+    std::vector<Real> non_monotonic = {0.30, 0.28, 0.35, 0.32, 0.40};
+    EXPECT_FALSE(CDOBaseCorrelationCalibrator::is_base_correlation_monotonic(non_monotonic));
+
+    // 边界: 空 / 单点 → 视为单调
+    EXPECT_TRUE(CDOBaseCorrelationCalibrator::is_base_correlation_monotonic({}));
+    EXPECT_TRUE(CDOBaseCorrelationCalibrator::is_base_correlation_monotonic({0.30}));
+}
