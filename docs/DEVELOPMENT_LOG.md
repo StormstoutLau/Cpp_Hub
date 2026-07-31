@@ -245,4 +245,50 @@
 
 ---
 
+## v1.2 Batch 10+: 随机过程模型扩展 (2026-07-31 调研)
+
+> **背景**: Phase 4 LITE 完成后 (v1.0 320/320 全绿), v1.1+v1.2 推进 IR/信用衍生品 (Batch 1-8) 与 SABR (Batch 9)。下一阶段需补齐**随机过程模型层**的常见模型, 形成 Heston/SABR/CEV/Bates/VG 完整矩阵, 为跨模型校准/对比/混合定价提供基础。
+
+### 候选方向调研
+
+| 模型 | SDE / 结构 | 闭式解 | 关键参数 | 适用场景 | 复用基础 | 工作量 |
+|------|-----------|--------|----------|----------|----------|--------|
+| **CEV** | dS = (r-q)S dt + σ S^β dW | Schroder (1989) 非中心卡方 | σ, β | equity smile (skew), rate smiles | `core/math.hpp` 扩展 (γ/χ²) | 中 (解析已就绪, 缺过程+测试) |
+| **Bates** | Heston + Merton 跳跃 | CF = Heston CF × Merton CF | Heston 参数 + λ, μ_J, σ_J | equity vol skew + jump tails | `heston.hpp` + `heston_cf.hpp` 直接复用 | 中 (CF 是乘积, MC 加跳跃项) |
+| **Variance Gamma** | Brownian 时变 by Gamma process | Madan-Carr-Chang (1998) | σ, ν, θ | pure-jump Levy, fat tails | 独立, 无现有基础 | 大 (ψ 函数 + Gamma 过程采样) |
+| **Hull-White** | dr = (θ(t) - a r) dt + σ dW | Jamshidian bond option | a, σ, θ(t) | IR short rate, 已有 `short_rate.hpp` stub | `short_rate.hpp` | (推迟, IR 模型属 v1.3) |
+| **Merton Jump** | GBM + Compound Poisson jump | Merton (1976) 系列 | λ, μ_J, σ_J | jump-diffusion baseline | `gbm.hpp` + Poisson 采样 | 小 (Bates 子集, 单独实现价值低) |
+
+### 推进顺序决策
+
+**Batch 10b → 11 → 12** (CEV → Bates → VG):
+
+1. **Batch 10b: CEV 随机过程 + 测试** (先完成 CEV 闭环)
+   - `models/diffusion/cev.hpp`: CEVProcess 类, Euler 离散化 (吸收壁 S=0)
+   - `tests/unit/models/test_cev.cpp`: 解析 vs MC 收敛性, β=1 GBM 退化, 吸收壁非负, Call-Put parity
+   - 预估 ~20 测试
+   - 依赖: 已完成的 `core/math.hpp` (γ/χ²) + `pricing/analytic/cev_analytic.hpp`
+
+2. **Batch 11: Bates 模型** (复用 Heston, 性价比最高)
+   - `pricing/analytic/bates_cf.hpp`: 特征函数 = Heston CF × Merton 跳跃 CF
+   - `models/diffusion/bates.hpp`: Heston 过程 + Poisson 跳跃 (Merton 形式, 可选 Kou 双指数)
+   - `tests/unit/models/test_bates.cpp`: CF 单位模, 跳跃增加峰度/偏度, MC vs 半解析
+   - 优势: `heston.hpp` + `heston_cf.hpp` 直接继承, 仅加跳跃 CF 与跳跃采样
+   - 预估 ~25 测试
+
+3. **Batch 12: Variance Gamma** (独立 Levy, 工作量最大)
+   - `pricing/analytic/vg_analytic.hpp`: Madan-Carr-Chang (1998) 闭式 (ψ 函数 + N(d1) - N(d2) 结构)
+   - `models/diffusion/variance_gamma.hpp`: Gamma 时变 Brownian (用 `std::gamma_distribution` 或直接 Gamma 采样)
+   - `tests/unit/models/test_vg.cpp`: ψ 函数数值, CF 单位模, MC vs 闭式, VG smile 性质
+   - 预估 ~20 测试
+
+### 关键技术点
+
+- **CEV**: β<1 时 S=0 吸收壁 (Euler 离散需 floor); β→1 退化到 GBM; β>1 爆炸 (本版不实现)
+- **Bates**: 跳跃幅度 J ~ LogNormal(μ_J, σ_J²), 跳跃时间 ~ Poisson(λ·dt); CF 乘积形式 `φ_Bates = φ_Heston · exp(λT(e^{iμ_Ju - σ_J²u²/2} - 1))`
+- **VG**: X(t) = θ·G(t) + σ·W(G(t)), G(t) ~ Gamma(t/ν, ν); 闭式含 ψ(a, b, t) = ∫₀^∞ e^{-s·t} s^{a-1} (1-s)^{b-a-1} ds (无简单闭式, 数值积分或特殊函数)
+- **跨平台**: 严格遵守"头文件 include 在 namespace 外"规则 (RISK-016 教训); A/B 站 GCC + 主控 MSVC 验证
+
+---
+
 **日志维护**: 每日下班前更新，周五生成周报发送团队，Phase 结束归档

@@ -19,16 +19,18 @@
 //   Call(S, K, T) = S e^{-qT} P_1 - K e^{-rT} P_2
 //
 //   其中:
-//     P_1 = 1 - χ'²(d; 2/(1-β) + 2, c)    (生存概率, 即 S_T > K 的风险中性概率)
-//     P_2 = χ'²(c; 2/(1-β), d)            (吸收概率, 即 S_T ≤ K 的对偶概率)
+//     P_1 = 1 - χ'²(c; 2/(1-β), d)         (生存概率, 即 S_T > K 的风险中性概率)
+//     P_2 = χ'²(d; 2/(1-β) - 2, c)         (Schroder 对偶: 交换参数与非中心参数)
 //
-//   对于 r = q (零 drift):
-//     c = 2 K^{2(1-β)} / (σ² (1-β)² T)
-//     d = 2 S^{2(1-β)} / (σ² (1-β)² T)
+//   c (K 相关) 为 chi2 求值点, d (S 相关) 为非中心参数
 //
-//   对于 r ≠ q:
-//     c = 2(r-q) K^{2(1-β)} / (σ²(1-β)(1 - e^{-2(r-q)T}))
-//     d = 2(r-q) S^{2(1-β)} e^{2(r-q)T} / (σ²(1-β)(1 - e^{-2(r-q)T}))
+//   对于 r = q (零 drift, μ→0 极限):
+//     c = K^{2(1-β)} / (σ² (1-β)² T)
+//     d = S^{2(1-β)} / (σ² (1-β)² T)
+//
+//   对于 r ≠ q (CIR 变换 Y = S^{2(1-β)}/[(1-β)²σ²], 漂移参数 b = -2(1-β)μ):
+//     c = 2(r-q) K^{2(1-β)} / (σ²(1-β)(e^{2(1-β)(r-q)T} - 1))
+//     d = 2(r-q) S^{2(1-β)} e^{2(1-β)(r-q)T} / (σ²(1-β)(e^{2(1-β)(r-q)T} - 1))
 //
 //   χ'²(z; k, λ) = 非中心卡方 CDF, 自由度 k, 非中心参数 λ, 在 z 处求值
 //
@@ -96,28 +98,34 @@ inline Real cev_call_price(Real S, Real K, Real T, Real r, Real q, const CEVPara
     Real drift = r - q;
 
     if (std::abs(drift) < 1e-10) {
-        // r = q: 简化形式
+        // r = q (μ→0 极限): c, d 退化为 K^{2(1-β)}, S^{2(1-β)} 归一化
+        // 由一般分支取 μ→0: 2μ/(σ²(1-β)(e^{2(1-β)μT}-1)) → 1/(σ²(1-β)²T)
         Real denom = sigma * sigma * one_minus_beta * one_minus_beta * T;
-        c = 2.0 * std::pow(K, two_omb) / denom;
-        d = 2.0 * std::pow(S, two_omb) / denom;
+        c = std::pow(K, two_omb) / denom;
+        d = std::pow(S, two_omb) / denom;
     } else {
         // r ≠ q: 含 drift 调整
-        Real exp_2dt = std::exp(2.0 * drift * T);
-        Real denom = sigma * sigma * one_minus_beta * (1.0 - 1.0 / exp_2dt);
-        // 等价: denom = σ²(1-β)(1 - e^{-2(r-q)T})
-        // 用 1 - 1/e^{2dT} 替代 1 - e^{-2dT} 避免大指数溢出
+        // CIR 变换 Y = S^{2(1-β)}/[(1-β)²σ²] 的漂移参数 b = -2(1-β)μ
+        // 故指数为 2(1-β)μT (非 2μT)
+        Real exp_arg = 2.0 * one_minus_beta * drift * T;
+        Real exp_2dt = std::exp(exp_arg);
+        Real denom = sigma * sigma * one_minus_beta * std::expm1(exp_arg);
+        // denom = σ²(1-β)(e^{2(1-β)μT} - 1)
         c = 2.0 * drift * std::pow(K, two_omb) / denom;
         d = 2.0 * drift * std::pow(S, two_omb) * exp_2dt / denom;
     }
 
-    // 自由度
-    Real nu_1 = 2.0 / one_minus_beta + 2.0;   // P_1 用
-    Real nu_2 = 2.0 / one_minus_beta;          // P_2 用
+    // 自由度 (Schroder 1989): P_1 与 P_2 的 df 相差 2
+    // ν_1 = 2/(1-β), ν_2 = 2/(1-β) - 2 = 2β/(1-β)
+    Real nu_1 = 2.0 / one_minus_beta;         // P_1 用
+    Real nu_2 = 2.0 / one_minus_beta - 2.0;   // P_2 用
 
-    // P_1 = 1 - χ'²(d; nu_1, c)  (生存概率, S_T > K)
-    // P_2 = χ'²(c; nu_2, d)       (吸收概率, S_T ≤ K 的对偶)
-    Real chi2_1 = noncentral_chi2_cdf(d, nu_1, c);
-    Real chi2_2 = noncentral_chi2_cdf(c, nu_2, d);
+    // P_1 = 1 - χ'²(c; nu_1, d)  (生存概率, S_T > K)
+    //   c (K 相关) 为 chi2 参数, d (S 相关) 为非中心参数
+    // P_2 = χ'²(d; nu_2, c)       (Schroder 对偶: 交换参数与非中心参数)
+    //   d (S 相关) 为 chi2 参数, c (K 相关) 为非中心参数
+    Real chi2_1 = noncentral_chi2_cdf(c, nu_1, d);
+    Real chi2_2 = noncentral_chi2_cdf(d, nu_2, c);
 
     Real P1 = 1.0 - chi2_1;
     Real P2 = chi2_2;
