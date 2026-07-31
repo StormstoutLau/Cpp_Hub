@@ -130,6 +130,9 @@ cpphub_add_test(test_copula unit/instruments/test_copula.cpp)
 cpphub_add_test(test_cdo unit/instruments/test_cdo.cpp)
 cpphub_add_test(test_basket_cds unit/instruments/test_basket_cds.cpp)
 
+# v1.2 Batch 9: SABR 模型 (Hagan IV 闭式公式 + 随机过程)
+cpphub_add_test(test_sabr unit/models/test_sabr.cpp)
+
 # Phase 4 LITE - ADR-009: C ABI 测试 (条件编译, 需 CPPHUB_ENABLE_C_API=ON)
 if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)
