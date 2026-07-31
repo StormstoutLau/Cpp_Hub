@@ -26,6 +26,9 @@ cpphub_add_test(test_heston_process unit/models/test_heston_process.cpp)
 cpphub_add_test(test_gbm unit/models/test_gbm.cpp)
 cpphub_add_test(test_heston_cf unit/pricing/test_heston_cf.cpp)
 
+# v1.3 P5 (Discovery 002): Heston CF 极端参数稳定性测试
+cpphub_add_test(test_heston_cf_edge unit/pricing/test_heston_cf_edge.cpp)
+
 # Phase 2 M2: PDE 引擎测试 (A 站实现)
 cpphub_add_test(test_pde_engine unit/pricing/test_pde_engine.cpp)
 
