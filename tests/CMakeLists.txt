@@ -136,6 +136,9 @@ cpphub_add_test(test_sabr unit/models/test_sabr.cpp)
 # v1.2 Batch 10: CEV 模型 (非中心卡方解析定价 + Euler/log-Euler 随机过程)
 cpphub_add_test(test_cev unit/models/test_cev.cpp)
 
+# v1.2 Batch 11: Bates 模型 (Heston + Merton 跳跃, CF 乘积 + Full Truncation Euler + Poisson 跳跃)
+cpphub_add_test(test_bates unit/models/test_bates.cpp)
+
 # Phase 4 LITE - ADR-009: C ABI 测试 (条件编译, 需 CPPHUB_ENABLE_C_API=ON)
 if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)

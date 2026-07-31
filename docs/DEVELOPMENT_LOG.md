@@ -289,6 +289,40 @@
 - **VG**: X(t) = θ·G(t) + σ·W(G(t)), G(t) ~ Gamma(t/ν, ν); 闭式含 ψ(a, b, t) = ∫₀^∞ e^{-s·t} s^{a-1} (1-s)^{b-a-1} ds (无简单闭式, 数值积分或特殊函数)
 - **跨平台**: 严格遵守"头文件 include 在 namespace 外"规则 (RISK-016 教训); A/B 站 GCC + 主控 MSVC 验证
 
+### 实施进度
+
+| Batch | 内容 | 状态 | 测试数 | 提交 |
+|-------|------|------|--------|------|
+| 10a | CEV 解析定价 (非中心卡方) | ✅ 完成 | - | `260a9a5` |
+| 10b | CEV 随机过程 + 测试 | ✅ 完成 | 21 | `0ab2321` |
+| 11 | Bates 模型 (CF + 过程 + COS 定价) | ✅ 完成 | 24 | (本次) |
+| 12 | Variance Gamma 模型 | ⏳ 进行中 | - | - |
+
+### Batch 11: Bates 模型实施记录 (2026-07-31)
+
+**实现文件**:
+- `pricing/analytic/bates_cf.hpp`: Bates 特征函数 = Heston CF × Merton 跳跃 CF
+  - `BatesCFParams` 结构 (Heston 5 参数 + Merton 3 参数 + r/q)
+  - `bates_jump_compensation`: m = exp(μ_J + σ_J²/2) - 1 (风险中性 drift 补偿)
+  - `merton_jump_cf`: φ_J(u,τ) = exp(λτ(exp(iμ_Ju - σ_J²u²/2) - 1))
+  - `bates_characteristic_function`: Heston CF (用调整后 r̃ = r - λm) × 跳跃 CF
+  - `make_bates_cf`: CharFn 闭包工厂, 用于 COSEngine
+- `models/diffusion/bates.hpp`: BatesProcess 类
+  - Full Truncation Euler (复用 Heston 方差更新) + Poisson 跳跃采样
+  - `sample_poisson`: Knuth 算法 (适合小 λdt)
+  - `sample_lognormal_jump`: J = exp(μ_J + σ_J Z)
+  - `evolve`: 单步演化 (供测试逐步对比)
+  - `generate_path`: 每步生成相关正态 + 跳跃数 + 跳跃幅度
+- `tests/unit/models/test_bates.cpp`: 24 测试 (3 套件)
+  - BatesCFTest (10): 单位模, λ=0 退化 Heston, 跳跃 CF 性质, 衰减, 平滑性, 对称跳跃
+  - BatesProcessTest (9): 参数验证, 路径性质, λ=0 匹配 Heston 路径, 跳跃增加方差, Poisson/LogNormal 采样均值
+  - BatesPricingTest (5): COS 定价, λ=0 匹配 Heston 价格, Call-Put parity, 跳跃增加 OTM call, MC vs COS 收敛
+
+**关键决策**:
+- 跳跃补偿通过 drift 调整实现 (r̃ = r - λm), 而非在跳跃 CF 中加补偿项, 使 Call-Put parity 严格成立
+- 复用现有 `COSEngine` 做半解析定价, 无需实现新的傅里叶积分
+- λ=0 时 Bates 路径与 Heston 路径数值一致 (相同 RNG 调用序列), 用于退化验证
+
 ---
 
 **日志维护**: 每日下班前更新，周五生成周报发送团队，Phase 结束归档
