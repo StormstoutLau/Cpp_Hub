@@ -295,8 +295,8 @@
 |-------|------|------|--------|------|
 | 10a | CEV 解析定价 (非中心卡方) | ✅ 完成 | - | `260a9a5` |
 | 10b | CEV 随机过程 + 测试 | ✅ 完成 | 21 | `0ab2321` |
-| 11 | Bates 模型 (CF + 过程 + COS 定价) | ✅ 完成 | 24 | (本次) |
-| 12 | Variance Gamma 模型 | ⏳ 进行中 | - | - |
+| 11 | Bates 模型 (CF + 过程 + COS 定价) | ✅ 完成 | 24 | `91f46d2` |
+| 12 | Variance Gamma 模型 (CF + 过程 + COS 定价) | ✅ 完成 | 20 | `6c9b89b` |
 
 ### Batch 11: Bates 模型实施记录 (2026-07-31)
 
@@ -322,6 +322,36 @@
 - 跳跃补偿通过 drift 调整实现 (r̃ = r - λm), 而非在跳跃 CF 中加补偿项, 使 Call-Put parity 严格成立
 - 复用现有 `COSEngine` 做半解析定价, 无需实现新的傅里叶积分
 - λ=0 时 Bates 路径与 Heston 路径数值一致 (相同 RNG 调用序列), 用于退化验证
+
+### Batch 12: Variance Gamma 模型实施记录 (2026-07-31)
+
+**实现文件**:
+- `pricing/analytic/vg_analytic.hpp`: VG 解析层 (特征函数 + 累积量 + omega 鞅修正)
+  - `VGParams` 结构 (σ, ν, θ 三参数)
+  - `vg_omega`: ω = (1/ν) ln(1 - θν - σ²ν/2) (Feller 条件: 1 - θν - σ²ν/2 > 0)
+  - `vg_characteristic_function`: φ(u,τ) = exp(iu(ln S₀ + (r-q+ω)τ)) · (1 - iuθν + σ²νu²/2)^{-τ/ν}
+  - `vg_cumulant_*`: 均值 θT, 方差 (σ²+θ²ν)T, 偏度, 超额峰度 (VG 厚尾来源)
+  - `make_vg_cf_direct`: CharFn 闭包工厂, 用于 COSEngine
+- `models/diffusion/variance_gamma.hpp`: VarianceGammaProcess 类
+  - 纯跳跃 Levy 过程, Gamma 时变 Brownian: X(t) = θ·G(t) + σ·W(G(t))
+  - `sample_gamma_increment`: ΔG ~ Gamma(Δt/ν, ν) via std::gamma_distribution (Marsaglia-Tsang)
+  - `vg_increment`: ΔX = θ·ΔG + σ·√(ΔG)·Z (VG 增量)
+  - `generate_path`: 每步采样 Gamma 增量 + Box-Muller 正态, 价格更新 S·exp((r-q+ω)Δt + ΔX)
+- `tests/unit/models/test_vg.cpp`: 20 测试 (3 套件)
+  - VGCFTest (8): 单位模, 衰减, omega 公式, Feller 条件, CF 一致性, 无分支切割, 累积量
+  - VGProcessTest (7): 参数验证, 路径性质, 确定性, 正价格, Gamma 均值, MC 矩匹配
+  - VGPricingTest (5): COS 定价, Call-Put parity, ν→0 退化 BSM, θ=0 IV 微笑对称, MC vs COS
+
+**关键决策**:
+- VG 是纯跳跃 Levy 过程, 有独立平稳增量 → 1 步直接采样终端值无离散偏差 (MC 用 n_steps=1)
+- IV 微笑对称中心在 K* = F·exp(ωT) 而非 F: log(S_T/F) = ωT + X_T, X_T 对称于 0 ⇒ 分布对称于 ωT
+  - 原始价格不对称 (omega 鞅修正 + exp 凸性), IV 归一化后对称
+- ν→0 退化为 BSM: Gamma 时变 → 确定性时变, ω → -σ²/2
+- 复用 std::gamma_distribution (Philox4x64 满足 UniformRandomBitGenerator 概念)
+
+**调试记录**:
+- EXPECT_THROW 宏逗号陷阱: `VarianceGammaProcess{p, S0}` 中花括号内逗号被宏识别为参数分隔 → 外层加括号 `(VarianceGammaProcess{p, S0})`
+- IV 微笑对称测试初版假设中心在 F (K1·K2=F²), 差 0.55% vol → 修正为中心 K* = F·exp(ωT) (K1·K2=K*²)
 
 ---
 
