@@ -167,6 +167,9 @@ cpphub_add_test(test_rbergomi_hybrid unit/models/test_rbergomi_hybrid.cpp)
 cpphub_add_test(test_fractional_adams unit/numerics/test_fractional_adams.cpp)
 cpphub_add_test(test_rough_heston_cf unit/pricing/test_rough_heston_cf.cpp)
 
+# v1.3 H: Rough Heston 过程层 (分数阶 Euler + MC 定价, H=0.5 退化为 Heston)
+cpphub_add_test(test_rough_heston_process unit/models/test_rough_heston_process.cpp)
+
 # Phase 4 LITE - ADR-009: C ABI 测试 (条件编译, 需 CPPHUB_ENABLE_C_API=ON)
 if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)
