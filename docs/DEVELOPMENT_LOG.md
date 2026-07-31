@@ -412,6 +412,964 @@
 - B 站 Hybrid Scheme 首版无加速 (ratio=1.03): 近端 Cholesky 复杂度过高
   - 解决: 改用 Riemann 核 + 远端前缀和, 实现 O(N·b) 复杂度
 
+## v1.2 收尾 + v1.3 启动 实施规划 (2026-07-31)
+
+### 当前状态盘点 (974/974 测试通过)
+
+| 模块层 | 已完成 | 缺口 |
+|--------|--------|------|
+| 核心 | math/linalg(固定)/datetime/simd/rng/parallel | 动态 linalg (ADR-013 Eigen3) |
+| 模型 | GBM/Heston/QE/SABR/CEV/Bates/VG/rBergomi+Hybrid | Rough Heston/Hull-White/Merton Jump |
+| 定价 | BSM/MC/QMC/PDE/Tree/COS/FFT/LSMC/Multi-asset | — |
+| 风险 | Greeks (5 方法)/VaR (4 类)/xVA/PFE/SA-CCR | — |
+| IR | IRS/OIS/FRA/Cap-Floor/Swaption/HJM/LMM | Hull-White 完整版 (仅有 stub) |
+| 信用 | CDS/TRS/Credit Spread/Copula/CDO/Basket CDS | CDO Base Correlation 标定 |
+| 计量 | optimizer (LM/DE/NM)/calibrator | **MLE/GMM/Bootstrap/检验 (空白)** |
+
+### 优先级矩阵
+
+| 优先级 | 方向 | 价值 | 工作量 | 适合副线委托 |
+|--------|------|------|--------|--------------|
+| **P1** | 计量经济学统计估计 (v1.3 主线) | ★★★★★ Research OS 因子诊断必需, C++ 生态空白, PhD 差异化 | 大 (需先引 Eigen3) | 主站主导基础 + 副线并行模块 |
+| **P2** | Rough Heston 模型 (v1.2 收尾) | ★★★★ rBergomi 知识热延续, 仿射 rough 对比研究 | 中 (有 El Euch-Rosenbaum 闭式 CF) | ✅ A 站 |
+| **P3** | Hull-White 完整短期利率 (v1.3) | ★★★ 已有 stub, Jamshidian 经典, IR 闭环 | 中 | ✅ B 站 |
+| **P4** | CDO Base Correlation 标定 | ★★★ 已有 Copula+CDO 框架收尾 | 小 | ✅ 任一站 |
+| **P5** | Open Discoveries 解决 (002/003/005) | ★★ 工程质量提升 | 中 | 主站调研 |
+| **P6** | Lean4 形式化验证扩展 | ★★ Research OS 顶层, 长期价值 | 大 | 主站主导 |
+
+### 执行策略 (并行)
+
+**立即推进**:
+- **副线 A 站**: P2 Rough Heston — El Euch-Rosenbaum 2018 分数 PDE 闭式 CF, 与 rBergomi 形成对比
+- **副线 B 站**: P3 Hull-White 完整版 — 已有 short_rate.hpp stub, Jamshidian 分解, θ(t) 校准到零息债曲线
+- **主站**: P1 计量经济学模块基础设施 — ADR-013 双层 linalg (引入 Eigen3), 为后续 MLE/GMM 铺路
+
+**v1.2 收尾后 (串行)**:
+- P4 CDO Base Correlation: 小工作量, 可在 P2/P3 完成后由任一站收尾
+- P5 Open Discoveries: 主站调研 + 选择性委托
+
+**v1.3 中期**:
+- P1 计量模块: MLE/QMLE → 标准误差 → GMM → Bootstrap → 假设检验 (5 个子模块)
+- P6 Lean4 扩展: 衍生品定价定理形式化验证
+
+### 关键决策
+
+1. **v1.2 收尾 vs v1.3 启动并行**: P2 Rough Heston 作为 v1.2 Batch 14 收尾, 同时开 v1.3 P1 计量模块基础设施。理由: Rough Heston 与 rBergomi 强关联, 知识热度不应浪费; 计量模块工作量大, 应尽早启动
+2. **Eigen3 引入策略 (ADR-013)**: header-only, 可选 MKL/OpenBLAS 后端; 不影响已稳定的定价内核 (固定尺寸 linalg 保留); 编译时间成本 ~1.5MB 头文件, 仅计量模块承受
+3. **Rough Heston 实现路径**: El Euch-Rosenbaum 2018 分数 PDE `∂^α φ/∂t^α = Af` (α = H + 1/2); Adams-Bashforth-Moulton 预测校正; 有闭式 CF → 可直接用 COSEngine 定价
+
 ---
 
-**日志维护**: 每日下班前更新，周五生成周报发送团队，Phase 结束归档
+## v1.3 文献调研 (2026-07-31)
+
+### 已完成文献调研报告
+
+| 报告 | 路径 | 范围 | 核心结论 |
+|------|------|------|----------|
+| 开源生态调研 | `docs/research/ECONOMETRICS_LANDSCAPE.md` | 11 章 + 附录, Python/R/Stata/EViews/Julia/C++ 全覆盖 | C++ 生态空白; Python 三足鼎立 (statsmodels/arch/linearmodels); arch 库被低估, 覆盖 White Reality Check / Hansen SPA / MCS / StepM |
+| 教材全景调研 | `docs/research/ECONOMETRICS_TEXTBOOKS.md` | 16 章 + 2 附录, 32 本教材 + 5 篇核心论文 | 第一梯队主教材: Greene + Wooldridge CS + Hayashi + Davidson-MacKinnon; 因子诊断附加: Efron (2010) |
+
+### 开源社区发展动态关键洞察
+
+1. **R 生态 (1993-至今)**: 学术驱动, 每本主流教材对应 R 包 (Baltagi→`plm`, Hamilton→`vars`/`urca`), 学术-实现强耦合
+2. **Python 生态 (2008-至今)**: 工业驱动, statsmodels/arch/linearmodels 三足鼎立, 呈"研究级而非教学级"特征
+3. **Julia 生态 (2012-至今)**: 性能优势但生态单薄, 仅在 DSGE/MCMC 性能敏感场景渗透
+4. **C++ 持续空白根因**: 激励错配而非技术能力限制 — 计量经济学家无动力写 C++, 量化金融界无需求写统计推断
+5. **战略含义**: Cpp_Hub v1.3 必须**以教材为唯一理论锚点** (无 QuantLib 类开源对照), 跨语言验证只能对照 Python/R
+
+### 教材体系涵盖广度排序
+
+**单一教材涵盖最广**: Greene 8ed (23 章, 1184 页, OLS/MLE/GMM/时序/面板/微观/非参数/贝叶斯全覆盖)
+
+**5★ 涵盖广度教材矩阵**:
+- 综合: Greene / Wooldridge CS / Hayashi
+- 时序: Hamilton / Tsay
+- 面板: Baltagi 6ed (2021)
+- 金融计量: CLM 1997 / Cochrane 2005 / Ruppert-Matteson
+- 微观: Cameron-Trivedi
+- 非参数: Li-Racine
+- 大规模推断: Efron (2010) — 唯一系统覆盖多重检验
+
+**关键发现**: 没有任何一本教材覆盖所有主题, 多重检验仅在 Efron (2010) 系统讨论, 计量经济学主流教材均不覆盖。**Cpp_Hub v1.3 实施必须多教材组合**, 不能依赖单一权威。
+
+### v1.3 文献锚点选择
+
+每个子模块选定 1 主教材 + 1-2 专题教材 + 1 开源库对照, 形成"理论-算法-基准"三角验证:
+
+| v1.3 子模块 | 主教材 | 专题教材 | 对照开源库 | 测试基准来源 |
+|------------|--------|---------|-----------|------------|
+| MLE/QMLE | Greene Ch.14-17 | Wooldridge CS Ch.12-13 | statsmodels `discrete`/`glm` | Greene 表 14.x-17.x |
+| HC/HAC/聚类标准误差 | Greene Ch.5 | Davidson-MacKinnon Ch.5-6 | R `sandwich` / statsmodels `cov_type` | MacKinnon-White (1985) 表 1 |
+| GMM | Hayashi Ch.3-4 | Cochrane Ch.10-11 | linearmodels `IVGMM` | Hayashi 表 3.x (Cragg 内核) |
+| Bootstrap | Cameron-Trivedi Ch.11 | Davison-Hinkley (1997) | arch `bootstrap` / R `boot` | Davison-Hinkley 表 |
+| 假设检验 | Wooldridge CS Ch.12-15 | Greene Ch.5-6 | statsmodels `wald_lm`/`lrtest` | Greene 表 5.x |
+| 因子诊断 (v1.4+ 附加) | Efron (2010) | Lehmann-Romano Ch.9 | arch `SPA`/`MCS`/`StepM` | White (2000) / Hansen (2005) 原文 |
+
+### v1.3 算法实现优先级 (4 波 12 项)
+
+- **第一波 (基础)**: OLS+HC0-HC3 / Newey-West HAC / 聚类标准误差
+- **第二波 (推断)**: Wald/LR/LM / MLE (Logistic/Poisson/NB) / QMLE+Sandwich
+- **第三波 (GMM)**: 两步 GMM / 迭代 GMM+CUE / Arellano-Bond
+- **第四波 (Bootstrap)**: 配对+Wild Bootstrap / Block Bootstrap (Politis-Romano) / Cluster Bootstrap
+- **扩展 (v1.4+ 因子诊断)**: BH/BY FDR / White Reality Check+Hansen SPA / MCS+StepM
+
+---
+
+## v1.3 调研报告详细记录 (2026-07-31)
+
+> **背景**: 两份调研报告 (`docs/research/ECONOMETRICS_LANDSCAPE.md` 11 章 + 附录, `docs/research/ECONOMETRICS_TEXTBOOKS.md` 16 章 + 2 附录) 因 `.gitignore` 排除 (研究 IP 保护), 不进入 git 仓库。本章节将两份报告的核心详细内容记录到开发日志, 纳入版本控制, 确保 v1.3 实施过程中文献基础可追溯。
+> **完整报告路径** (本地查阅): `docs/research/ECONOMETRICS_LANDSCAPE.md` / `docs/research/ECONOMETRICS_TEXTBOOKS.md`
+
+### A. 开源生态调研详细记录
+
+> 对应 `ECONOMETRICS_LANDSCAPE.md` §1-§11
+
+#### A.1 核心结论: C++ 计量生态几乎是空白
+
+GitHub API 实测数据 (2026-07-29):
+
+| 检索词 | C++ 仓库数 | 生产级库 | 结论 |
+|--------|-----------|---------|------|
+| `Benjamini Hochberg` | 1 | 无 | gatoravi/fdr, 1 star, 3KB, 2016, 无 license |
+| `false discovery rate` | 6 | 无 | 多为 R 包的 C++ 后端 |
+| `GARCH volatility` | 3 | 无 | 全是无关项目 |
+| `factor model` | 112 | 无 | 全是机器人 SLAM 因子图优化 |
+| `heteroskedasticity / Newey West` | 544 (噪声) | 无 | 全是物理引擎 |
+| `autoregressive` | 41 | 无 | RhysU/ar 是 header-only AR, 个人项目 |
+| `Kalman filter` | 5555 | 有 (但非金融) | 全是机器人/目标跟踪/导航 |
+| `time series` | 763 | 无 (可视化除外) | PlotJuggler 等是可视化工具 |
+| `econometrics` | 24 | 无 | grf 是 R 包的 C++ 后端 |
+
+**结构性结论**: C++ 在金融领域的开源生态高度集中在**定价与风险** (QuantLib 1.5k+ stars), 而非**统计推断**。
+
+#### A.2 现有 C++ 统计库评估
+
+| 库 | Stars | 能力 | 缺口 |
+|---|---|---|---|
+| **statslib** (kthohr/stats) | 559 | Apache-2.0, header-only, 200+ 分布 PDF/CDF/quantile, 支持 Eigen/Armadillo/Blaze + OpenMP | 无回归/检验/FDR/时序/GARCH/Newey-West; 2023-05 后未更新; 定位"统计分布函数库"非"计量经济学库" |
+| **dlib** | 13k+ | ML 工具包, 含序列回归/AR/Kalman | 面向信号处理/ML, 无金融计量方法 |
+| **mlpack** | - | ML 库, 时间序列拆分/协同过滤 | 无 ARIMA/GARCH/状态空间 |
+| **QuantLib** | 1.5k+ | 完整衍生品定价 | 无回归/FDR/因子检验/时序建模 |
+
+#### A.3 Python 计量库能力矩阵 (三足鼎立)
+
+| 库 | Stars | 最后更新 | License | 核心能力 | 作为 C++ 基准 |
+|---|---|---|---|---|---|
+| **statsmodels** | 10,413 | 2025-01-27 | BSD-3 | OLS/GLS/WLS/GLM, ARIMA/SARIMAX, 状态空间/Kalman, VAR/VECM, Newey-West/HC0-3, 多重检验 (BH/BY/Holm), 分布检验 | ✅ 优秀基准, 算法标准, 完整测试套件 |
+| **linearmodels** | 1,060 | 2026-07-27 (活跃) | NCSA | IV-2SLS/GMM, Fama-MacBeth, 面板 (FE/RE/FD/POOL), SUR, 双重聚类标准误, 资产定价回归 | ✅ 优秀基准, 专为金融计量设计 |
+| **arch** | 1,546 | 2026-07-27 (活跃) | Other | GARCH/EGARCH/TARCH/FIGARCH, 单位根 (ADF/PP/DF-GLS), **White Reality Check**, **Hansen SPA**, **Model Confidence Set**, **StepM**, SPA bootstrap | ✅ 关键发现: 不仅是 GARCH 库, 覆盖因子检验前沿方法 |
+
+**arch 库被低估**: GitHub topics 揭示其真实覆盖范围 — GARCH/波动率 + 单位根 + Model Confidence Set (Hansen-Lunde-Nason 2011) + Reality Check (White 2000) + SPA (Hansen 2005) + 多重比较程序 + bootstrap。因子失效诊断方向最核心的三个方法 (White Reality Check / Hansen SPA / Model Confidence Set) 在 arch 库**已有实现**, 可直接作为 C++ 版本的算法基准与数值验证参照。
+
+**Python 生态缺口**:
+
+| 方法 | Python 实现 | 缺口性质 |
+|---|---|---|
+| Romano-Wolf (2005) | ❌ 无原生实现 | R 有 wildrwolf |
+| Storey's q-value | ⚠️ 有 qvalue 包但不主流 | 非标准库 |
+| Harvey-Liu-Zhu t-Hurdle (2016) | ❌ 无标准实现 | 需自行实现 |
+| Bai-Perron 断点 | ❌ 无 (R 有 strucchange) | Python 生态缺失 |
+| MIDAS 回归 | ❌ 无标准库 (R 有 midasr) | Python 生态缺失 |
+
+#### A.4 R 包评估 (前沿计量方法最完整)
+
+R 生态在计量经济学上**远比 Python 完整**, 尤其在多重检验和金融计量前沿方法:
+
+| R 包 | 方法 | 成熟度 | 作为 C++ 基准 |
+|---|---|---|---|
+| **rugarch / rmgarch** | GARCH/EGARCH/DCC/MGARCH | 行业标准 | ✅ GARCH 数值基准 |
+| **wildrwolf** (s3alfisc) | Romano-Wolf via wild bootstrap | 小众但精准 | ✅ Romano-Wolf 算法基准 |
+| **modelconf** (nielsaka) | Model Confidence Set (Hansen 2011) | 小众 | ✅ MCS 算法基准 |
+| **qvalue** (Storey) | Storey's q-value (π₀ 估计) | Bioconductor 成熟 | ✅ q-value 基准 |
+| **midasr** | MIDAS 混频回归 | 成熟 | ✅ MIDAS 基准 |
+| **strucchange** | Bai-Perron 断点检验 | 成熟 | ✅ 断点检验基准 |
+| **vars** | VAR/VECM | 成熟 | ✅ VAR 基准 |
+| **KFAS / FKF** | 状态空间 + Kalman 滤波 | 成熟 | ✅ 状态空间基准 |
+| **sandwich** | Newey-West / HC0-3 稳健方差 | 成熟 | ✅ 稳健标准误基准 |
+| **fixest** | 高维 FE + 多重聚类标准误 | 工业级 (2020-) | ✅ 性能基准 |
+
+**R 的优势**: 前沿计量方法 (Romano-Wolf / MCS / q-value / MIDAS / Bai-Perron) 在 R 中有原生实现, Python 往往缺失。
+**R 的劣势**: 性能差 (单线程 C 后端), 大数据集内存受限, 难以嵌入生产系统。
+
+#### A.5 Stata / EViews 评估
+
+| 维度 | Stata | EViews |
+|---|---|---|
+| 定位 | 学术计量标准工具 | 时间序列预测为主 |
+| OLS/IV/GMM | ✅ 完整, 含聚类稳健标准误 | ✅ |
+| 面板数据 | ✅ FE/RE/动态面板 (Arellano-Bond) | ✅ 基础 |
+| 时间序列 | ✅ ARIMA/VAR/VEC | ✅ 强项, ARIMA/状态空间 |
+| GARCH | ⚠️ 需 arch 包 | ✅ 原生 |
+| 多重检验 FDR | ❌ 无原生 | ❌ 无 |
+| Romano-Wolf / MCS | ❌ 无 | ❌ 无 |
+| Fama-MacBeth | ⚠️ 需用户编写 | ❌ 无 |
+| 断点检验 | ✅ Bai-Perron (nbreak 命令) | ⚠️ Chow only |
+| 作为 C++ 基准 | ⚠️ 数值验证参照 (闭源, 无法查看实现) | ⚠️ 同上 |
+
+**Stata/EViews 定位**: **验证基准** (数值输出对比), 不是**算法基准** (无法查看源码实现)。适合 C++ 实现后交叉验证 (如"我的 Newey-West 与 Stata `newey` 命令输出是否一致到 1e-10"), 但不适合作为设计参考。
+
+#### A.6 四路径交叉验证策略
+
+符合 Scott "四路径诊断"方法论:
+
+1. C++ 实现输出 vs statsmodels 输出 (Python, 1e-10 一致)
+2. C++ 实现输出 vs R 包输出 (R, 1e-10 一致)
+3. C++ 实现输出 vs Stata 输出 (闭源, 1e-8 一致, Stata 精度略低)
+4. C++ 实现性能 vs Python/NumPy (应快 10-100x)
+
+**方法级基准映射**:
+
+| 方法 | Python 基准 | R 基准 | Stata 验证 |
+|---|---|---|---|
+| Newey-West HAC | statsmodels.stats.sandwich_covariance | sandwich::NeweyWest | `newey` 命令 |
+| OLS + HC0-3 | statsmodels.OLS | sandwich::vcovHC | `regress, vce(robust)` |
+| Fama-MacBeth | linearmodels.panel.FamaMacBeth | fmac 包 | 手动 `statsby` |
+| GARCH(1,1) | arch.arch_model | rugarch::ugarchfit | `arch` 命令 |
+| BH/BY FDR | statsmodels.multipletests | p.adjust(method="BH") | 无 |
+| Romano-Wolf | ❌ 无 | wildrwolf | 无 |
+| White Reality Check | arch.bootstrap.RealityCheck | 无原生 | 无 |
+| Hansen SPA | arch.bootstrap.SPA | 无原生 | 无 |
+| Model Confidence Set | arch.bootstrap.MCS | modelconf | 无 |
+| Storey's q-value | ❌ 无标准 | qvalue 包 | 无 |
+| Bai-Perron 断点 | ❌ 无 | strucchange::breakpoints | `nbreak` 命令 |
+| MIDAS 回归 | ❌ 无 | midasr | 无 |
+| Harvey-Liu-Zhu t-Hurdle | ❌ 无 | ❌ 无 | ❌ 无 |
+
+#### A.7 关键缺口清单 (C++ 完全无生产级实现)
+
+**多重检验 / FDR (核心方向)**:
+
+| 方法 | C++ 状态 | Python 对照 | R 对照 |
+|------|----------|------------|--------|
+| Benjamini-Hochberg (1995) | ❌ 仅 1 个玩具仓库 | statsmodels.multipletests | p.adjust |
+| Benjamini-Yekutieli (2001) | ❌ 无 | statsmodels | p.adjust |
+| Storey's q-value (2002) | ❌ 无 | ❌ 无标准 | R qvalue 包 |
+| Romano-Wolf (2005) | ❌ 无 | ❌ 无 | wildrwolf |
+| White's Reality Check (2000) | ❌ 无 | arch.bootstrap | ❌ 无原生 |
+| Hansen's SPA (2005) | ❌ 无 | arch.bootstrap | ❌ 无原生 |
+| Model Confidence Set (2011) | ❌ 无 | arch.bootstrap | modelconf |
+| Harvey-Liu-Zhu t-Hurdle (2016) | ❌ 无 | ❌ 无 | ❌ 无 |
+
+**时间序列**:
+
+| 方法 | C++ 状态 | Python 对照 | R 对照 |
+|------|----------|------------|--------|
+| ARIMA/ARMAX | ❌ 无 | statsmodels.arima | R forecast |
+| GARCH/EGARCH/DCC | ❌ 无 | arch | rugarch/rmgarch |
+| 状态空间/Kalman | ⚠️ 有但非金融 | statsmodels statespace | R FKF/KFAS |
+| VAR/VECM | ❌ 无 | statsmodels VAR | R vars |
+| MIDAS 混频模型 | ❌ 无 | ❌ 无 | R midasr |
+
+**因子回归与稳健推断**:
+
+| 方法 | C++ 状态 | Python 对照 | R 对照 |
+|------|----------|------------|--------|
+| OLS/GLS | ⚠️ 通用库有 (Eigen) 但无计量封装 | statsmodels OLS | base R lm |
+| Newey-West HAC | ❌ 无 | statsmodels NeweyWest | sandwich |
+| White/HC0-HC3 | ❌ 无 | statsmodels HC | sandwich |
+| Fama-MacBeth | ❌ 无 | linearmodels | fmac |
+| 双重聚类标准误 | ❌ 无 | linearmodels | ❌ 无标准 |
+
+**断点与结构性变化**:
+
+| 方法 | C++ 状态 | Python 对照 | R 对照 |
+|------|----------|------------|--------|
+| Bai-Perron 多断点 | ❌ 无 | ❌ 无 | strucchange |
+| Chow 检验 | ❌ 无 | ❌ 无 | ❌ 无标准 |
+| CUSUM/递归检验 | ❌ 无 | ❌ 无 | strucchange |
+
+#### A.8 Cpp_Hub 架构矩阵运算能力诊断
+
+**当前 linalg 仅服务于定价, 无法支撑计量**:
+
+| 维度 | 定价需求 (当前) | 计量需求 (未来) | 当前架构是否满足 |
+|---|---|---|---|
+| 矩阵尺寸 | 小且固定 (4×4 相关矩阵, N×N PDE 网格 N<1000) | 大且动态 (N×K 回归矩阵, N=万级观测, K=百级因子) | ❌ `template<size_t R, size_t C>` 编译期固定 |
+| 核心操作 | Cholesky, Thomas | OLS (X'X)⁻¹, SVD, QR, 稀疏矩阵 | ❌ 缺 SVD/QR/逆/LU |
+| 数据布局 | 连续内存, 栈分配 | 堆分配, 可能超内存 (需分块/流式) | ❌ 栈分配无法处理大矩阵 |
+| 并行 | OpenMP SIMD (向量化) | BLAS Level 3 (矩阵级并行) | ❌ 未规划 BLAS 接口 |
+| 稀疏性 | 不需要 | 面板数据需要稀疏矩阵 | ❌ 无稀疏矩阵规划 |
+
+**修复建议 (ADR-013 双层 linalg)**:
+```
+core/linalg.hpp          # Eigen-lite: 固定尺寸表达式模板 (定价专用, 保持现状)
+core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
+```
+
+#### A.9 参数估计 C++ 生态
+
+| 方法 | C++ 状态 | Python/R 基准 | 适用场景 |
+|---|---|---|---|
+| MLE / QMLE | ❌ 无金融计量实现 | statsmodels / arch / rugarch | GARCH, 时变参数 |
+| GMM (Hansen 1982) | ❌ 无 | linearmodels.IVGMM | IV 估计, 矩条件 |
+| Block Bootstrap | ❌ 无金融实现 | arch.bootstrap | 时间序列重采样 |
+| Wild Bootstrap | ❌ 无 | wildrwolf (R) | Romano-Wolf 多重检验 |
+| MCMC (Metropolis-Hastings) | ⚠️ 有通用库 (Stan), 非金融专用 | PyMC / Stan | 贝叶斯估计 |
+| Kalman 滤波 (金融) | ❌ 无金融实现 | statsmodels.statespace / R KFAS | 状态空间模型 |
+| Hessian 标准误差 | ⚠️ 通用优化库有 (NLopt), 无计量封装 | statsmodels | MLE 渐近推断 |
+| Sandwich 估计量 | ❌ 无 | sandwich (R) / statsmodels | 稳健标准误差 |
+
+**通用 C++ 优化/贝叶斯库 (非金融专用)**: Stan (1k+ stars, HMC/NUTS), NLopt (2k+, 非线性优化), ceres-solver (3k+, 计算机视觉), autodiff (1k+, 自动微分), dlib (13k+, ML)。
+**关键缺口**: 这些库提供优化/采样能力, 但**不提供**计量特定目标函数 (GARCH 似然) / 标准误差计算 / 模型检验 (LR/Wald/LM/AIC/BIC) / 时间序列数据处理。
+
+#### A.10 战略意义与路径选择
+
+**机会**: C++ 计量库是蓝海。如果把 Cpp_Hub 扩展为"定价 + 计量"双内核, 它将是**全球第一个覆盖 Harvey-Liu-Zhu 因子检验体系的 C++ 库**。这与"方法论发明家"身份完全吻合 — 发明的不是因子, 而是"检测因子失效的方法", 且这个工具链在 C++ 生态中不存在竞品。
+
+**三种路径**:
+- **路径 A (自研, 长期)**: Cpp_Hub v2.0/v3.0 增加 `cpphub/econometrics/` 模块, 覆盖 Newey-West / FDR / Romano-Wolf / Fama-MacBeth / GARCH。优势: 全栈 C++, 性能极致, 与定价内核共享 SIMD/并行。劣势: 工作量大 (每方法 1-2 周)。适合 PhD 论文形式化验证。
+- **路径 B (混合, 短期)**: Cpp_Hub 专注定价, 计量用 Python statsmodels + R, 通过 nanobind/Arrow 桥接。优势: 快速可用。劣势: 跨语言数据拷贝开销。
+- **路径 C (混合, 中期平衡)**: 自研 C++ 核心计量方法 (Newey-West / FDR / Fama-MacBeth, 算法简单但需高性能), 复杂方法 (Romano-Wolf bootstrap / MCS) 用 Python。优势: 核心方法性能极致。劣势: 维护两套代码。
+
+**当前阶段决策**: v1.3 选**路径 A** (自研), 因 v1.0/v1.2 定价内核已稳定, Lean4 形式化验证需要 C++ 实现对照, "C++ 计量库 + Lean4 形式化"是完整贡献且无竞品。
+
+### B. 教材体系调研详细记录 (第一部分: 综合/时序/面板/金融计量)
+
+> 对应 `ECONOMETRICS_TEXTBOOKS.md` §4-§7
+
+#### B.1 综合教材 (涵盖最广)
+
+##### B.1.1 Greene "Econometric Analysis" (8th ed, 2018, Pearson) — 百科全书派
+
+> William H. Greene, Stern School of Business, NYU | 8th ed 2018 (1st ed 1990), 1184 页, ISBN 978-0134461366 (注: 9th ed 2022 自出版, 内容修订有限)
+
+**章节结构 (7 部分 21 章)**:
+- Part 1 (Ch 1-4): 引言 + 矩阵代数 + 概率分布 + 渐近理论
+- Part 2 (Ch 5-9): 回归 (OLS / GLS / 2SLS / 非线性 / WLS)
+- Part 3 (Ch 10-12): 估计框架 (GMM / MLE / 模拟方法)
+- Part 4 (Ch 13-15): 横截面专题 (离散选择 / 计数 / 离散选择高级)
+- Part 5 (Ch 16-20): 时间序列 (基础 / 非平稳 / 协整 / 状态空间 / 频域)
+- Part 6 (Ch 21): 面板数据 (单章, 较 Baltagi 浅)
+- Part 7 (Ch 22-23): 非参数 / 贝叶斯 (相对简略)
+
+**评估**: 涵盖 ★★★★★ | 深度 ★★★★ | 实践 ★★★ | Cpp_Hub ★★★★★ | 时效 ★★★
+
+**对 Cpp_Hub v1.3 价值**:
+- Ch 4 渐近理论: Slutzky / Cramér-Wold / Delta method — 标准误差实现的数学基础
+- Ch 10 GMM: Hansen (1982) 框架完整, 含两步 GMM / 迭代 GMM / CUE — 直接对应 v1.3 GMM 子模块
+- Ch 13-14 MLE/QMLE: White (1982) QMLE 信息矩阵等式 — 标准误差 Sandwich 表达式来源
+- Ch 19 状态空间: Kalman 滤波推导, 含缺失观测处理 — 可对接已有 Heston QE 滤波
+
+**不足**: 单章面板 (Ch 21) 不够深, 高维 FE 等前沿缺位, 应配合 Baltagi 6th。
+
+##### B.1.2 Wooldridge "Econometric Analysis of Cross Section and Panel Data" (2nd ed, 2010, MIT Press)
+
+> Jeffrey M. Wooldridge, Michigan State University | 2nd ed 2010 (1st ed 2002), 1064 页, ISBN 978-0262232586
+
+**章节结构 (6 部分 23 章)**:
+- Part 1 (Ch 1-3): 矩阵代数 / 条件期望 / 渐近工具
+- Part 2 (Ch 4-7): OLS / IV / 单方程 M 估计 / MLE
+- Part 3 (Ch 8-11): 系统估计 (SUR / 不平衡面板 / 协方差结构)
+- Part 4 (Ch 12-13): M 估计渐近 + 假设检验专题
+- Part 5 (Ch 14-18): 横截面专题 (离散选择 / 计数 / 持续期限 / 样本选择 / 分层抽样)
+- Part 6 (Ch 19-21): 面板专题 (FE/RE / 动态面板 / 非平衡面板 / 聚类)
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★★ | Cpp_Hub ★★★★★ | 时效 ★★★★
+
+**对 Cpp_Hub v1.3 价值**:
+- Ch 7 MLE: White (1982) QMLE 信息矩阵等式与渐近方差完整推导 — 比 Greene 更详细
+- Ch 10-11 系统 M 估计: GMM 系统估计框架 — 比 Hayashi 更适合面板+IV 联合估计
+- Ch 12 假设检验: Wald/LM/LR 三大检验框架完整渐近推导
+- Ch 20-21 面板: 动态面板 Arellano-Bond / Blundell-Bond — 面板 GMM 实现
+
+**与 Greene 互补**: Wooldridge 深度优, Greene 广度优, 二者并列为 v1.3 主教材。
+
+##### B.1.3 Hayashi "Econometrics" (2000, Princeton) — GMM 主线
+
+> Fumio Hayashi, Hitotsubashi University | 2000 (1st ed, 唯一版), 686 页, ISBN 978-0691010182
+
+**章节结构 (5 部分 10 章)**:
+- Ch 1-3: OLS / 大样本 OLS / GMM (核心章)
+- Ch 4: 多方程 GMM (FIVE / 3SLS / SUR / FIML)
+- Ch 5: 面板数据 (固定效应 / 随机效应 / Arellano-Bond)
+- Ch 6-7: 非线性 GMM / MLE (伪 MLE / QMLE)
+- Ch 8: 单位根 / 协整 (Phillips / Engle-Granger / Johansen)
+- Ch 9-10: 谱分析 / 协方差结构
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★★ | Cpp_Hub ★★★★★ | 时效 ★★
+
+**对 Cpp_Hub v1.3 价值**:
+- Ch 3 GMM: Hansen (1982) 定理 3.1-3.4 完整证明, 最优加权矩阵推导, 两步 GMM 算法
+- Ch 4 多方程: SUR / 3SLS 在 GMM 框架下的统一 — v1.3 系统估计基础
+- Ch 5 面板: Arellano-Bond 在 GMM 框架下的标准表述
+- Ch 8 单位根: Phillips-Perron / KPSS / Johansen 完整
+
+**唯一短板**: 2000 后未更新, 无高维 FE (Belloni-Chernozhukov 等)、无机器学习双重推断 (DML 2017+)。
+
+##### B.1.4 Davidson & MacKinnon "Econometric Theory and Methods" (2004, Oxford) — 几何视角
+
+> Russell Davidson (McGill) / James G. MacKinnon (Queen's) | 2004, 656 页, ISBN 978-0195123722
+
+**特征**: 几何视角 (投影 / Frisch-Waugh-Lovell), 数值方法严谨 (作者另一本 "Numerical Methods" 同为经典), MacKinnon-White (1985) HC 修正原作者之一。
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★★ | Cpp_Hub ★★★★ | 时效 ★★
+
+**对 Cpp_Hub v1.3 价值**:
+- HC0-HC3 标准误差原始推导: MacKinnon-White (1985) 论文的教科书版, 含 Jackknife (HC3) 与 HC2/HC3 在小样本的相对优势分析
+- Ch 3-4 OLS 几何: Frisch-Waugh-Lovell + 投影矩阵, 高维 FE 算法的数学基础
+- Ch 8-9 MLE/QMLE: White (1982) QMLE 在 Davidson 的几何框架下表述更清晰
+- 配套: MacKinnon "Numerical Methods" (同作者) 是 C++ 数值实现的最佳理论参考
+
+##### B.1.5 其他综合教材
+
+| 教材 | 版本 | 评估 | Cpp_Hub 价值 |
+|------|------|------|-------------|
+| Wooldridge "Introductory Econometrics" | 7ed 2020, 912p | 本科入门, ★★★ 涵盖, ★★ 深度 | 仅算法直觉参考, 非实现锚点 |
+| Stock & Watson "Introduction to Econometrics" | 4ed 2019, 816p | 现代入门, ★★★ 涵盖, ★★★★★ 时效 | 测试基准数据集 (CPS/macro/financial) |
+
+**综合教材横向对比矩阵**:
+
+| 教材 | 版本 | 涵盖 | 深度 | 实践 | Cpp_Hub | 时效 |
+|------|------|------|------|------|---------|------|
+| Greene 8ed | 2018 | ★★★★★ | ★★★★ | ★★★ | ★★★★★ | ★★★ |
+| Wooldridge CS 2ed | 2010 | ★★★★ | ★★★★★ | ★★★ | ★★★★★ | ★★★★ |
+| Wooldridge Intro 7ed | 2020 | ★★★ | ★★ | ★★★★ | ★★ | ★★★★ |
+| Hayashi | 2000 | ★★★★ | ★★★★★ | ★★★ | ★★★★★ | ★★ |
+| Davidson-MacKinnon | 2004 | ★★★★ | ★★★★★ | ★★★ | ★★★★ | ★★ |
+| Stock-Watson 4ed | 2019 | ★★★ | ★★ | ★★★★★ | ★★ | ★★★★★ |
+
+**推荐组合**: Greene (广度) + Wooldridge CS (深度) + Hayashi (GMM 主线) = v1.3 三主教材。
+
+#### B.2 时间序列教材
+
+##### B.2.1 Hamilton "Time Series Analysis" (1994, Princeton) — 时序圣经
+
+> James D. Hamilton, UCSD | 1994 (1st ed, 唯一版), 799 页, ISBN 978-0691042891
+
+**章节结构 (22 章)**: Ch 1-3 差分方程/平稳 ARMA/预测 | Ch 4-6 谱表示/MLE/趋势 | Ch 7-9 非平稳/单位根/协整 | Ch 10-13 Kalman/Markov 切换/Bayesian 时序/非线性 | Ch 14-19 VAR/Bayesian VAR/协方差平稳/GARCH/连续时间 | Ch 20-22 非线性/计量高级/协整高级
+
+**评估**: 涵盖 ★★★★★ | 深度 ★★★★★ | 实践 ★★ | Cpp_Hub ★★★★ | 时效 ★★
+
+**对 Cpp_Hub 价值**:
+- Ch 4 Kalman 滤波: 最被引用的版本, 状态空间模型实现的算法基准
+- Ch 11 Markov 切换: MS-DSGE 实现的理论基础 (Scott 研究方向之一)
+- Ch 14 VAR: 含 Sims (1980) 标准表述, 与 Lütkepohl 互补
+- Ch 18 GARCH: Bollerslev (1986) 原始推导, 与 Tsay 互补
+
+**不足**: 1994 至今 30 年未更新, 缺 rBergomi/Hawkes 过程/深度学习时序等现代方法。但圣经地位不可撼动。
+
+##### B.2.2 Tsay "Analysis of Financial Time Series" (3rd ed, 2010, Wiley) — 金融时序
+
+> Ruey S. Tsay, University of Chicago Booth | 3rd ed 2010 (1st ed 2002), 720 页, ISBN 978-0470414354
+
+**章节结构 (14 章)**: Ch 1-4 基础/线性时序 | Ch 5-7 ARCH/GARCH/非线性 | Ch 8-10 风险/多元/极值 | Ch 11-12 跳跃/连续时间 | Ch 13-14 高频/极值实现
+
+**评估**: 涵盖 ★★★★★ | 深度 ★★★★ | 实践 ★★★★★ | Cpp_Hub ★★★★★ | 时效 ★★★
+
+**对 Cpp_Hub v1.3 价值**:
+- Ch 3-4 ARMA: R `arima` 实现的算法基准, 含精确 MLE vs 条件 MLE
+- Ch 5-6 GARCH: arch 库实现的算法基准, 含 GARCH-M / IGARCH / EGARCH
+- Ch 10 极值: VaR 极值方法与已有 HistoricalVaR/MCVaR 互补
+- Ch 12 连续时间: 与 v1.2 的 SABR/CEV/Bates/VG 模型映射
+
+##### B.2.3 其他时序教材
+
+| 教材 | 版本 | 涵盖 | 深度 | Cpp_Hub | 主要用途 |
+|------|------|------|------|---------|---------|
+| Lütkepohl "New Introduction to Multiple Time Series Analysis" | 2005, 764p | ★★★★ | ★★★★★ | ★★★★ | VAR 百科, 未来 VAR 模块首选 |
+| Box-Jenkins-Reinsel-Ljung "Time Series Analysis" | 5ed 2015, 712p | ★★★ | ★★★★ | ★★★ | ARIMA 工程化奠基, SARIMA |
+| Brockwell-Davis "Time Series: Theory and Methods" | 1991, 577p | ★★★★ | ★★★★★ | ★★★ | 频域+时域理论, 测度论级 |
+| Kilian-Lütkepohl "Structural VAR Analysis" | 2017, 528p | ★★ | ★★★★★ | ★★★ | SVAR 专门, DSGE-SVAR 参考 |
+| Shumway-Stoffer "Time Series Analysis and Its Applications" | 4ed 2017, 562p | ★★★★ | ★★★★ | ★★★ | 入门+R 实践, 状态空间参考 |
+
+**时序教材推荐组合**: Hamilton (理论圣经) + Tsay (金融时序) + Kilian-Lütkepohl (SVAR 专题) = 时序三件套。
+
+#### B.3 面板数据教材
+
+##### B.3.1 Baltagi "Econometric Analysis of Panel Data" (6th ed, 2021, Springer) — 标准教材
+
+> Badi H. Baltagi, Syracuse University | 6th ed 2021 (1st ed 1995), 438 页, ISBN 978-3030759523
+
+**章节结构**: FE / RE / 动态面板 / 空间面板 / 非平稳面板 / 非平衡面板 / 旋转面板 / 集群推断
+
+**评估**: 涵盖 ★★★★★ | 深度 ★★★★★ | 实践 ★★★★ | Cpp_Hub ★★★★★ | 时效 ★★★★★
+
+**对 Cpp_Hub v1.3 价值**:
+- Ch 2-3 FE/RE: 估计与检验完整, 含 Hausman 检验实现
+- Ch 7 动态面板: Arellano-Bond / Blundell-Bond GMM
+- Ch 9 非平衡面板: 完整处理
+- Ch 10 旋转面板: 调查数据特有, R `plm` 实现基准
+
+##### B.3.2 Hsiao "Analysis of Panel Data" (3rd ed, 2014, Cambridge) — 理论深度
+
+> Cheng Hsiao, USC | 3rd ed 2014 (1st ed 1986), 552 页, ISBN 978-1107038493
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★ | Cpp_Hub ★★★★
+
+与 Baltagi 互补: Hsiao 理论深度顶级, Baltagi 实践性更强。
+
+#### B.4 金融计量教材
+
+##### B.4.1 Campbell, Lo, MacKinlay "The Econometrics of Financial Markets" (1997, Princeton) — CLM 圣经
+
+> John Y. Campbell (Harvard) / Andrew W. Lo (MIT) / A. Craig MacKinlay (Penn) | 1997 (1st ed, 唯一版), 632 页, ISBN 978-0691043010
+
+**章节结构 (12 章)**: Ch 1-3 资产定价基础/数据/计量方法 | Ch 4-5 CAPM/APT | Ch 6-8 时序预测/截面回归/横截面检验 | Ch 9-10 市场有效性/事件研究 | Ch 11-12 绩效评估/定价模型检验
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★★ | Cpp_Hub ★★★★★ | 时效 ★★
+
+**对 Cpp_Hub v1.3 价值 (Scott 研究方向直接相关)**:
+- Ch 5 APT: 因子模型的统计推断框架 — Scott 因子诊断研究的理论锚点
+- Ch 8 横截面回归: Fama-MacBeth 完整推导 + Shanken (1992) 修正 — linearmodels `FamaMacBeth` 实现基准
+- Ch 9 市场有效性: 长期反转检验 / 方差比检验 — v1.3 因子诊断直接对应
+- Ch 11 绩效评估: Alpha 检验 / 信息比率 — v1.3 因子诊断的统计基础
+
+**不足**: 1997 至今 28 年未更新, 缺失机器学习因子 (Gu-Kelly-Xiu 2020)、神经网络预测、rBergomi 等现代方法。
+
+##### B.4.2 Cochrane "Asset Pricing" (revised ed, 2005, Princeton) — 资产定价+GMM
+
+> John H. Cochrane, Hoover Institution | revised ed 2005 (1st ed 2001), 550 页, ISBN 978-0691121371
+
+**章节结构**: Part 1 (Ch 1-3) 资产定价基础/SDF/无套利 | Part 2 (Ch 4-7) 因子模型/CAPM/ICAPM/消费 CAPM | Part 3 (Ch 8-10) GMM (核心) | Part 4 (Ch 11-14) 债券/期权/外汇 | Part 5 (Ch 15-19) 长期/方差/SDF 检验 | Part 6 (Ch 20-22) 贝叶斯/协整/稳健
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★★ | Cpp_Hub ★★★★★ | 时效 ★★★
+
+**对 Cpp_Hub v1.3 价值**:
+- Ch 10-11 GMM: Hansen-Singleton (1982) 资产定价 GMM 完整推导 — 比 Hayashi 更聚焦 SDF 形式
+- Ch 12 检验: 模型设定检验 + Hansen-Jagannathan 距离 — Scott 因子诊断工具的核心
+- Ch 15 长期回归: 长期风险 / 久期匹配 — 与 v1.3 利率模型 (Hull-White) 对接
+
+##### B.4.3 其他金融计量教材
+
+| 教材 | 版本 | 涵盖 | Cpp_Hub | 主要用途 |
+|------|------|------|---------|---------|
+| Christoffersen "Elements of Financial Risk Management" | 3ed 2022, 472p | ★★★★ | ★★★★★ | 与已有 VaR/ES 模块对接, 含 FRTB/极值最新 |
+| Ruppert-Matteson "Statistics and Data Analysis for Financial Engineering" | 2ed 2015, 728p | ★★★★★ | ★★★★ | 金融统计最广, 全 R 代码, 测试基准数据丰富 |
+| Fan-Yao "Nonlinear Time Series" | 2ed 2003, 596p | ★★★★ | ★★★ | 非线性时序理论标杆, TAR/STAR/非参数 AR |
+
+### C. 教材体系调研详细记录 (第二部分: 微观/贝叶斯/非参数/理论/多重检验)
+
+> 对应 `ECONOMETRICS_TEXTBOOKS.md` §8-§12
+
+#### C.1 微观计量教材
+
+##### C.1.1 Cameron & Trivedi "Microeconometrics: Methods and Applications" (2005, Cambridge) — 百科
+
+> A. Colin Cameron / Pravin K. Trivedi, UC Davis | 2005 (1st ed, 唯一版), 1056 页, ISBN 978-0521848053
+
+**评估**: 涵盖 ★★★★★ | 深度 ★★★★★ | 实践 ★★★★ | Cpp_Hub ★★★ | 时效 ★★
+
+**特征**: 微观计量最广, 含 Bootstrap 章节 (Ch 11) 是 v1.3 Bootstrap 子模块重要参考。数据集 + Stata 代码。
+**对 Cpp_Hub v1.3 价值**: Ch 11 Bootstrap (配对/非参数/残差/Wild Bootstrap 完整方法) 是 v1.3 第四波实现的主要教材锚点。
+
+##### C.1.2 Train "Discrete Choice Methods with Simulation" (2nd ed, 2009, Cambridge)
+
+> Kenneth Train, UC Berkeley | 2nd ed 2009, 410 页, ISBN 978-0521747387 (免费 PDF: eml.berkeley.edu/books/choice2.html)
+
+**评估**: 涵盖 ★★★ | 深度 ★★★★ | 实践 ★★★★★ | Cpp_Hub ★★
+
+离散选择模型标杆 (MNL / Nested Logit / Mixed Logit / 模拟 MLE)。非 v1.3 重点, 但免费 PDF 资源。
+
+##### C.1.3 Wooldridge Cross-Section (重列)
+
+见 §B.1.2。Wooldridge 与 Cameron-Trivedi 并列为微观计量双柱。
+
+#### C.2 贝叶斯计量教材
+
+##### C.2.1 Koop "Bayesian Econometrics" (2003, Wiley) — 标准
+
+> Gary Koop, University of Strathclyde | 2003, 359 页, ISBN 978-0470845677
+
+**评估**: 涵盖 ★★★ | 深度 ★★★★ | 实践 ★★★ | Cpp_Hub ★★★
+
+贝叶斯计量入门标准, 含 MCMC / Gibbs / Metropolis-Hastings 在计量中的应用。v1.3+ 贝叶斯模块参考。
+
+##### C.2.2 Greenberg "Introduction to Bayesian Econometrics" (2nd ed, 2012, Cambridge)
+
+> Edward Greenberg, Washington University St. Louis | 2nd ed 2012, 256 页, ISBN 978-1107602217
+
+比 Koop 更入门, 适合贝叶斯新手。
+
+**决策**: 贝叶斯计量推迟到 v2.0+, v1.3 不实现 MCMC (Stan 已有 C++ 实现, 可封装)。
+
+#### C.3 非参数/半参数教材
+
+##### C.3.1 Li & Racine "Nonparametric Econometrics: Theory and Practice" (2007, Princeton) — 综合
+
+> Qi Li / Jeffrey Scott Racine | 2007, 646 页, ISBN 978-0691121616
+
+**评估**: 涵盖 ★★★★★ | 深度 ★★★★★ | 实践 ★★★★ | Cpp_Hub ★★★
+
+非参数计量百科, 含核估计 / 局部线性 / 半参数 / 非参数面板。R `np` 包配套。未来非参数扩展参考。
+
+##### C.3.2 Pagan & Ullah "Nonparametric Econometrics" (1999, Cambridge) — 经典
+
+> Adrian Pagan / Aman Ullah | 1999, 432 页, ISBN 978-0521586115
+
+非参数计量经典, 但已被 Li-Racine 超越。
+
+##### C.3.3 Yatchew "Semiparametric Regression for the Applied Econometrician" (2003, Cambridge)
+
+> Adonis Yatchew, University of Toronto | 2003, 232 页, ISBN 978-0521812832
+
+半参数回归专门教材, 含差异中的差分 (DiD) 半参数形式。
+
+#### C.4 理论基础教材
+
+##### C.4.1 White "Asymptotic Theory for Econometricians" (revised ed, 2001, Academic Press) — 渐近理论
+
+> Halbert White, UCSD | revised ed 2001 (1st ed 1984), 290 页, ISBN 978-0127466521
+
+**评估**: 涵盖 ★★★ | 深度 ★★★★★ | 实践 ★ | Cpp_Hub ★★★★
+
+计量经济学渐近理论的数学基础, White 自己就是 HC0 (White 1980) 与 QMLE (White 1982) 的作者。v1.3 渐近性质证明查阅。
+
+##### C.4.2 van der Vaart "Asymptotic Statistics" (1998, Cambridge) — 渐近统计
+
+> A. W. van der Vaart, Vrije Universiteit Amsterdam | 1998, 462 页, ISBN 978-0521496032
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★ | Cpp_Hub ★★★★
+
+统计渐近理论的数学圣经, 含 M-估计 / Z-估计 / 经验过程。MLE/GMM 渐近性质原版证明。
+
+##### C.4.3 Serfling "Approximation Theorems of Mathematical Statistics" (1980, Wiley) — 经典
+
+> Robert J. Serfling, Johns Hopkins | 1980, 392 页, ISBN 978-0471219279
+
+数学统计经典, 含 Delta method / U-统计量 / M-估计 / 顺序统计量渐近理论。
+
+#### C.5 多重检验与大规模推断 (与 Scott 研究方向直接相关)
+
+> Scott 的 Research OS 中"因子诊断"方向直接对应多重检验与大规模推断
+> `ECONOMETRICS_LANDSCAPE.md` §3.2 已发现 `arch` 库覆盖 White Reality Check / Hansen SPA / MCS / StepM
+
+##### C.5.1 Efron "Large-Scale Inference: Empirical Bayes Methods for Estimation, Testing, and Prediction" (2010, IMS) — 大规模推断圣经
+
+> Bradley Efron, Stanford | 2010, 284 页, ISBN 978-0521192491
+
+**章节结构**:
+- Ch 1-3: 大规模推断背景 / Bayes / FDR
+- Ch 4-5: 经验 Bayes / James-Stein
+- Ch 6-8: 局部 FDR / 相关结构 / 排列推断
+- Ch 9-10: 估计 / 预测
+
+**评估**: 涵盖 ★★★★ | 深度 ★★★★★ | 实践 ★★★★ | Cpp_Hub ★★★★★
+
+**对 Scott Research OS 价值**:
+- Ch 2-3 FDR: BH (Benjamini-Hochberg) + BY (Benjamini-Yekutieli) 完整理论, 含 ECONOMETRICS_LANDSCAPE.md §1 提到的 "1 star gatoravi/fdr" 缺失的对照基准
+- Ch 6 局部 FDR: Scott 的"因子失效诊断"理论基础 — 单因子 p-value 转换为失效概率
+- Ch 7 相关结构: 处理因子间相关性对 FDR 控制的影响 — Cpp_Hub `001_bh_fdr_correlated_gaussian.md` 发现的工程实现问题, Efron 提供理论解
+- Ch 9 排列推断: Romano-Wolf 的理论基础
+
+##### C.5.2 Romano-Wolf 系列论文 (无教材, 论文形式)
+
+> Joseph P. Romano (Stanford) / Michael Wolf (ZH Zurich)
+
+**关键论文**:
+- Romano & Wolf (2005) "Stepwise Multiple Testing as Formalized Data Snooping" — *Econometrica*
+- Romano & Wolf (2010) "Balanced Control of the Generalized Error Rate" — *Statistica Sinica*
+- Romano & Wolf (2018) "Multiple Testing of Distributional Structural Changes" — 工作论文
+
+**评估**: Romano-Wolf 是多重检验在计量经济学应用的最高水平, 但无教材汇总, 需直接读论文。
+
+**对 Cpp_Hub v1.3+ 价值**: 因子诊断模块"StepM/Stepdown"实现的算法基准, `arch` 库的 `StepM` 实现可作为对照。
+
+##### C.5.3 Miller "Simultaneous Statistical Inference" (2nd ed, 1981, Springer) — 经典
+
+> R. G. Miller Jr. | 2nd ed 1981 (1st ed 1966), 320 页, ISBN 978-0387905488
+
+多重比较经典教材, 但已被 Efron (2010) 与 Goeman-Solari (2014 综述) 超越。
+
+##### C.5.4 Lehmann & Romano "Testing Statistical Hypotheses" (3rd ed, 2005, Springer) — 检验理论
+
+> E. L. Lehmann / Joseph P. Romano | 3rd ed 2005 (1st ed 1959), 786 页, ISBN 978-0387988643
+
+假设检验数学圣经, 第 9 章 "Multiple Testing and Simultaneous Inference" 由 Romano 主笔, 是多重检验理论的严谨参考。
+
+##### C.5.5 与 Cpp_Hub 因子诊断模块映射
+
+| 模块 (v1.3+) | 教材锚点 | 算法基准 |
+|------|----------|----------|
+| BH/BY FDR | Efron (2010) Ch 2-3 | `statsmodels.stats.multitest` |
+| 局部 FDR | Efron (2010) Ch 6 | R `locfdr` |
+| White Reality Check | White (2000) 论文 | `arch.bootstrap.RealityCheck` |
+| Hansen SPA | Hansen (2005) 论文 | `arch.bootstrap.SPA` |
+| Model Confidence Set | Hansen-Lunde-Nason (2011) 论文 | `arch.bootstrap.MCS` |
+| StepM / Romano-Wolf | Romano-Wolf (2005) 论文 | `arch.bootstrap.StepM` |
+| Harvey-Liu-Zhu t-Hurdle | Harvey-Liu-Zhu (2016) 论文 | 无标准实现 (Cpp_Hub 自实现机会) |
+
+### D. 涵盖广度横向对比矩阵 (核心)
+
+> 仅列出 5★ 涵盖广度的教材, 与主要主题的覆盖
+
+| 教材 | OLS/GLS | MLE/QMLE | GMM | 时间序列 | 面板 | 微观 | 贝叶斯 | 非参数 | 多重检验 |
+|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Greene 8ed | ✅ | ✅ | ✅ | ✅ | ◻ | ◻ | ◻ | ◻ | ❌ |
+| Wooldridge CS 2ed | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Hayashi | ✅ | ✅ | ✅ | ✅ | ✅ | ◻ | ❌ | ❌ | ❌ |
+| Hamilton | ❌ | ◻ | ❌ | ✅ | ❌ | ❌ | ◻ | ❌ | ❌ |
+| Tsay 3ed | ❌ | ◻ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Baltagi 6ed | ✅ | ◻ | ✅ | ❌ | ✅ | ◻ | ❌ | ◻ | ❌ |
+| CLM 1997 | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Cochrane 2005 | ✅ | ✅ | ✅ | ◻ | ❌ | ❌ | ◻ | ❌ | ❌ |
+| Cameron-Trivedi | ✅ | ✅ | ◻ | ❌ | ◻ | ✅ | ❌ | ◻ | ❌ |
+| Ruppert-Matteson 2ed | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ◻ | ✅ | ❌ |
+| Li-Racine 2007 | ◻ | ◻ | ❌ | ◻ | ◻ | ◻ | ❌ | ✅ | ❌ |
+| Efron 2010 | ❌ | ◻ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
+
+图例: ✅ = 完整章节 / ◻ = 部分章节 / ❌ = 不覆盖
+
+**关键发现**:
+1. **没有任何一本教材覆盖所有主题** — 多重检验仅在 Efron (2010) 系统讨论, 计量经济学主流教材均不覆盖
+2. **Greene 是单一最广**, 但面板/微观/贝叶斯/非参数仍需专题教材补充
+3. **金融计量方向 (CLM/Cochrane) 不覆盖面板/微观**, 是设计性而非偶然
+4. **Cpp_Hub v1.3 实施需多教材组合**, 不能依赖单一权威
+
+### E. 参考价值排序 (针对 Cpp_Hub v1.3)
+
+> 综合考虑"理论严谨性 + 算法可实现性 + 数值基准可用性 + 与已有模块对接度"
+
+#### E.1 第一梯队 (v1.3 实施必备主教材, 5★★★★★)
+
+| 排名 | 教材 | 主要覆盖 v1.3 模块 | 主要理由 |
+|------|------|------------------|----------|
+| 1 | **Greene 8ed** | MLE/QMLE, GMM, 标准误差, 假设检验 | 涵盖最广, MLE/GMM 章节是行业标准 |
+| 2 | **Wooldridge CS 2ed** | MLE/QMLE, 聚类推断, 假设检验 | 渐近理论最严谨, QMLE 完整 |
+| 3 | **Hayashi** | GMM (核心) | GMM 主线贯穿, 多方程 GMM 标准表述 |
+| 4 | **Davidson-MacKinnon** | HC0-3 标准误差, 数值方法 | HC 修正原作者, 数值实现最详细 |
+
+#### E.2 第二梯队 (v1.3 专题参考, 5★★★★)
+
+| 教材 | 主要用途 |
+|------|---------|
+| Cochrane "Asset Pricing" | GMM 资产定价应用, SDF 框架 |
+| Baltagi 6ed | 面板数据模块 (动态面板 Arellano-Bond) |
+| Tsay 3ed | 与已有 BSM/Heston/rBergomi 对接 |
+| CLM 1997 | 因子诊断理论锚点 (Scott 研究核心) |
+| White (2001) Asymptotic Theory | 渐近性质证明查阅 |
+| Cameron-Trivedi | Bootstrap 子模块 (Ch 11) |
+
+#### E.3 第三梯队 (v1.3+ 扩展参考, ★★★)
+
+| 教材 | 主要用途 |
+|------|---------|
+| Hamilton | 时序扩展 (VAR/状态空间/MS-DSGE) |
+| Lütkepohl | VAR 专门 |
+| Efron (2010) | 因子诊断 v1.4+ (FDR/局部 FDR) |
+| Christoffersen 3ed | 与已有 VaR/ES 模块对接 |
+| van der Vaart | M-估计渐近性质原版证明 |
+| Cameron-Trivedi | 微观计量 (离散选择/计数) |
+
+#### E.4 不推荐投入时间 (★★ 及以下)
+
+- Wooldridge Introductory (本科入门, 不深)
+- Stock-Watson (入门, 仅作测试数据来源)
+- Train (离散选择, 非 v1.3 重点)
+- Koop / Greenberg (贝叶斯计量, 推迟 v2.0+)
+- Miller (经典但已过时)
+
+### F. 文献锚点详细映射与测试基准来源
+
+> 对应 `ECONOMETRICS_TEXTBOOKS.md` §15
+> **原则**: 每个 v1.3 子模块选定 1 主教材 + 1-2 专题教材 + 1 开源库对照, 形成"理论-算法-基准"三角验证
+
+#### F.1 文献锚点主映射矩阵
+
+| v1.3 子模块 | 主教材 | 专题教材 | 对照开源库 | 测试基准来源 |
+|------------|--------|---------|-----------|------------|
+| MLE/QMLE | Greene Ch.14-17 | Wooldridge CS Ch.12-13 | statsmodels `discrete`/`glm` | Greene 表 14.x-17.x |
+| HC/HAC/聚类标准误差 | Greene Ch.5 | Davidson-MacKinnon Ch.5-6 | R `sandwich` / statsmodels `cov_type` | MacKinnon-White (1985) 表 1 |
+| GMM | Hayashi Ch.3-4 | Greene Ch.13 / Cochrane Ch.10-11 | linearmodels `IVGMM` | Hayashi 表 3.x (Cragg 内核) |
+| Bootstrap | Cameron-Trivedi Ch.11 | Davison-Hinkley (1997) | arch `bootstrap` / R `boot` | Davison-Hinkley 表 |
+| 假设检验 | Wooldridge CS Ch.12-15 | Greene Ch.5-6 | statsmodels `wald_lm`/`lrtest` | Greene 表 5.x |
+| 因子诊断 (v1.4+ 附加) | Efron (2010) | Lehmann-Romano Ch.9 | arch `SPA`/`MCS`/`StepM` | White (2000) / Hansen (2005) 原文表 |
+
+#### F.2 各子模块教材映射详解
+
+##### F.2.1 MLE/QMLE 子模块
+
+- **Greene Ch.14 MLE**: 信息矩阵等式 / 三种 MLE 协方差 (OPG / Hessian / Sandwich)
+- **Greene Ch.17 QMLE**: White (1982) QMLE 框架 / Sandwich 估计量 `A^{-1} B A^{-1}`
+- **Wooldridge CS Ch.13**: QMLE 渐近正态性完整证明
+- **实现范围**: Logistic / Poisson / Negative Binomial / Gaussian GLM 四类基本模型
+
+##### F.2.2 标准误差子模块
+
+- **Davidson-MacKinnon Ch.5-6**: HC0 (White 1980) / HC1 / HC2 / HC3 (Jackknife) 完整推导
+- **MacKinnon-White (1985) 原文**: HC1/HC2/HC3 在小样本的相对表现 (表 1)
+- **Newey-West (1987)**: HAC (Heteroskedasticity and Autocorrelation Consistent) 完整推导
+- **聚类标准误差**: Liang-Zeger (1986) / Arellano (1987) — Cameron-Miller (2015) "A Practitioner's Guide to Cluster-Robust Inference" 综述
+- **实现公式**:
+  - `bread = (X'X)^{-1}`
+  - `meat = Σ X_i X_i' ε_i²` (HC0)
+  - `meat = Σ_t K(t/b) X_t X_t' ε_t²` (HAC Bartlett)
+  - `meat = Σ_g X_g' ε_g ε_g' X_g` (聚类)
+
+##### F.2.3 GMM 子模块
+
+- **Hayashi Ch.3**: Hansen (1982) 最优 GMM 完整推导, 含两步 / 迭代 / CUE
+- **Hayashi Ch.4**: 多方程 GMM (FIVE / 3SLS / SUR / FIML)
+- **Hayashi Ch.5**: Arellano-Bond 在 GMM 框架下
+- **Cochrane Ch.10-11**: 资产定价 GMM / Hansen-Jagannathan 距离
+- **实现公式**:
+  - `W = S^{-1}` (最优加权)
+  - `J = n · g' W g ~ χ²(p-k)` (过度识别检验)
+  - CUE (Continuously Updating Estimator)
+
+##### F.2.4 Bootstrap 子模块
+
+- **Cameron-Trivedi Ch.11**: 配对 / 非参数 / 残差 / Wild Bootstrap 完整方法
+- **Davison-Hinkley (1997)** "Bootstrap Methods and Their Application": 配套 R `boot` 包的算法基准
+- **Politis-Romano (1994)**: Stationary Bootstrap (块长度自适应) — 解决时间序列 Bootstrap 自相关问题
+- **实现范围**: 配对 Bootstrap (i.i.d.) / Wild Bootstrap (异方差稳健) / Block Bootstrap (时序) / Cluster Bootstrap (聚类)
+
+##### F.2.5 假设检验子模块
+
+- **Wooldridge CS Ch.12**: Wald / LM / LR 三大检验渐近等价性
+- **Greene Ch.5**: 显式公式与矩阵表达
+- **实现公式**:
+  - `Wald = (Rβ - r)' [R V R']^{-1} (Rβ - r) ~ χ²(q)`
+  - `LR = 2 (logL_UR - logL_R) ~ χ²(q)`
+  - `LM = ε_R' X (X'X)^{-1} X' ε_R / σ² ~ χ²(q)`
+
+#### F.3 测试基准来源矩阵
+
+| 测试类别 | 基准来源 | 数值容差 |
+|---------|---------|----------|
+| OLS 系数 | Greene 表 3.x (Longley 数据) | 1e-10 |
+| HC0-3 标准误差 | MacKinnon-White (1985) 表 1 | 1e-6 |
+| HAC | Newey-West (1987) 表 | 1e-6 |
+| MLE 系数 | Greene 表 17.x (http://pages.stern.nyu.edu/~wgreene/Text/econometricanalysis.htm) | 1e-8 |
+| GMM 系数 | Hayashi 表 3.x (Cragg 内核) | 1e-6 |
+| 跨语言 | statsmodels / R sandwich / arch | 1e-8 |
+| Bootstrap | Davison-Hinkley 表 | 1e-3 (随机性) |
+
+**经典数据集清单 (测试基准用)**:
+
+| 数据集 | 来源 | 用途 |
+|--------|------|------|
+| Longley 数据 | Greene 表 3.x / Longley (1967) | OLS 数值稳定性基准 (经典共线性数据) |
+| Nerlove 电力数据 | Greene 表 4.x / Nerlove (1963) | 规模收益 / 对数线性回归基准 |
+| Grunfeld 投资数据 | Greene/Baltagi 表 | 面板数据 (FE/RE) 基准, 10 家公司 20 年 |
+| CPS 工资数据 | Stock-Watson 教材 | 微观计量 (Mincer 工资方程) 基准 |
+| Macro 数据集 | Stock-Watson 教材 | 时间序列 (ARIMA/VAR) 基准 |
+| Financial 数据 | Tsay 教材 | GARCH / ARIMA 金融时序基准 |
+
+#### F.4 算法实现优先级 (4 波 12 项 + 扩展)
+
+##### 第一波 (基础, v1.3 P1)
+
+1. **OLS + HC0-HC3 标准误差** (Davidson-MacKinnon 算法)
+2. **Newey-West HAC** (Bartlett / Quadratic Spectral 内核)
+3. **聚类标准误差** (Liang-Zeger 1986)
+
+##### 第二波 (推断, v1.3 P1)
+
+4. **Wald/LR/LM 三大检验**
+5. **MLE** (Logistic / Poisson / NB)
+6. **QMLE + Sandwich 协方差** (White 1982)
+
+##### 第三波 (GMM, v1.3 P1)
+
+7. **两步 GMM** (Hansen 1982)
+8. **迭代 GMM / CUE** (Continuously Updating Estimator)
+9. **Arellano-Bond 动态面板** (Hayashi Ch.5)
+
+##### 第四波 (Bootstrap, v1.3 P1)
+
+10. **配对 / Wild Bootstrap**
+11. **Block Bootstrap** (Politis-Romano 1994)
+12. **Cluster Bootstrap**
+
+##### v1.4+ 扩展 (因子诊断)
+
+13. **BH/BY FDR** (Benjamini-Hochberg / Benjamini-Yekutieli)
+14. **White Reality Check / Hansen SPA** (White 2000 / Hansen 2005)
+15. **Model Confidence Set / StepM** (Hansen-Lunde-Nason 2011 / Romano-Wolf 2005)
+
+#### F.5 Scott 视角学习路径
+
+**Phase A (理论复习, 1 周)**:
+1. Greene Ch.4 渐近理论 (Slutzky / Cramér-Wold / Delta method)
+2. Wooldridge CS Ch.3-4 OLS 渐近
+3. Davidson-MacKinnon Ch.5-6 HC 标准误差
+
+**Phase B (GMM 主线, 1 周)**:
+4. Hayashi Ch.3 GMM 完整推导
+5. Cochrane Ch.10-11 资产定价 GMM
+6. linearmodels 源码对照
+
+**Phase C (实现 + 测试, 3-4 周)**:
+7. Cpp_Hub v1.3 第一波实现 (OLS + HC/HAC/Cluster)
+8. Cpp_Hub v1.3 第二波实现 (MLE + 检验)
+9. Cpp_Hub v1.3 第三波实现 (GMM)
+10. Cpp_Hub v1.3 第四波实现 (Bootstrap)
+
+**Phase D (因子诊断扩展, 推迟 v1.4+)**:
+11. Efron (2010) Ch 2-3 FDR
+12. Efron (2010) Ch 6 局部 FDR
+13. White (2000) / Hansen (2005) 论文
+14. Cpp_Hub v1.4+ 因子诊断实现
+
+#### F.6 两份调研报告的协同使用
+
+| 维度 | ECONOMETRICS_LANDSCAPE.md | ECONOMETRICS_TEXTBOOKS.md |
+|------|---------------------------|---------------------------|
+| **分析对象** | 开源生态 (R/Python/Julia/C++) | 教材体系 (经典/现代) |
+| **时间维度** | 静态快照 (2026-07) | 动态演进 (1990-2026) + 静态评估 |
+| **方法论** | GitHub API + WebSearch | 出版社信息 + 学术引用 + 交叉验证 |
+| **核心结论** | C++ 生态空白 | C++ 文献锚点必须依赖教材 (无开源对照) |
+| **对 v1.3 指导** | 库选型 (statsmodels/arch/linearmodels 对照) | 教材选型 (Greene/Wooldridge/Hayashi 主锚点) |
+
+**协同使用方式**:
+- 实现某 v1.3 子模块前: 先读教材报告对应章节确定理论锚点 → 再读开源生态报告确定开源对照库 → 形成完整文献基础
+- 测试设计: 教材报告 §F.3 提供教材数值基准 → 开源生态报告 §6 提供开源库交叉验证
+- 算法实现: 教材报告提供数学公式与渐近性质 → 开源生态报告提供开源库的边界处理经验
+
+#### F.7 完整教材信息表 (附录)
+
+| 教材 | 作者 | 版本 | 年份 | 出版社 | ISBN | 页数 |
+|------|------|------|------|--------|------|------|
+| Econometric Analysis | Greene | 8ed | 2018 | Pearson | 978-0134461366 | 1184 |
+| Econometric Analysis of Cross Section and Panel Data | Wooldridge | 2ed | 2010 | MIT | 978-0262232586 | 1064 |
+| Introductory Econometrics: A Modern Approach | Wooldridge | 7ed | 2020 | Cengage | 978-1337558860 | 912 |
+| Econometrics | Hayashi | 1ed | 2000 | Princeton | 978-0691010182 | 686 |
+| Econometric Theory and Methods | Davidson-MacKinnon | 1ed | 2004 | Oxford | 978-0195123722 | 656 |
+| Introduction to Econometrics | Stock-Watson | 4ed | 2019 | Pearson | 978-0134461991 | 816 |
+| Time Series Analysis | Hamilton | 1ed | 1994 | Princeton | 978-0691042891 | 799 |
+| New Introduction to Multiple Time Series Analysis | Lütkepohl | 1ed | 2005 | Springer | 978-3540262398 | 764 |
+| Time Series Analysis: Forecasting and Control | Box-Jenkins-Reinsel-Ljung | 5ed | 2015 | Wiley | 978-1118675021 | 712 |
+| Time Series: Theory and Methods | Brockwell-Davis | 1ed | 1991 | Springer | 978-1441903198 | 577 |
+| Analysis of Financial Time Series | Tsay | 3ed | 2010 | Wiley | 978-0470414354 | 720 |
+| Structural VAR Analysis | Kilian-Lütkepohl | 1ed | 2017 | Cambridge | 978-1107196756 | 528 |
+| Time Series Analysis and Its Applications | Shumway-Stoffer | 4ed | 2017 | Springer | 978-3319524511 | 562 |
+| Econometric Analysis of Panel Data | Baltagi | 6ed | 2021 | Springer | 978-3030759523 | 438 |
+| Analysis of Panel Data | Hsiao | 3ed | 2014 | Cambridge | 978-1107038493 | 552 |
+| Econometrics of Financial Markets | Campbell-Lo-MacKinlay | 1ed | 1997 | Princeton | 978-0691043010 | 632 |
+| Asset Pricing | Cochrane | rev ed | 2005 | Princeton | 978-0691121371 | 550 |
+| Elements of Financial Risk Management | Christoffersen | 3ed | 2022 | Academic | - | 472 |
+| Statistics and Data Analysis for Financial Engineering | Ruppert-Matteson | 2ed | 2015 | Springer | 978-1493926138 | 728 |
+| Nonlinear Time Series | Fan-Yao | 2ed | 2003 | Springer | 978-0387951690 | 596 |
+| Microeconometrics: Methods and Applications | Cameron-Trivedi | 1ed | 2005 | Cambridge | 978-0521848053 | 1056 |
+| Discrete Choice Methods with Simulation | Train | 2ed | 2009 | Cambridge | 978-0521747387 | 410 |
+| Bayesian Econometrics | Koop | 1ed | 2003 | Wiley | 978-0470845677 | 359 |
+| Introduction to Bayesian Econometrics | Greenberg | 2ed | 2012 | Cambridge | 978-1107602217 | 256 |
+| Nonparametric Econometrics | Li-Racine | 1ed | 2007 | Princeton | 978-0691121616 | 646 |
+| Nonparametric Econometrics | Pagan-Ullah | 1ed | 1999 | Cambridge | 978-0521586115 | 432 |
+| Semiparametric Regression | Yatchew | 1ed | 2003 | Cambridge | 978-0521812832 | 232 |
+| Asymptotic Theory for Econometricians | White | rev ed | 2001 | Academic | 978-0127466521 | 290 |
+| Asymptotic Statistics | van der Vaart | 1ed | 1998 | Cambridge | 978-0521496032 | 462 |
+| Approximation Theorems of Mathematical Statistics | Serfling | 1ed | 1980 | Wiley | 978-0471219279 | 392 |
+| Large-Scale Inference | Efron | 1ed | 2010 | IMS | 978-0521192491 | 284 |
+| Testing Statistical Hypotheses | Lehmann-Romano | 3ed | 2005 | Springer | 978-0387988643 | 786 |
+| Simultaneous Statistical Inference | Miller | 2ed | 1981 | Springer | 978-0387905488 | 320 |
+
+**核心论文 (教材之外)**:
+
+| 论文 | 作者 | 年份 | 用途 |
+|------|------|------|------|
+| Econometric Model Specification with Heteroskedasticity | White | 1980 | HC0 修正原文 |
+| Maximum Likelihood Estimation of Misspecified Models | White | 1982 | QMLE 框架原文 |
+| Some Heteroskedasticity-Consistent Covariance Matrix Estimators | MacKinnon-White | 1985 | HC1/HC2/HC3 原文 |
+| A Simple, Positive Semi-Definite, Heteroskedasticity and Autocorrelation Consistent Covariance Matrix | Newey-West | 1987 | HAC 原文 |
+| Large Sample Properties of Generalized Method of Moments Estimators | Hansen | 1982 | GMM 原文 |
+| Longitudinal Data Analysis Using Generalized Linear Models | Liang-Zeger | 1986 | 聚类标准误差原文 |
+| Computing Robust Standard Errors for Within-Groups Estimators | Arellano | 1987 | 面板聚类原文 |
+| The Stationary Bootstrap | Politis-Romano | 1994 | Block Bootstrap 原文 |
+| A Reality Check for Data Snooping | White | 2000 | Reality Check 原文 |
+| A Test for Superior Predictive Ability | Hansen | 2005 | SPA 原文 |
+| Model Confidence Set | Hansen-Lunde-Nason | 2011 | MCS 原文 |
+| Stepwise Multiple Testing as Formalized Data Snooping | Romano-Wolf | 2005 | StepM 原文 |
+| …and the Cross-Section of Expected Returns | Harvey-Liu-Zhu | 2016 | t-Hurdle 原文 |
+
+---
