@@ -139,6 +139,9 @@ cpphub_add_test(test_credit_spread_option unit/instruments/test_credit_spread_op
 
 # v1.2 Batch 8: Copula 模型 (Gaussian / One-Factor / t) + 合成 CDO + 篮子 CDS
 cpphub_add_test(test_copula unit/instruments/test_copula.cpp)
+
+# v1.3 D: CVA with Wrong-Way Risk (WWR) — Hull-White / Gaussian Copula / MC
+cpphub_add_test(test_wrong_way_risk unit/risk/test_wrong_way_risk.cpp)
 cpphub_add_test(test_cdo unit/instruments/test_cdo.cpp)
 cpphub_add_test(test_basket_cds unit/instruments/test_basket_cds.cpp)
 
