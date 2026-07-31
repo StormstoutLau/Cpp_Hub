@@ -51,24 +51,9 @@ public:
 
     // 构造: 绑定特征函数 (T 已封装在 phi 内)
     // 注意: phi 必须是 ln S_T 的 CF, 即 phi(u) = E[exp(iu * ln S_T)]
-    explicit COSEngine(CharFn phi, Real S0, Real r, Real q, Real T, Config cfg = {})
-        : phi_(std::move(phi)), S0_(S0), r_(r), q_(q), T_(T), cfg_(cfg) {
-        if (S0 <= 0.0) throw std::invalid_argument("COSEngine: S0 must be positive");
-        if (T <= 0.0) throw std::invalid_argument("COSEngine: T must be positive");
-        if (cfg_.n_terms < 8) throw std::invalid_argument("COSEngine: n_terms too small (>=8 required)");
-        if (cfg_.L < 1.0) throw std::invalid_argument("COSEngine: L too small (>=1.0 required)");
-        // 自动估计截断区间 [a, b] (若用户未指定)
-        if (std::isnan(cfg_.a) || std::isnan(cfg_.b)) {
-            auto rng = cos_truncation_range(phi_, S0_, T_, cfg_.L);
-            a_ = rng.first;
-            b_ = rng.second;
-        } else {
-            a_ = cfg_.a;
-            b_ = cfg_.b;
-            if (b_ <= a_) throw std::invalid_argument("COSEngine: b must be > a");
-        }
-        x0_ = std::log(S0_);
-    }
+    // GCC 13 兼容: 嵌套 Config 在类体结束前不完整, 默认参数移到类外定义
+    // (与 optimizer.hpp 中 LevenbergMarquardt::minimize 的处理方式一致)
+    explicit COSEngine(CharFn phi, Real S0, Real r, Real q, Real T, Config cfg);
 
     // 欧式看涨期权价格
     Real price_call(Real K) const {
@@ -199,6 +184,27 @@ private:
         return std::max(price, 0.0);  // 期权价格非负
     }
 };
+
+// 构造 (类外定义, 默认参数在 Config 完整后解析, 兼容 GCC 13)
+inline COSEngine::COSEngine(CharFn phi, Real S0, Real r, Real q, Real T,
+                            Config cfg = COSEngine::Config{})
+    : phi_(std::move(phi)), S0_(S0), r_(r), q_(q), T_(T), cfg_(cfg) {
+    if (S0 <= 0.0) throw std::invalid_argument("COSEngine: S0 must be positive");
+    if (T <= 0.0) throw std::invalid_argument("COSEngine: T must be positive");
+    if (cfg_.n_terms < 8) throw std::invalid_argument("COSEngine: n_terms too small (>=8 required)");
+    if (cfg_.L < 1.0) throw std::invalid_argument("COSEngine: L too small (>=1.0 required)");
+    // 自动估计截断区间 [a, b] (若用户未指定)
+    if (std::isnan(cfg_.a) || std::isnan(cfg_.b)) {
+        auto rng = cos_truncation_range(phi_, S0_, T_, cfg_.L);
+        a_ = rng.first;
+        b_ = rng.second;
+    } else {
+        a_ = cfg_.a;
+        b_ = cfg_.b;
+        if (b_ <= a_) throw std::invalid_argument("COSEngine: b must be > a");
+    }
+    x0_ = std::log(S0_);
+}
 
 // ============ 便捷工厂函数 ============
 // 使用 BSM CF 的 COS 定价 (用于验证 COS 实现的正确性)

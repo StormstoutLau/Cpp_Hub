@@ -81,6 +81,9 @@ cpphub_add_test(test_stress_sensitivity unit/risk/scenario/test_stress_sensitivi
 # Phase 3 M3: 标定框架测试 (A 站实现, LM/NelderMead/DE + Heston/SABR Calibrator)
 cpphub_add_test(test_calibration_framework unit/calibration/test_calibration_framework.cpp)
 
+# E 任务: 多模型标定器测试 (Bates/VG/CEV Calibrator, DE + LM + COS/解析定价)
+cpphub_add_test(test_multi_calibrator unit/calibration/test_multi_calibrator.cpp)
+
 # Phase 3 M3: 波动率曲面测试 (B 站实现, SVI/SSVI/VolSurface)
 cpphub_add_test(test_vol_surface unit/models/vol_surface/test_vol_surface.cpp)
 
