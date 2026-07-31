@@ -89,6 +89,47 @@ cpphub_add_test(test_svi_diagnostic unit/calibration/test_svi_diagnostic.cpp)
 # 基准值由 tests/validation/python/ 下的脚本生成 (numpy/scipy/statsmodels)
 cpphub_add_test(test_python_cross_validation unit/validation/test_python_cross_validation.cpp)
 
+# v1.1: LSMC 美式期权引擎测试 (Longstaff-Schwartz 2001)
+cpphub_add_test(test_lsmc unit/pricing/test_lsmc.cpp)
+
+# v1.1: 利率模型测试 (Vasicek/CIR/Hull-White/G2++ 仿射短期利率模型)
+cpphub_add_test(test_short_rate unit/models/test_short_rate.cpp)
+
+# v1.1: 通用傅里叶引擎测试 (COS Fang-Oosterlee + Carr-Madan FFT + CharFn 接口)
+cpphub_add_test(test_fourier_engine unit/pricing/test_fourier_engine.cpp)
+
+# v1.1: 利率衍生品测试 (IRS / Cap-Floor / Swaption)
+cpphub_add_test(test_ir_derivs unit/instruments/test_ir_derivs.cpp)
+
+# v1.2: HJM 远期利率框架 + LMM (BGM) 市场模型测试
+cpphub_add_test(test_hjm_lmm unit/models/test_hjm_lmm.cpp)
+
+# v1.2: 多资产 MC + 路径相关/篮子期权测试
+cpphub_add_test(test_multi_asset_mc unit/pricing/test_multi_asset_mc.cpp)
+
+# v1.2 Batch 2: OIS / 隔夜利率衍生品 (ZeroCurve + OIS + FRA + Basis Swap + Dual-curve IRS)
+cpphub_add_test(test_ois unit/instruments/test_ois.cpp)
+
+# v1.2 Batch 3: xVA (CVA / DVA / FVA / BVA) 框架
+cpphub_add_test(test_xva unit/risk/test_xva.cpp)
+
+# v1.2 Batch 4: 信用违约互换 (CDS) + CDS curve bootstrap
+cpphub_add_test(test_cds unit/instruments/test_cds.cpp)
+
+# v1.2 Batch 5: PFE (潜在未来暴露) + SA-CCR (Basel III 交易对手信用风险)
+cpphub_add_test(test_pfe_sa_ccr unit/risk/test_pfe_sa_ccr.cpp)
+
+# v1.2 Batch 6: Total Return Swap (TRS) - 总回报互换
+cpphub_add_test(test_trs unit/instruments/test_trs.cpp)
+
+# v1.2 Batch 7: 信用利差期权 (Credit Spread Option, Black 1976)
+cpphub_add_test(test_credit_spread_option unit/instruments/test_credit_spread_option.cpp)
+
+# v1.2 Batch 8: Copula 模型 (Gaussian / One-Factor / t) + 合成 CDO + 篮子 CDS
+cpphub_add_test(test_copula unit/instruments/test_copula.cpp)
+cpphub_add_test(test_cdo unit/instruments/test_cdo.cpp)
+cpphub_add_test(test_basket_cds unit/instruments/test_basket_cds.cpp)
+
 # Phase 4 LITE - ADR-009: C ABI 测试 (条件编译, 需 CPPHUB_ENABLE_C_API=ON)
 if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)
