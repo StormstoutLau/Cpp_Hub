@@ -38,6 +38,9 @@ cpphub_add_test(test_sobol_qmc unit/monte_carlo/test_sobol_qmc.cpp)
 # Phase 2 M3: 方差缩减测试 (B 站实现)
 cpphub_add_test(test_variance_reduction unit/monte_carlo/test_variance_reduction.cpp)
 
+# 高级方差缩减方法测试 (Importance Sampling / Conditional MC / Stratified Sampling)
+cpphub_add_test(test_variance_reduction_advanced unit/monte_carlo/test_variance_reduction_advanced.cpp)
+
 # Phase 2 M3: 端到端集成测试 (B 站实现)
 cpphub_add_test(test_integration_phase2 unit/monte_carlo/test_integration_phase2.cpp)
 
