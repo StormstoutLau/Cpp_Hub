@@ -1373,3 +1373,106 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 | …and the Cross-Section of Expected Returns | Harvey-Liu-Zhu | 2016 | t-Hurdle 原文 |
 
 ---
+
+## v1.3 P3/P4/P5 执行记录 (2026-07-31)
+
+> **背景**: v1.2 Batch 13 (rBergomi) 收尾后, 聚焦量化定价/校准/参数估计三大任务。P3 Hull-White 完整短期利率、P4 CDO Base Correlation 标定、P5 Discovery 002 (Heston CF 极端参数稳定性) 三任务并行推进。采用副线 A/B 站 opencode + 主站验收策略。
+
+### 执行策略
+
+| 任务 | 执行站 | 模型 | 状态 |
+|------|--------|------|------|
+| P3 Hull-White | B 站 (GTR-Pro) | opencode/deepseek-v4-flash-free | ✅ 完成 |
+| P4 CDO Base Corr | A 站 (NEX) | opencode/deepseek-v4-flash-free | ✅ 完成 |
+| P5 Heston CF Edge | 主站 | — | ✅ 完成 |
+
+### P5: Discovery 002 — Heston CF 极端参数稳定性测试
+
+**Commit**: `e972b17` feat(v1.3 P5): Heston CF extreme parameter stability tests (Discovery 002)
+
+**问题**: Discovery 002 (`docs/discoveries/002_heston_cf_branch_cut_edge.md`) 指出 Heston 特征函数在极端参数 (ρ→±1, σ_v→0, τ→0, Feller 违反) 下可能数值不稳定。当前实现使用 Albrecher (2007) Little Trap log-of-ratio form 避免分支切割, 但需系统验证。
+
+**实现**: `tests/unit/pricing/test_heston_cf_edge.cpp` (532 行, 22 测试), 10 大类:
+1. ρ→+1 极限 (3 测试): cf 可计算 + 无分支切割 + ρ 连续变化
+2. ρ→-1 极限 (2 测试): cf 可计算 + 无分支切割
+3. σ_v→0 退化 (2 测试): Heston→BS 极限 (确定性方差积分 ∫v ds = θτ + (v0-θ)(1-e^{-κτ})/κ) + cf 连续
+4. τ→0 短到期 (2 测试): cf→S0^{iu} (非 1, 修正原假设) + 无分支切割
+5. Feller 违反 (3 测试): δ_F<0 仍可计算 + 无分支切割 + 边界 soft crossover (Paper A Prop.3)
+6. 跨极端参数连续性 (3 测试): ρ/σ_v/τ 扫描无突变
+7. 概率积分校验 (2 测试): φ(0)=1 + |φ(u)|≤1
+8. 复平面虚部位移 (2 测试): Carr-Madan P1 u-i 位移稳定 (容差 1e-7)
+9. Schoutens 基准交叉验证 (2 测试): 常规正确性不被破坏
+10. 组合极端参数 (1 测试): 多重 stress
+
+**关键技术修正**:
+- σ_v→0 极限: 原假设 Heston 退化为 BS (常数方差 v0), 实际应为确定性均值回复 ∫v(s)ds = θτ + (v0-θ)(1-e^{-κτ})/κ
+- τ→0 极限: 原假设 cf→1, 实际应为 cf→e^{iu ln S0} = S0^{iu}
+- 复平面扫描容差: 1e-8 → 1e-7 (数值微分误差)
+
+**验证**: 22/22 测试通过 (MSVC 2022 Release, 0.42s)
+
+**与 Paper A 关联**: 验证了 Albrecher (2007) Little Trap 实现在 Conduction Intensity (Paper A) 标定相关的全参数空间内数值稳定, Feller 边界确为 soft crossover (Proposition 3), 不构成 Discovery 002 所述的裂缝。
+
+### P3: Hull-White 完整短期利率模型
+
+**Commit**: `467ac6a` feat(v1.3 P3): Hull-White complete — Jamshidian/swaption/cap-floor
+**执行**: B 站 deepseek-v4-flash-free agent, 约 12 分钟完成 (含 3 轮迭代修复)
+
+**新增功能** (`include/cpphub/models/ir/short_rate.hpp`, +283 行):
+- `jamshidian_r_star(T_opt, payment_times, cashflows, K)`: Newton/bisection 求解临界利率 r*
+- `coupon_bond_option(T_opt, payment_times, cashflows, K, is_call)`: Jamshidian 分解为 ZCB options 之和
+- `swaption(T_opt, T_start, T_end, n_periods, K, is_payer)`: payer/receiver swaption
+- `caplet(t_start, t_end, K_cap)`: HW 下 caplet = put on ZCB
+- `cap(reset_times, K_cap)`: caplets 之和
+- `floorlet(t_start, t_end, K_floor)`: floorlet = call on ZCB
+- `floor(reset_times, K_floor)`: floorlets 之和
+
+**新增测试** (`tests/unit/models/test_short_rate.cpp`, +325 行, 15 测试):
+- Jamshidian 分解 (4): r* 求解方程 + 单调性 + 收敛性
+- Swaption (4): call-put parity + 正值 + strike 单调 + expiry 递减 + 平坦曲线匹配 BS
+- Cap/Floor (4): caplet 非负 + cap strike 单调 + cap-floor parity + caplet=ZCB put
+- 数值稳定性 (3): 零到期 + Jamshidian 收敛
+
+**验证**: 80/80 IR 测试通过 (MSVC 2022 Release, 含 Vasicek/CIR/HW/G2 + Cap/Floor/Swaption/IR Derivs/HJM/LMM)
+**文献**: Jamshidian (1989), Brigo-Mercurio (2006) Ch.3
+
+### P4: CDO Base Correlation 标定
+
+**Commit**: `02b6c13` feat(v1.3 P4): CDO base correlation calibration + off-market tranche pricing
+**执行**: A 站 deepseek-v4-flash-free agent, 约 12 分钟完成
+
+**新增功能** (`include/cpphub/instruments/credit/cdo.hpp`, +244 行):
+- `CDOBaseCorrelationCalibrator` 类:
+  - `compound_correlation(A, D, market_spread, tol, max_iter)`: bisection/Brent 求 ρ 使 par_spread = market_spread
+  - `calibrate_base_correlation(detachments, market_spreads, attachment_first)`: 标定 base corr curve
+  - `price_off_market_tranche(A, D, base_detachments, base_correlations, spread)`: 用 base corr 给非标准分券定价
+  - `interpolate_base_corr(D, detachments, corrs)`: 线性插值 base corr curve
+
+**新增测试** (`tests/unit/instruments/test_cdo.cpp`, +237 行, 12 测试):
+- Compound Correlation (4): 恢复 market spread + spread 单调 + 范围 + equity tranche 高 ρ
+- Base Correlation Curve (4): 单调递增 + 恢复 market spreads + equity base=compound + 插值中点
+- Off-Market Tranche Pricing (3): 标准分券间 + spread 单调 + 标准点匹配
+- 一致性诊断 (1): 非单调检测
+
+**验证**: 79/79 CDO/Copula 测试通过 (MSVC 2022 Release, 含 GaussianCopula/OneFactor/TCopula/CDO LHP+MC/Basket CDS)
+**文献**: McGinty-Ahluwalia (2004), O'Kane (2008) Ch.12-13
+
+### 全量回归测试
+
+| 指标 | 值 |
+|------|-----|
+| 总测试数 | 1023 (vs 974 @ Batch 13, +49) |
+| 通过率 | 1023/1023 = 100% |
+| 总耗时 | 90.31s (MSVC 2022 Release) |
+| 回归 | 0 |
+
+**新增测试分布**: P5 Heston CF Edge (+22) + P3 Hull-White (+15) + P4 CDO Base Corr (+12) = +49
+
+### 关键决策
+
+1. **scp 替代 push 合并**: 远程工作站用 HTTPS remote (主站 HTTPS 超时), 改用 scp 拉取文件到主站, 主站重新 commit。保留远程 commit message 风格。
+2. **分 commit 提交**: P3/P4 虽同时验收, 但分属不同模块 (IR vs Credit), 分两个 commit 保持原子性。
+3. **P5 主站执行**: Discovery 002 与 Paper A (Conduction Intensity) 直接相关, 需主站精确控制测试逻辑 (BS 极限公式修正、τ→0 极限修正), 不委托副线。
+4. **deepseek-v4-flash-free 质量再次确认**: A/B 站均一次通过 (各 12 分钟), 跨平台验证 (GCC+MSVC) 成功, 与 Batch 10b/11/12 表现一致。
+
+---
