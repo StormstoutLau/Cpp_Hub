@@ -81,28 +81,7 @@ public:
         // 若不指定, 自动以 ln(S0) 为中心选择最近的网格点
     };
 
-    explicit CarrMadanFFT(CharFn phi, Real S0, Real r, Real q, Real T, Config cfg = {})
-        : phi_(std::move(phi)), S0_(S0), r_(r), q_(q), T_(T), cfg_(cfg) {
-        if (S0 <= 0.0) throw std::invalid_argument("CarrMadanFFT: S0 must be positive");
-        if (T <= 0.0) throw std::invalid_argument("CarrMadanFFT: T must be positive");
-        if (cfg_.alpha <= 0.0) throw std::invalid_argument("CarrMadanFFT: alpha must be positive");
-        // 验证 n_fft 是 2 的幂
-        Size n = cfg_.n_fft;
-        if (n < 8 || (n & (n - 1)) != 0) {
-            throw std::invalid_argument("CarrMadanFFT: n_fft must be power of 2 and >= 8");
-        }
-        if (cfg_.eta <= 0.0) throw std::invalid_argument("CarrMadanFFT: eta must be positive");
-
-        // 预计算 strike 网格
-        lambda_ = 2.0 * PI / (static_cast<Real>(n) * cfg_.eta);
-        b_grid_ = static_cast<Real>(n) * lambda_ / 2.0;
-        strikes_.resize(n);
-        log_strikes_.resize(n);
-        for (Size u = 0; u < n; ++u) {
-            log_strikes_[u] = -b_grid_ + static_cast<Real>(u) * lambda_;
-            strikes_[u] = std::exp(log_strikes_[u]);
-        }
-    }
+    explicit CarrMadanFFT(CharFn phi, Real S0, Real r, Real q, Real T, Config cfg);
 
     // 计算整个 strike 网格上的 call 价格
     // 返回 (strikes, call_prices) 对, 长度均为 n_fft
@@ -205,6 +184,30 @@ private:
         return calls[u_lo] * (1.0 - frac) + calls[u_hi] * frac;
     }
 };
+
+// GCC 13.3 兼容: 嵌套类型 Config 的默认实参需在类外 (与 cos_method.hpp 相同的 workaround)
+inline CarrMadanFFT::CarrMadanFFT(CharFn phi, Real S0, Real r, Real q, Real T, Config cfg)
+    : phi_(std::move(phi)), S0_(S0), r_(r), q_(q), T_(T), cfg_(cfg) {
+    if (S0 <= 0.0) throw std::invalid_argument("CarrMadanFFT: S0 must be positive");
+    if (T <= 0.0) throw std::invalid_argument("CarrMadanFFT: T must be positive");
+    if (cfg_.alpha <= 0.0) throw std::invalid_argument("CarrMadanFFT: alpha must be positive");
+    // 验证 n_fft 是 2 的幂
+    Size n = cfg_.n_fft;
+    if (n < 8 || (n & (n - 1)) != 0) {
+        throw std::invalid_argument("CarrMadanFFT: n_fft must be power of 2 and >= 8");
+    }
+    if (cfg_.eta <= 0.0) throw std::invalid_argument("CarrMadanFFT: eta must be positive");
+
+    // 预计算 strike 网格
+    lambda_ = 2.0 * PI / (static_cast<Real>(n) * cfg_.eta);
+    b_grid_ = static_cast<Real>(n) * lambda_ / 2.0;
+    strikes_.resize(n);
+    log_strikes_.resize(n);
+    for (Size u = 0; u < n; ++u) {
+        log_strikes_[u] = -b_grid_ + static_cast<Real>(u) * lambda_;
+        strikes_[u] = std::exp(log_strikes_[u]);
+    }
+}
 
 // ============ 便捷工厂函数 ============
 // BSM call via Carr-Madan FFT (用于验证)
