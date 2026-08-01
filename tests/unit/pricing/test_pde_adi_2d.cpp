@@ -5,6 +5,7 @@
 #include "cpphub/pricing/pde/pde_engine_2d.hpp"
 #include "cpphub/pricing/fourier/cos_method.hpp"
 #include "cpphub/pricing/analytic/heston_cf.hpp"
+#include "cpphub/monte_carlo/control_variate.hpp"  // bsm_call_price
 #include <cmath>
 
 using namespace cpphub;
@@ -1150,6 +1151,7 @@ TEST(PDEADI2D, AmericanPutGreaterThanEuropeanPut) {
 
 // T2.1 RED: American call with no dividends ≈ European call
 // (No early exercise optimal when q=0 and r>0 for calls)
+// 多投影修正后精度提升, 容差从 0.30 收紧至 0.15
 TEST(PDEADI2D, AmericanCallNoDividendMatchesEuropean) {
     auto tc = kTestCases[1];  // ATM call, q=0
     auto hp = make_pde_params(tc);
@@ -1167,8 +1169,8 @@ TEST(PDEADI2D, AmericanCallNoDividendMatchesEuropean) {
     Real price_amer = engine_amer.price(hp);
 
     // With q=0, American call = European call (no early exercise benefit)
-    // Allow tolerance for discretization error
-    EXPECT_NEAR(price_amer, cos_european, 0.30)
+    // 多投影修正 + sinh grid 后误差约 0.08-0.10, 收紧至 0.15
+    EXPECT_NEAR(price_amer, cos_european, 0.15)
         << "American call (q=0)=" << price_amer << " European=" << cos_european;
 }
 
@@ -1231,6 +1233,7 @@ TEST(PDEADI2D, AmericanPutBoundedByIntrinsicAndStrike) {
 }
 
 // T2.1 RED: Deep ITM American put ≈ intrinsic value (immediate exercise)
+// sinh grid 后 S=K 附近分辨率提升, 深度 ITM put 精度从 ±5.0 收紧至 ±2.0
 TEST(PDEADI2D, DeepITMAmericanPutApproachesIntrinsic) {
     // Deep ITM put: K=150, S0=100, so intrinsic = 50
     HestonTestCase tc = {100.0, 150.0, 0.5, 0.04, 0.0,
@@ -1249,11 +1252,11 @@ TEST(PDEADI2D, DeepITMAmericanPutApproachesIntrinsic) {
     Real price = engine.price(hp);
 
     Real intrinsic = tc.K - tc.S0;  // 50
-    // Deep ITM American put should be close to intrinsic (within ~5%)
+    // Deep ITM American put should be close to intrinsic
     // (time value is small but nonzero due to mean-reversion of variance)
     EXPECT_GT(price, intrinsic - 1.0)
         << "Deep ITM American put=" << price << " intrinsic=" << intrinsic;
-    EXPECT_LT(price, intrinsic + 5.0)
+    EXPECT_LT(price, intrinsic + 2.0)
         << "Deep ITM American put=" << price << " intrinsic=" << intrinsic;
 }
 
@@ -1293,4 +1296,458 @@ TEST(PDEADI2D, AmericanPutConvergesWithGridRefinement) {
     EXPECT_LT(prices[0], 20.0) << "Coarse price too high";
     EXPECT_GT(prices[1], 5.0) << "Fine price too low";
     EXPECT_LT(prices[1], 20.0) << "Fine price too high";
+}
+
+// =========================================================================
+// Precision tests after Ikonen-Toivanen multi-projection upgrade
+// (step_american projects after Y1, Y2, ytilde1, ytilde2, V_new)
+// =========================================================================
+
+// American call (q=0) must closely match European COS benchmark.
+// Theory: no early exercise optimal => American call = European call.
+// Pre-upgrade tolerance was 0.30; target: 0.10 with multi-projection.
+TEST(PDEADI2D, AmericanCallNoDividendTightTolerance) {
+    auto tc = kTestCases[1];  // ATM call, q=0
+    auto hp = make_pde_params(tc);
+    Real cos_european = cos_price(tc);
+
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 150;
+    cfg.n_v = 100;
+    cfg.n_time = 300;
+    cfg.scheme = ADISchemeType::CraigSneyd;
+    cfg.is_call = true;
+    cfg.is_american = true;
+
+    PDEEngine2D engine_amer(cfg);
+    Real price_amer = engine_amer.price(hp);
+
+    Real err = std::abs(price_amer - cos_european);
+    std::cout << "AmericanCall(q=0)=" << price_amer << " European=" << cos_european
+              << " err=" << err << std::endl;
+    EXPECT_LT(err, 0.10)
+        << "American call (q=0) should match European within 0.10";
+}
+
+// American put must strictly exceed European put (positive early-exercise premium)
+// Pre-upgrade allowed -0.05; target: strictly > 0 with multi-projection
+TEST(PDEADI2D, AmericanPutStrictlyExceedsEuropean) {
+    auto tc = kTestCases[1];  // ATM
+    auto hp = make_pde_params(tc);
+
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 150;
+    cfg.n_v = 100;
+    cfg.n_time = 300;
+    cfg.scheme = ADISchemeType::CraigSneyd;
+    cfg.is_call = false;
+
+    // European put (same discretization)
+    cfg.is_american = false;
+    PDEEngine2D engine_eur(cfg);
+    Real price_eur = engine_eur.price(hp);
+
+    // American put
+    cfg.is_american = true;
+    PDEEngine2D engine_amer(cfg);
+    Real price_amer = engine_amer.price(hp);
+
+    Real premium = price_amer - price_eur;
+    std::cout << "AmericanPut=" << price_amer << " EuropeanPut=" << price_eur
+              << " premium=" << premium << std::endl;
+    // Premium must be strictly positive (r > 0 makes early exercise valuable)
+    EXPECT_GT(premium, 0.01)
+        << "American put premium should be > 0.01";
+}
+
+// Grid convergence: American put price should converge monotonically
+TEST(PDEADI2D, AmericanPutGridConvergenceTight) {
+    auto tc = kTestCases[1];  // ATM
+    auto hp = make_pde_params(tc);
+
+    struct GridLevel { Size nx, nv, nt; };
+    std::vector<GridLevel> levels = {
+        {80,  60,  100},
+        {120, 80,  200},
+        {180, 120, 300},
+    };
+
+    std::vector<Real> prices;
+    for (const auto& gl : levels) {
+        PDEEngine2DConfig cfg;
+        cfg.n_x = gl.nx;
+        cfg.n_v = gl.nv;
+        cfg.n_time = gl.nt;
+        cfg.scheme = ADISchemeType::CraigSneyd;
+        cfg.is_call = false;
+        cfg.is_american = true;
+        PDEEngine2D engine(cfg);
+        Real price = engine.price(hp);
+        prices.push_back(price);
+        std::cout << "Grid " << gl.nx << "x" << gl.nv << "x" << gl.nt
+                  << ": price=" << price << std::endl;
+    }
+
+    // Convergence: |L2 - L1| should not be much larger than |L1 - L0|.
+    // Strict monotonic decrease is not guaranteed for American options
+    // because sinh grid concentration changes non-linearly with N.
+    Real diff_01 = std::abs(prices[1] - prices[0]);
+    Real diff_12 = std::abs(prices[2] - prices[1]);
+    std::cout << "diff L0-L1=" << diff_01 << " diff L1-L2=" << diff_12 << std::endl;
+    // Allow diff_12 up to 1.5x diff_01 (convergence is roughly first-order)
+    EXPECT_LT(diff_12, 1.5 * diff_01)
+        << "Grid convergence: refinement should not increase error significantly";
+}
+
+// American call with high dividend should exceed European call
+TEST(PDEADI2D, AmericanCallHighDivTightTolerance) {
+    HestonTestCase tc_div = {100.0, 80.0, 1.0, 0.04, 0.08,
+                              0.04, 1.5, 0.04, 0.3, -0.5, true, 0.0};
+    auto hp = make_pde_params(tc_div);
+
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 150;
+    cfg.n_v = 100;
+    cfg.n_time = 300;
+    cfg.scheme = ADISchemeType::CraigSneyd;
+    cfg.is_call = true;
+
+    cfg.is_american = false;
+    PDEEngine2D engine_eur(cfg);
+    Real price_eur = engine_eur.price(hp);
+
+    cfg.is_american = true;
+    PDEEngine2D engine_amer(cfg);
+    Real price_amer = engine_amer.price(hp);
+
+    Real premium = price_amer - price_eur;
+    std::cout << "AmerCall(q=8%)=" << price_amer << " EurCall=" << price_eur
+              << " premium=" << premium << std::endl;
+    // With q=8%, early exercise is optimal => premium > 0
+    EXPECT_GT(premium, 0.01)
+        << "American call with high dividend should exceed European";
+}
+
+// Deep ITM American put should be close to intrinsic value
+TEST(PDEADI2D, DeepITMAmericanPutTightTolerance) {
+    HestonTestCase tc = {100.0, 150.0, 0.5, 0.04, 0.0,
+                          0.04, 1.5, 0.04, 0.3, -0.5, false, 0.0};
+    auto hp = make_pde_params(tc);
+
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 150;
+    cfg.n_v = 100;
+    cfg.n_time = 300;
+    cfg.scheme = ADISchemeType::CraigSneyd;
+    cfg.is_call = false;
+    cfg.is_american = true;
+
+    PDEEngine2D engine(cfg);
+    Real price = engine.price(hp);
+
+    Real intrinsic = tc.K - tc.S0;  // 50
+    std::cout << "DeepITM AmericanPut=" << price << " intrinsic=" << intrinsic << std::endl;
+    // Deep ITM: price should be close to intrinsic (within 2.0)
+    EXPECT_GT(price, intrinsic - 0.5)
+        << "Deep ITM American put too far below intrinsic";
+    EXPECT_LT(price, intrinsic + 2.0)
+        << "Deep ITM American put too far above intrinsic";
+}
+
+// Rannacher smoothing for American options: verify stability and reasonable accuracy.
+// Note: For American calls (q=0), multi-projection already handles the payoff kink
+// effectively. Rannacher adds O(dt) dissipation which can slightly worsen accuracy
+// for smooth regions. The test verifies Rannacher produces valid results within
+// a reasonable tolerance, not that it always improves accuracy.
+TEST(PDEADI2D, RannacherAmericanCallStableAndReasonable) {
+    auto tc = kTestCases[1];  // ATM call, q=0
+    auto hp = make_pde_params(tc);
+    Real cos_european = cos_price(tc);
+
+    // Without Rannacher
+    PDEEngine2DConfig cfg_no_ran;
+    cfg_no_ran.n_x = 120;
+    cfg_no_ran.n_v = 80;
+    cfg_no_ran.n_time = 200;
+    cfg_no_ran.scheme = ADISchemeType::CraigSneyd;
+    cfg_no_ran.is_call = true;
+    cfg_no_ran.is_american = true;
+    cfg_no_ran.n_rannacher_warmup = 0;
+    PDEEngine2D engine_no_ran(cfg_no_ran);
+    Real price_no_ran = engine_no_ran.price(hp);
+    Real err_no_ran = std::abs(price_no_ran - cos_european);
+
+    // With Rannacher (4 warmup steps)
+    PDEEngine2DConfig cfg_ran = cfg_no_ran;
+    cfg_ran.n_rannacher_warmup = 4;
+    PDEEngine2D engine_ran(cfg_ran);
+    Real price_ran = engine_ran.price(hp);
+    Real err_ran = std::abs(price_ran - cos_european);
+
+    std::cout << "err_no_rannacher=" << err_no_ran << " err_rannacher=" << err_ran << std::endl;
+    // Both should produce finite, positive prices
+    EXPECT_TRUE(std::isfinite(price_ran));
+    EXPECT_GT(price_ran, 0.0);
+    // Rannacher error should be within reasonable range (< 0.20 for this grid)
+    EXPECT_LT(err_ran, 0.20)
+        << "Rannacher American call error should be < 0.20";
+}
+
+// =========================================================================
+// 高精度收敛测试：网格细化序列下 American call (q=0) 的误差衰减
+// 多投影修正后理论收敛阶 = O(dt + dx^2 + dv^2)
+// 用 COS 欧式价格作为基准 (q=0 => American call = European call)
+// 注: sinh grid 浓度参数固定时, 相邻级别价格差异不严格单调递减
+//     (浓度随 N 非线性变化), 因此测试重点在总体收敛趋势与精细网格精度
+// =========================================================================
+TEST(PDEADI2D, AmericanCallConvergenceOrderWithCOSBenchmark) {
+    auto tc = kTestCases[1];  // ATM call, q=0
+    auto hp = make_pde_params(tc);
+    Real cos_ref = cos_price(tc);
+
+    // 3 级网格序列, 每级约 1.5x 细化
+    struct GridLevel { Size nx, nv, nt; const char* label; };
+    std::vector<GridLevel> levels = {
+        {120, 90,  200, "L0: 120x90x200"},
+        {180, 120, 300, "L1: 180x120x300"},
+        {240, 160, 400, "L2: 240x160x400"},
+    };
+
+    std::vector<Real> prices, errors;
+    for (const auto& gl : levels) {
+        PDEEngine2DConfig cfg;
+        cfg.n_x = gl.nx;
+        cfg.n_v = gl.nv;
+        cfg.n_time = gl.nt;
+        cfg.scheme = ADISchemeType::CraigSneyd;
+        cfg.is_call = true;
+        cfg.is_american = true;
+        PDEEngine2D engine(cfg);
+        Real price = engine.price(hp);
+        prices.push_back(price);
+        errors.push_back(std::abs(price - cos_ref));
+        std::cout << gl.label << ": price=" << price << " err=" << errors.back() << std::endl;
+    }
+
+    // 1. 所有价格必须有限正数
+    for (Real p : prices) {
+        EXPECT_TRUE(std::isfinite(p));
+        EXPECT_GT(p, 0.0);
+    }
+
+    // 2. 总体收敛趋势: 精细网格 (L2) 误差 < 粗网格 (L0) 误差
+    EXPECT_LT(errors[2], errors[0])
+        << "L0->L2 overall: err0=" << errors[0] << " err2=" << errors[2];
+
+    // 3. 精细网格 (L2) 误差应 < 0.08 (≈0.8% of COS≈9.76)
+    EXPECT_LT(errors[2], 0.08)
+        << "L2 err too large: " << errors[2] << " COS ref=" << cos_ref;
+
+    // 4. 精细网格自洽性: L1 与 L2 价格差异 < 0.04
+    Real diff_12 = std::abs(prices[1] - prices[2]);
+    EXPECT_LT(diff_12, 0.04)
+        << "L1-L2 self-error too large: " << diff_12;
+}
+
+// =========================================================================
+// 多 scheme 一致性测试: CS / HV / MCS 在美式看跌上应给出接近的价格
+// (splitting 误差相同量级, scheme 差异应 << 离散误差)
+// =========================================================================
+TEST(PDEADI2D, AmericanPutMultipleSchemesAgree) {
+    auto tc = kTestCases[1];  // ATM put
+    auto hp = make_pde_params(tc);
+
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 150;
+    cfg.n_v = 100;
+    cfg.n_time = 200;
+    cfg.is_call = false;
+    cfg.is_american = true;
+
+    std::vector<std::pair<ADISchemeType, const char*>> schemes = {
+        {ADISchemeType::CraigSneyd,        "CS"},
+        {ADISchemeType::HundsdorferVerwer, "HV"},
+        {ADISchemeType::ModifiedCraigSneyd, "MCS"},
+    };
+
+    std::vector<Real> prices;
+    for (const auto& [scheme, label] : schemes) {
+        cfg.scheme = scheme;
+        PDEEngine2D engine(cfg);
+        Real price = engine.price(hp);
+        prices.push_back(price);
+        std::cout << label << " American put = " << price << std::endl;
+        EXPECT_TRUE(std::isfinite(price));
+        EXPECT_GT(price, 0.0);
+    }
+
+    // 任意两 scheme 差异 < 0.10 (1% of strike)
+    for (Size i = 0; i < prices.size(); ++i) {
+        for (Size j = i + 1; j < prices.size(); ++j) {
+            Real diff = std::abs(prices[i] - prices[j]);
+            EXPECT_LT(diff, 0.10)
+                << "scheme " << schemes[i].second << " vs " << schemes[j].second
+                << ": diff=" << diff;
+        }
+    }
+}
+
+// =========================================================================
+// 低随机波动率 Heston 情形: xi 较小, v0=theta=sigma^2, kappa 较大
+// 方差过程接近常数, Heston 价格接近 BSM 价格
+// American call (q=0) 应该 = Heston European call (COS 基准)
+// =========================================================================
+TEST(PDEADI2D, AmericanCallLowVolOfVolMatchesEuropean) {
+    // 低随机波动率: xi=0.1, kappa=5, theta=v0=0.04 (sigma=0.2)
+    HestonTestCase tc_lowvol = {100.0, 100.0, 1.0, 0.04, 0.0,
+                                 0.04, 5.0, 0.04, 0.1, -0.3, true, 0.0};
+    auto hp = make_pde_params(tc_lowvol);
+
+    // Heston European call (COS) 作为基准
+    auto cf_params = make_cf_params(tc_lowvol);
+    Real cos_european = cos_call_heston(tc_lowvol.S0, tc_lowvol.K, tc_lowvol.T,
+                                         tc_lowvol.r, tc_lowvol.q, cf_params, 512, 12.0);
+    std::cout << "Heston European call (COS) = " << cos_european << std::endl;
+
+    // American call (q=0) 应该 = Heston European call
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 180;
+    cfg.n_v = 120;
+    cfg.n_time = 300;
+    cfg.scheme = ADISchemeType::CraigSneyd;
+    cfg.is_call = true;
+    cfg.is_american = true;
+
+    PDEEngine2D engine_amer(cfg);
+    Real price_amer = engine_amer.price(hp);
+    std::cout << "American Heston (low-vol-of-vol) call = " << price_amer << std::endl;
+
+    // 容差 0.10: q=0 时 American call = European call, 误差来自离散
+    Real err = std::abs(price_amer - cos_european);
+    EXPECT_LT(err, 0.10)
+        << "American call (low vol-of-vol) err=" << err << " COS=" << cos_european;
+
+    // 价格必须有限正数且 < S0
+    EXPECT_TRUE(std::isfinite(price_amer));
+    EXPECT_GT(price_amer, 0.0);
+    EXPECT_LT(price_amer, tc_lowvol.S0);
+}
+
+// =========================================================================
+// 美式 put 严格无套利边界验证:
+//   1. American put >= max(K*exp(-r*T), intrinsic) (perpetual lower bound)
+//   2. American put <= K (upper bound)
+//   3. American put >= European put
+// =========================================================================
+TEST(PDEADI2D, AmericanPutNoArbitrageBounds) {
+    // ITM put: K=110, S0=100
+    HestonTestCase tc = {100.0, 110.0, 1.0, 0.04, 0.0,
+                          0.04, 1.5, 0.04, 0.3, -0.5, false, 0.0};
+    auto hp = make_pde_params(tc);
+
+    PDEEngine2DConfig cfg;
+    cfg.n_x = 150;
+    cfg.n_v = 100;
+    cfg.n_time = 250;
+    cfg.scheme = ADISchemeType::CraigSneyd;
+    cfg.is_call = false;
+
+    // European put
+    cfg.is_american = false;
+    PDEEngine2D engine_eur(cfg);
+    Real price_eur = engine_eur.price(hp);
+
+    // American put
+    cfg.is_american = true;
+    PDEEngine2D engine_amer(cfg);
+    Real price_amer = engine_amer.price(hp);
+
+    Real intrinsic = std::max(tc.K - tc.S0, 0.0);  // 10
+    Real K_pv = tc.K * std::exp(-tc.r * tc.T);     // ~105.7
+
+    std::cout << "ITM put: European=" << price_eur << " American=" << price_amer
+              << " intrinsic=" << intrinsic << " K_pv=" << K_pv << std::endl;
+
+    // 1. American >= European (早行权权利价值)
+    EXPECT_GE(price_amer, price_eur - 0.01)
+        << "American must >= European";
+
+    // 2. American >= intrinsic (即行权价值)
+    EXPECT_GE(price_amer, intrinsic - 0.01)
+        << "American must >= intrinsic";
+
+    // 3. American <= K (无套利上界)
+    EXPECT_LE(price_amer, tc.K)
+        << "American must <= K";
+
+    // 4. American put 在 r=0 时 = European put (无早行权收益)
+    // (此 case r=0.04, 所以 American > European, 差额即早行权溢价)
+    EXPECT_GT(price_amer, price_eur)
+        << "With r>0, American put premium > 0";
+}
+
+// =========================================================================
+// 自适应时间步规范化测试: 验证 adaptive time step 行为
+// Heston PDE 的 v_max 处谱半径极大, adaptive time step 几乎总会触发,
+// 且 n_actual = ceil(T * spec_v / C_MAX) 与输入 n_time 无关 (dt 被规范化).
+// 此测试验证:
+//   1. adaptive 触发 (n_actual > n_time) 当 n_time 较小
+//   2. n_actual 收敛到稳定值 (与 n_time 无关) 当 n_time 足够大
+//   3. 价格在所有配置下完全相同 (因为实际 dt 相同)
+// =========================================================================
+TEST(PDEADI2D, AmericanPutAdaptiveTimeStepNormalization) {
+    auto tc = kTestCases[1];  // ATM put
+    auto hp = make_pde_params(tc);
+
+    struct TimeLevel { Size nt; const char* label; };
+    std::vector<TimeLevel> levels = {
+        {50,  "nt=50"},
+        {100, "nt=100"},
+        {200, "nt=200"},
+        {400, "nt=400"},
+    };
+
+    std::vector<Real> prices;
+    std::vector<Size> n_actual;
+    for (const auto& tl : levels) {
+        PDEEngine2DConfig cfg;
+        cfg.n_x = 150;
+        cfg.n_v = 100;
+        cfg.n_time = tl.nt;
+        cfg.scheme = ADISchemeType::CraigSneyd;
+        cfg.is_call = false;
+        cfg.is_american = true;
+        PDEEngine2D engine(cfg);
+        Real price = engine.price(hp);
+        prices.push_back(price);
+        n_actual.push_back(engine.last_n_time_used());
+        std::cout << tl.label << ": price=" << price
+                  << " n_actual=" << engine.last_n_time_used() << std::endl;
+    }
+
+    // 1. 自适应时间步触发: 小 n_time 时 n_actual > n_time
+    EXPECT_GT(n_actual[0], levels[0].nt)
+        << "Adaptive should trigger for small n_time=" << levels[0].nt;
+
+    // 2. n_actual 收敛到稳定值 (与 n_time 无关)
+    //    当 n_time 足够大, n_actual 应该 = ceil(T*spec_v/C_MAX), 是个常数
+    EXPECT_EQ(n_actual[1], n_actual[2])
+        << "n_actual should be constant for nt>=100: "
+        << n_actual[1] << " vs " << n_actual[2];
+    EXPECT_EQ(n_actual[2], n_actual[3])
+        << "n_actual should be constant for nt>=200: "
+        << n_actual[2] << " vs " << n_actual[3];
+
+    // 3. 价格在自适应触发后完全相同 (dt 被规范化为相同值)
+    EXPECT_NEAR(prices[1], prices[2], 1e-10)
+        << "Prices should be identical when dt is normalized";
+    EXPECT_NEAR(prices[2], prices[3], 1e-10)
+        << "Prices should be identical when dt is normalized";
+
+    // 4. 所有价格有限正数, 在合理范围内
+    for (Real p : prices) {
+        EXPECT_TRUE(std::isfinite(p));
+        EXPECT_GT(p, 0.0);
+        EXPECT_LT(p, tc.K);
+    }
 }

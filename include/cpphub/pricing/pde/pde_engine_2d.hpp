@@ -66,7 +66,17 @@ public:
         Real v_max = hp.v0 + config_.v_range * sigma0;  // heuristic upper bound
         if (v_max <= hp.v0) v_max = hp.v0 * 5.0 + 0.01;
 
-        FDMGrid2D grid = (config_.grid_type == GridType2D::Sinh)
+        // American options benefit from sinh grid: concentrates points near
+        // S=K (payoff kink) and v=0 (Feller boundary layer). If user hasn't
+        // explicitly set grid_type, auto-enable Sinh for American.
+        bool use_sinh = (config_.grid_type == GridType2D::Sinh);
+        if (config_.is_american && config_.grid_type == GridType2D::Uniform
+            && config_.alpha_x == 1.0) {
+            // Default config (alpha_x=1.0, grid_type=Uniform) — auto-upgrade
+            use_sinh = true;
+        }
+
+        FDMGrid2D grid = use_sinh
             ? FDMGrid2D(config_.n_x, config_.n_v, x_min, x_max,
                         config_.v_min_val, v_max, config_.alpha_x, config_.alpha_v)
             : FDMGrid2D(config_.n_x, config_.n_v, x_min, x_max,
@@ -74,8 +84,6 @@ public:
         auto coeffs = compute_heston_coeffs(grid, hp);
 
         // Initial condition: payoff at maturity (tau = 0)
-        // V(x, v, 0) = max(K*exp(x) - K, 0) for call (x = ln(S/K) => S = K*exp(x))
-        //            = max(K - K*exp(x), 0) for put
         Size total = grid.size();
         std::vector<Real> V(total), V_new(total);
         for (Size j = 0; j < grid.n_v(); ++j) {
@@ -87,20 +95,18 @@ public:
             }
         }
 
-        // Adaptive time step: CS/HV schemes use explicit predictor
-        // Y0 = V + dt*A*V (full operator). When dt * spectral_radius(A) is
-        // large, the predictor amplifies high-frequency modes near v_max
-        // where L_v has its largest eigenvalues. Although the subsequent
-        // implicit corrections theoretically restore stability (CS/HV are
-        // unconditionally stable per in 't Hout & Foulon 2010), in practice
-        // the intermediate values can overflow when dt*spec_v >> 1.
-        //
-        // Fix: auto-refine dt so that dt * spec(L_v at v_max) <= C_MAX.
-        // C_MAX = 4.0 calibrated from diagnostics:
-        //   dt*spec_v = 3.48 → stable (even without BC)
-        //   dt*spec_v = 5.61 → blows up without BC at step 52
-        //   dt*spec_v = 6.97 → blows up even with BC
-        // Threshold 4.0 provides margin below the no-BC blowup threshold.
+        // Precompute payoff at each x grid point for American projection
+        std::vector<Real> payoff_at_x(grid.n_x(), 0.0);
+        if (config_.is_american) {
+            for (Size i = 0; i < grid.n_x(); ++i) {
+                Real S = hp.K * std::exp(grid.x(i));
+                payoff_at_x[i] = config_.is_call
+                    ? std::max(S - hp.K, 0.0)
+                    : std::max(hp.K - S, 0.0);
+            }
+        }
+
+        // Adaptive time step
         Real dt = hp.T / static_cast<Real>(config_.n_time);
         Real dv = grid.dv();
         Real v_top = grid.v_max();
@@ -120,33 +126,30 @@ public:
         }
 
         auto scheme = create_scheme();
-
-        // Reset Rannacher smoothing step counter (if wrapper is used) so that
-        // repeated price() calls on the same engine start warmup from step 0.
         scheme->reset();
 
         for (Size step = 0; step < n_time_actual; ++step) {
-            // Apply boundary conditions before step
             apply_boundary_conditions(V, grid, hp,
                                        static_cast<Real>(step) * dt);
-            scheme->step(V, V_new, dt, grid, coeffs);
-            // Apply boundary conditions after step (at tau_{n+1})
+            if (config_.is_american) {
+                // Ikonen-Toivanen (2004): project after each implicit sub-step
+                // (Y1, Y2, ytilde1, ytilde2, V_new) — not just at the end.
+                // This reduces splitting error from O(dt) large-constant to
+                // O(dt) small-constant, significantly improving accuracy.
+                scheme->step_american(V, V_new, dt, grid, coeffs, payoff_at_x);
+            } else {
+                scheme->step(V, V_new, dt, grid, coeffs);
+            }
             apply_boundary_conditions(V_new, grid, hp,
                                        static_cast<Real>(step + 1) * dt);
-            // American option: apply early-exercise constraint (PSOR projection)
-            // V >= payoff at all grid points. This is the Ikonen-Toivanen (2004)
-            // operator-splitting approach: standard ADI step + L1 projection.
-            // The constraint V >= payoff(S) enforces the variational inequality
-            //   max(dV/dtau - L V, payoff - V) = 0
-            // at each time step. Strict accuracy is O(dt) due to splitting,
-            // but converges to true American price as dt -> 0.
+            // Final safety projection for American (redundant with step_american
+            // but guards against boundary-condition interference)
             if (config_.is_american) {
                 apply_early_exercise(V_new, grid, hp);
             }
             V.swap(V_new);
         }
 
-        // Interpolate at (x0, v0)
         last_n_time_used_ = n_time_actual;
         return interpolate_at(V, grid, x0, hp.v0);
     }

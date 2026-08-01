@@ -361,9 +361,36 @@ public:
     virtual void step(const std::vector<Real>& V_old, std::vector<Real>& V_new,
                       Real dt, const FDMGrid2D& grid,
                       const HestonOperatorCoeffs& c) const = 0;
+
+    // American option step with payoff projection after each implicit solve.
+    // payoff_at_x: vector of length n_x, intrinsic value at each x grid point.
+    // Default: standard step + single projection at end (L1 splitting, O(dt)).
+    // Override for scheme-specific multi-projection (Ikonen-Toivanen 2004).
+    virtual void step_american(const std::vector<Real>& V_old, std::vector<Real>& V_new,
+                                Real dt, const FDMGrid2D& grid,
+                                const HestonOperatorCoeffs& c,
+                                const std::vector<Real>& payoff_at_x) const {
+        step(V_old, V_new, dt, grid, c);
+        project_payoff(V_new, grid, payoff_at_x);
+    }
+
     // Reset internal state (e.g., Rannacher step counter) for a new price() call.
     // Default: no-op (stateless schemes). RannacherSmoothing2D overrides this.
     virtual void reset() const {}
+
+protected:
+    // Project V onto constraint set {V >= payoff} at all grid points.
+    // payoff_at_x[i] is the intrinsic value at x grid point i (independent of v).
+    static void project_payoff(std::vector<Real>& V, const FDMGrid2D& grid,
+                                const std::vector<Real>& payoff_at_x) {
+        Size nx = grid.n_x(), nv = grid.n_v();
+        for (Size j = 0; j < nv; ++j) {
+            for (Size i = 0; i < nx; ++i) {
+                Size k = grid.idx(i, j);
+                if (V[k] < payoff_at_x[i]) V[k] = payoff_at_x[i];
+            }
+        }
+    }
 };
 
 // Craig-Sneyd scheme (second-order, theta = 0.5 default)
@@ -386,12 +413,6 @@ public:
         apply_mixed_derivative(V_old, grid, c, LxvVn);
 
         // Y0 = V_n + dt * L_full * V_n
-        // Use apply_heston_operator (not component sum) to keep boundary handling
-        // consistent: boundaries return 0 so Y0 = V_old at boundaries, matching
-        // the external boundary-condition evolution in PDEEngine2D.
-        // Component sum (Lx+Lv+Lxv+L0) would evolve boundaries inconsistently
-        // because apply_x_operator / apply_v_operator populate boundary rows,
-        // leading to numerical blow-up in subsequent L_full(Y0) applications.
         std::vector<Real> LVn;
         apply_heston_operator(V_old, grid, c, LVn);
         std::vector<Real> Y0(total);
@@ -442,6 +463,80 @@ public:
         for (Size k = 0; k < total; ++k) {
             V_new[k] = ytilde2[k] + theta_dt * LxvYhat[k] + corr_coeff * LYhat[k];
         }
+    }
+
+    // American option: project after each implicit solve (Ikonen-Toivanen 2004).
+    // Y1 (implicit x) -> project
+    // Y2 (implicit v) -> project
+    // ytilde1 (implicit x) -> project
+    // ytilde2 (implicit v) -> project
+    // V_new (final) -> project
+    void step_american(const std::vector<Real>& V_old, std::vector<Real>& V_new,
+                        Real dt, const FDMGrid2D& grid,
+                        const HestonOperatorCoeffs& c,
+                        const std::vector<Real>& payoff_at_x) const override {
+        Real theta_dt = theta_ * dt;
+        Real corr_coeff = (theta_ - 0.5) * dt;
+        Size total = V_old.size();
+
+        std::vector<Real> LxVn, LvVn, LxvVn;
+        apply_x_operator(V_old, grid, c, LxVn);
+        apply_v_operator(V_old, grid, c, LvVn);
+        apply_mixed_derivative(V_old, grid, c, LxvVn);
+
+        std::vector<Real> LVn;
+        apply_heston_operator(V_old, grid, c, LVn);
+        std::vector<Real> Y0(total);
+        for (Size k = 0; k < total; ++k) Y0[k] = V_old[k] + dt * LVn[k];
+
+        // (I - theta_dt L_x) Y1 = Y0 - theta_dt L_x V_n  -> project
+        std::vector<Real> Y1 = Y0;
+        for (Size k = 0; k < total; ++k) Y1[k] -= theta_dt * LxVn[k];
+        solve_x_direction(Y1, grid, c, theta_dt);
+        project_payoff(Y1, grid, payoff_at_x);
+
+        // (I - theta_dt L_v) Y2 = Y1 - theta_dt L_v V_n  -> project
+        std::vector<Real> Y2 = Y1;
+        for (Size k = 0; k < total; ++k) Y2[k] -= theta_dt * LvVn[k];
+        solve_v_direction(Y2, grid, c, theta_dt);
+        project_payoff(Y2, grid, payoff_at_x);
+
+        // Yhat = Y2 + theta_dt L_xv V_n + (theta - 0.5) dt L_full Y0
+        std::vector<Real> LY0;
+        apply_heston_operator(Y0, grid, c, LY0);
+        std::vector<Real> Yhat = Y2;
+        for (Size k = 0; k < total; ++k) {
+            Yhat[k] += theta_dt * LxvVn[k] + corr_coeff * LY0[k];
+        }
+
+        std::vector<Real> ytilde(total);
+        for (Size k = 0; k < total; ++k) ytilde[k] = Yhat[k] - Y2[k] + Y1[k];
+
+        std::vector<Real> LxYhat, LvYhat, LxvYhat;
+        apply_x_operator(Yhat, grid, c, LxYhat);
+        apply_v_operator(Yhat, grid, c, LvYhat);
+        apply_mixed_derivative(Yhat, grid, c, LxvYhat);
+
+        // (I - theta_dt L_x) ytilde1 = ytilde - theta_dt L_x Yhat  -> project
+        std::vector<Real> ytilde1 = ytilde;
+        for (Size k = 0; k < total; ++k) ytilde1[k] -= theta_dt * LxYhat[k];
+        solve_x_direction(ytilde1, grid, c, theta_dt);
+        project_payoff(ytilde1, grid, payoff_at_x);
+
+        // (I - theta_dt L_v) ytilde2 = ytilde1 - theta_dt L_v Yhat  -> project
+        std::vector<Real> ytilde2 = ytilde1;
+        for (Size k = 0; k < total; ++k) ytilde2[k] -= theta_dt * LvYhat[k];
+        solve_v_direction(ytilde2, grid, c, theta_dt);
+        project_payoff(ytilde2, grid, payoff_at_x);
+
+        // V_{n+1} = ytilde2 + theta_dt L_xv Yhat + (theta - 0.5) dt L_full Yhat
+        std::vector<Real> LYhat;
+        apply_heston_operator(Yhat, grid, c, LYhat);
+        V_new.assign(total, 0.0);
+        for (Size k = 0; k < total; ++k) {
+            V_new[k] = ytilde2[k] + theta_dt * LxvYhat[k] + corr_coeff * LYhat[k];
+        }
+        project_payoff(V_new, grid, payoff_at_x);
     }
 
 private:
@@ -512,6 +607,69 @@ public:
         for (Size k = 0; k < total; ++k) {
             V_new[k] = ytilde2[k] + corr_coeff * LYhat[k];
         }
+    }
+
+    // American option: project after each implicit solve (Ikonen-Toivanen 2004)
+    void step_american(const std::vector<Real>& V_old, std::vector<Real>& V_new,
+                        Real dt, const FDMGrid2D& grid,
+                        const HestonOperatorCoeffs& c,
+                        const std::vector<Real>& payoff_at_x) const override {
+        Real theta_dt = theta_ * dt;
+        Real corr_coeff = (theta_ - 0.5) * dt;
+        Size total = V_old.size();
+
+        std::vector<Real> LxVn, LvVn;
+        apply_x_operator(V_old, grid, c, LxVn);
+        apply_v_operator(V_old, grid, c, LvVn);
+
+        std::vector<Real> LVn;
+        apply_heston_operator(V_old, grid, c, LVn);
+        std::vector<Real> Y0(total);
+        for (Size k = 0; k < total; ++k) Y0[k] = V_old[k] + dt * LVn[k];
+
+        // Y1 -> project
+        std::vector<Real> Y1 = Y0;
+        for (Size k = 0; k < total; ++k) Y1[k] -= theta_dt * LxVn[k];
+        solve_x_direction(Y1, grid, c, theta_dt);
+        project_payoff(Y1, grid, payoff_at_x);
+
+        // Y2 -> project
+        std::vector<Real> Y2 = Y1;
+        for (Size k = 0; k < total; ++k) Y2[k] -= theta_dt * LvVn[k];
+        solve_v_direction(Y2, grid, c, theta_dt);
+        project_payoff(Y2, grid, payoff_at_x);
+
+        std::vector<Real> LY0;
+        apply_heston_operator(Y0, grid, c, LY0);
+        std::vector<Real> Yhat = Y2;
+        for (Size k = 0; k < total; ++k) Yhat[k] += corr_coeff * LY0[k];
+
+        std::vector<Real> ytilde(total);
+        for (Size k = 0; k < total; ++k) ytilde[k] = Yhat[k] - Y2[k] + Y1[k];
+
+        std::vector<Real> LxYhat, LvYhat;
+        apply_x_operator(Yhat, grid, c, LxYhat);
+        apply_v_operator(Yhat, grid, c, LvYhat);
+
+        // ytilde1 -> project
+        std::vector<Real> ytilde1 = ytilde;
+        for (Size k = 0; k < total; ++k) ytilde1[k] -= theta_dt * LxYhat[k];
+        solve_x_direction(ytilde1, grid, c, theta_dt);
+        project_payoff(ytilde1, grid, payoff_at_x);
+
+        // ytilde2 -> project
+        std::vector<Real> ytilde2 = ytilde1;
+        for (Size k = 0; k < total; ++k) ytilde2[k] -= theta_dt * LvYhat[k];
+        solve_v_direction(ytilde2, grid, c, theta_dt);
+        project_payoff(ytilde2, grid, payoff_at_x);
+
+        std::vector<Real> LYhat;
+        apply_heston_operator(Yhat, grid, c, LYhat);
+        V_new.assign(total, 0.0);
+        for (Size k = 0; k < total; ++k) {
+            V_new[k] = ytilde2[k] + corr_coeff * LYhat[k];
+        }
+        project_payoff(V_new, grid, payoff_at_x);
     }
 
 private:
@@ -606,6 +764,80 @@ public:
         }
     }
 
+    // American option: project after each implicit solve (Ikonen-Toivanen 2004)
+    void step_american(const std::vector<Real>& V_old, std::vector<Real>& V_new,
+                        Real dt, const FDMGrid2D& grid,
+                        const HestonOperatorCoeffs& c,
+                        const std::vector<Real>& payoff_at_x) const override {
+        Real theta_dt = theta_ * dt;
+        Real corr_coeff = (theta_ - 0.5) * dt;
+        Size total = V_old.size();
+
+        std::vector<Real> LxVn, LvVn, LxvVn;
+        apply_x_operator(V_old, grid, c, LxVn);
+        apply_v_operator(V_old, grid, c, LvVn);
+        apply_mixed_derivative(V_old, grid, c, LxvVn);
+
+        std::vector<Real> LVn;
+        apply_heston_operator(V_old, grid, c, LVn);
+        std::vector<Real> Y0(total);
+        for (Size k = 0; k < total; ++k) Y0[k] = V_old[k] + dt * LVn[k];
+
+        // Y1 -> project
+        std::vector<Real> Y1 = Y0;
+        for (Size k = 0; k < total; ++k) Y1[k] -= theta_dt * LxVn[k];
+        solve_x_direction(Y1, grid, c, theta_dt);
+        project_payoff(Y1, grid, payoff_at_x);
+
+        // Y2 -> project
+        std::vector<Real> Y2 = Y1;
+        for (Size k = 0; k < total; ++k) Y2[k] -= theta_dt * LvVn[k];
+        solve_v_direction(Y2, grid, c, theta_dt);
+        project_payoff(Y2, grid, payoff_at_x);
+
+        std::vector<Real> LY0;
+        apply_heston_operator(Y0, grid, c, LY0);
+        std::vector<Real> Yhat = Y2;
+        for (Size k = 0; k < total; ++k) {
+            Yhat[k] += theta_dt * LxvVn[k] + corr_coeff * LY0[k];
+        }
+
+        std::vector<Real> ytilde(total);
+        for (Size k = 0; k < total; ++k) ytilde[k] = Yhat[k] - Y2[k] + Y1[k];
+
+        std::vector<Real> LxYhat, LvYhat, LxvYhat;
+        apply_x_operator(Yhat, grid, c, LxYhat);
+        apply_v_operator(Yhat, grid, c, LvYhat);
+        apply_mixed_derivative(Yhat, grid, c, LxvYhat);
+
+        // ytilde1 -> project
+        std::vector<Real> ytilde1 = ytilde;
+        for (Size k = 0; k < total; ++k) ytilde1[k] -= theta_dt * LxYhat[k];
+        solve_x_direction(ytilde1, grid, c, theta_dt);
+        project_payoff(ytilde1, grid, payoff_at_x);
+
+        // ytilde2 -> project
+        std::vector<Real> ytilde2 = ytilde1;
+        for (Size k = 0; k < total; ++k) ytilde2[k] -= theta_dt * LvYhat[k];
+        solve_v_direction(ytilde2, grid, c, theta_dt);
+        project_payoff(ytilde2, grid, payoff_at_x);
+
+        // MCS final correction: L_full(ytilde2) instead of L_full(Yhat)
+        V_new.assign(total, 0.0);
+        if (corr_coeff == 0.0) {
+            for (Size k = 0; k < total; ++k) {
+                V_new[k] = ytilde2[k] + theta_dt * LxvYhat[k];
+            }
+        } else {
+            std::vector<Real> Lytilde2;
+            apply_heston_operator(ytilde2, grid, c, Lytilde2);
+            for (Size k = 0; k < total; ++k) {
+                V_new[k] = ytilde2[k] + theta_dt * LxvYhat[k] + corr_coeff * Lytilde2[k];
+            }
+        }
+        project_payoff(V_new, grid, payoff_at_x);
+    }
+
 private:
     Real theta_;
 };
@@ -644,6 +876,19 @@ public:
             warmup_scheme_->step(V_old, V_new, dt, grid, c);
         } else {
             main_scheme_->step(V_old, V_new, dt, grid, c);
+        }
+        ++step_count_;
+    }
+
+    // American option: delegate to active inner scheme (warmup or main)
+    void step_american(const std::vector<Real>& V_old, std::vector<Real>& V_new,
+                        Real dt, const FDMGrid2D& grid,
+                        const HestonOperatorCoeffs& c,
+                        const std::vector<Real>& payoff_at_x) const override {
+        if (step_count_ < n_warmup_ && warmup_scheme_) {
+            warmup_scheme_->step_american(V_old, V_new, dt, grid, c, payoff_at_x);
+        } else {
+            main_scheme_->step_american(V_old, V_new, dt, grid, c, payoff_at_x);
         }
         ++step_count_;
     }
