@@ -17,9 +17,12 @@ cpphub_add_benchmark(bench_greeks_batch bench_greeks_batch.cpp)
 # E2: 10000 场景 MC VaR 基准
 cpphub_add_benchmark(bench_var_mc bench_var_mc.cpp)
 
+# PDE 性能基准 (PHASE3_SPEC §6: PDE 400x2000 < 100ms)
+cpphub_add_benchmark(bench_pde bench_pde.cpp)
+
 # 便捷目标: 编译并运行所有基准
 add_custom_target(bench
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
     COMMENT "Running performance benchmarks (not ctest unit tests)"
-    DEPENDS bench_greeks_batch bench_var_mc
+    DEPENDS bench_greeks_batch bench_var_mc bench_pde
 )

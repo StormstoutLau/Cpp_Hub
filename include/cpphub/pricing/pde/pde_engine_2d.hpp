@@ -25,7 +25,13 @@ inline namespace v1 {
 
 enum class ADISchemeType {
     CraigSneyd,
-    HundsdorferVerwer
+    HundsdorferVerwer,
+    ModifiedCraigSneyd
+};
+
+enum class GridType2D {
+    Uniform,
+    Sinh
 };
 
 struct PDEEngine2DConfig {
@@ -38,6 +44,11 @@ struct PDEEngine2DConfig {
     ADISchemeType scheme = ADISchemeType::CraigSneyd;
     Real theta = 0.5;       // ADI theta (0.5 = second-order)
     bool is_call = true;
+    GridType2D grid_type = GridType2D::Uniform;  // grid transformation
+    Real alpha_x = 1.0;     // sinh concentration for x (0=uniform, 1.0=moderate, 2.0=strong)
+    Real alpha_v = 0.0;     // sinh concentration for v (0=uniform; >0 hurts when Feller satisfied)
+    Size n_rannacher_warmup = 0;  // Rannacher smoothing: first n steps use theta=1.0 (L-stable), 0=disabled
+    bool is_american = false;     // American option (PSOR early-exercise projection after each ADI step)
 };
 
 class PDEEngine2D {
@@ -55,8 +66,11 @@ public:
         Real v_max = hp.v0 + config_.v_range * sigma0;  // heuristic upper bound
         if (v_max <= hp.v0) v_max = hp.v0 * 5.0 + 0.01;
 
-        FDMGrid2D grid(config_.n_x, config_.n_v, x_min, x_max,
-                       config_.v_min_val, v_max);
+        FDMGrid2D grid = (config_.grid_type == GridType2D::Sinh)
+            ? FDMGrid2D(config_.n_x, config_.n_v, x_min, x_max,
+                        config_.v_min_val, v_max, config_.alpha_x, config_.alpha_v)
+            : FDMGrid2D(config_.n_x, config_.n_v, x_min, x_max,
+                        config_.v_min_val, v_max);
         auto coeffs = compute_heston_coeffs(grid, hp);
 
         // Initial condition: payoff at maturity (tau = 0)
@@ -73,11 +87,45 @@ public:
             }
         }
 
-        // Time integration (tau from 0 to T)
+        // Adaptive time step: CS/HV schemes use explicit predictor
+        // Y0 = V + dt*A*V (full operator). When dt * spectral_radius(A) is
+        // large, the predictor amplifies high-frequency modes near v_max
+        // where L_v has its largest eigenvalues. Although the subsequent
+        // implicit corrections theoretically restore stability (CS/HV are
+        // unconditionally stable per in 't Hout & Foulon 2010), in practice
+        // the intermediate values can overflow when dt*spec_v >> 1.
+        //
+        // Fix: auto-refine dt so that dt * spec(L_v at v_max) <= C_MAX.
+        // C_MAX = 4.0 calibrated from diagnostics:
+        //   dt*spec_v = 3.48 → stable (even without BC)
+        //   dt*spec_v = 5.61 → blows up without BC at step 52
+        //   dt*spec_v = 6.97 → blows up even with BC
+        // Threshold 4.0 provides margin below the no-BC blowup threshold.
         Real dt = hp.T / static_cast<Real>(config_.n_time);
+        Real dv = grid.dv();
+        Real v_top = grid.v_max();
+        Real drift_v_top = hp.kappa * (hp.theta - v_top);
+        Real diff_v_top = 0.5 * hp.xi * hp.xi * v_top;
+        Real a_v_top = diff_v_top / (dv * dv) - drift_v_top / (2.0 * dv);
+        Real b_v_top = -hp.xi * hp.xi * v_top / (dv * dv);
+        Real c_v_top = diff_v_top / (dv * dv) + drift_v_top / (2.0 * dv);
+        Real spec_v = std::abs(b_v_top)
+                      + 2.0 * std::sqrt(std::abs(a_v_top * c_v_top));
+        const Real C_MAX = 4.0;
+        Size n_time_actual = config_.n_time;
+        if (dt * spec_v > C_MAX) {
+            n_time_actual = static_cast<Size>(std::ceil(
+                static_cast<Real>(config_.n_time) * dt * spec_v / C_MAX));
+            dt = hp.T / static_cast<Real>(n_time_actual);
+        }
+
         auto scheme = create_scheme();
 
-        for (Size step = 0; step < config_.n_time; ++step) {
+        // Reset Rannacher smoothing step counter (if wrapper is used) so that
+        // repeated price() calls on the same engine start warmup from step 0.
+        scheme->reset();
+
+        for (Size step = 0; step < n_time_actual; ++step) {
             // Apply boundary conditions before step
             apply_boundary_conditions(V, grid, hp,
                                        static_cast<Real>(step) * dt);
@@ -85,26 +133,57 @@ public:
             // Apply boundary conditions after step (at tau_{n+1})
             apply_boundary_conditions(V_new, grid, hp,
                                        static_cast<Real>(step + 1) * dt);
+            // American option: apply early-exercise constraint (PSOR projection)
+            // V >= payoff at all grid points. This is the Ikonen-Toivanen (2004)
+            // operator-splitting approach: standard ADI step + L1 projection.
+            // The constraint V >= payoff(S) enforces the variational inequality
+            //   max(dV/dtau - L V, payoff - V) = 0
+            // at each time step. Strict accuracy is O(dt) due to splitting,
+            // but converges to true American price as dt -> 0.
+            if (config_.is_american) {
+                apply_early_exercise(V_new, grid, hp);
+            }
             V.swap(V_new);
         }
 
         // Interpolate at (x0, v0)
+        last_n_time_used_ = n_time_actual;
         return interpolate_at(V, grid, x0, hp.v0);
     }
 
     const PDEEngine2DConfig& config() const { return config_; }
 
+    // Returns the actual number of time steps used in the last price() call.
+    // May exceed config_.n_time if adaptive time stepping was triggered.
+    Size last_n_time_used() const { return last_n_time_used_; }
+
 private:
     PDEEngine2DConfig config_;
+    mutable Size last_n_time_used_ = 0;
 
     std::unique_ptr<ADISchemeBase> create_scheme() const {
-        switch (config_.scheme) {
-            case ADISchemeType::HundsdorferVerwer:
-                return std::make_unique<HundsdorferVerwerScheme>(config_.theta);
-            case ADISchemeType::CraigSneyd:
-            default:
-                return std::make_unique<CraigSneydScheme>(config_.theta);
+        auto make_inner = [](ADISchemeType type, Real theta)
+                -> std::unique_ptr<ADISchemeBase> {
+            switch (type) {
+                case ADISchemeType::HundsdorferVerwer:
+                    return std::make_unique<HundsdorferVerwerScheme>(theta);
+                case ADISchemeType::ModifiedCraigSneyd:
+                    return std::make_unique<ModifiedCraigSneydScheme>(theta);
+                case ADISchemeType::CraigSneyd:
+                default:
+                    return std::make_unique<CraigSneydScheme>(theta);
+            }
+        };
+
+        if (config_.n_rannacher_warmup > 0) {
+            // Warmup: theta=1.0 (L-stable, strong damping of high-freq oscillations)
+            // Main: configured theta (typically 0.5 for second-order accuracy)
+            auto warmup = make_inner(config_.scheme, 1.0);
+            auto main = make_inner(config_.scheme, config_.theta);
+            return std::make_unique<RannacherSmoothing2D>(
+                std::move(warmup), std::move(main), config_.n_rannacher_warmup);
         }
+        return make_inner(config_.scheme, config_.theta);
     }
 
     // Boundary conditions
@@ -145,23 +224,53 @@ private:
             }
         }
 
-        // v_max: linear extrapolation (Neumann-like)
-        if (nv >= 3) {
+        // v_max: zero-flux Neumann boundary (dV/dv = 0)
+        // Use constant extrapolation V[nv-1] = V[nv-2] instead of linear
+        // extrapolation. Linear extrapolation (2*V[nv-2]-V[nv-3]) amplifies
+        // boundary errors on fine grids where dv is small, causing numerical
+        // blow-up. Constant extrapolation is more diffusive but stable.
+        // Reference: in 't Hout & Foulon (2010) §3.3 recommend Neumann at v_max.
+        if (nv >= 2) {
             for (Size i = 0; i < nx; ++i) {
-                Real v0 = V[grid.idx(i, nv - 3)];
-                Real v1 = V[grid.idx(i, nv - 2)];
-                Real v2 = V[grid.idx(i, nv - 1)];
-                // Linear extrapolation: V[nv-1] = 2*V[nv-2] - V[nv-3]
-                // But this overrides the corner. Keep it simple.
-                V[grid.idx(i, nv - 1)] = 2.0 * v1 - v0;
-                (void)v2;
+                V[grid.idx(i, nv - 1)] = V[grid.idx(i, nv - 2)];
+            }
+        }
+    }
+
+    // American option early-exercise constraint (L1 projection / PSOR projection).
+    // Enforces V(x, v) >= payoff(S(x)) at all interior grid points.
+    // The payoff depends only on S = K*exp(x), not on v, so the projection
+    // is applied uniformly across all v-rows for each x-column.
+    //
+    // This is the simplest operator-splitting scheme for American options
+    // (Ikonen & Toivanen 2004). After each ADI time step, project the solution
+    // onto the constraint set {V >= payoff}. The scheme is O(dt) accurate
+    // due to the splitting, but converges to the true American price as dt->0.
+    //
+    // Note: Boundary points are also projected to ensure consistency
+    // (e.g., deep ITM put at S->0 has payoff = K, V should be >= K*exp(-r*tau)).
+    void apply_early_exercise(std::vector<Real>& V, const FDMGrid2D& grid,
+                               const HestonPDEParams& hp) const {
+        Size nx = grid.n_x(), nv = grid.n_v();
+        Real K = hp.K;
+        for (Size i = 0; i < nx; ++i) {
+            Real S = K * std::exp(grid.x(i));
+            Real payoff = config_.is_call
+                ? std::max(S - K, 0.0)
+                : std::max(K - S, 0.0);
+            for (Size j = 0; j < nv; ++j) {
+                Size k = grid.idx(i, j);
+                if (V[k] < payoff) V[k] = payoff;
             }
         }
     }
 
     Real interpolate_at(const std::vector<Real>& V, const FDMGrid2D& grid,
                          Real x0, Real v0) const {
-        // Bilinear interpolation at (x0, v0)
+        // Hybrid interpolation: linear in x, quadratic (3-point Lagrange) in v.
+        // Uses general Lagrange formula (works for both uniform and non-uniform grids).
+        // Falls back to bilinear (linear in v) when v0 is at the v_min boundary
+        // (j=0) where 3-point stencil is unavailable.
         Size nx = grid.n_x(), nv = grid.n_v();
         // Find i such that grid.x(i) <= x0 < grid.x(i+1)
         Size i = 0;
@@ -176,17 +285,35 @@ private:
         }
 
         Real x_l = grid.x(i), x_r = grid.x(i + 1);
-        Real v_b = grid.v(j), v_t = grid.v(j + 1);
         Real wx = (x0 - x_l) / (x_r - x_l);
+
+        // Helper: linear interpolation in x at a given v-row j_row
+        auto interp_x = [&](Size j_row) -> Real {
+            return V[grid.idx(i, j_row)] * (1.0 - wx)
+                 + V[grid.idx(i + 1, j_row)] * wx;
+        };
+
+        // Quadratic Lagrange in v when 3-point stencil is available
+        // (j >= 1 ensures we can use points j-1, j, j+1)
+        if (j >= 1) {
+            Real v_jm1 = grid.v(j - 1);
+            Real v_j   = grid.v(j);
+            Real v_jp1 = grid.v(j + 1);
+            // General 3-point Lagrange (works for uniform and non-uniform)
+            Real L0 = (v0 - v_j) * (v0 - v_jp1) / ((v_jm1 - v_j) * (v_jm1 - v_jp1));
+            Real L1 = (v0 - v_jm1) * (v0 - v_jp1) / ((v_j - v_jm1) * (v_j - v_jp1));
+            Real L2 = (v0 - v_jm1) * (v0 - v_j) / ((v_jp1 - v_jm1) * (v_jp1 - v_j));
+            Real V_jm1 = interp_x(j - 1);
+            Real V_j   = interp_x(j);
+            Real V_jp1 = interp_x(j + 1);
+            return V_jm1 * L0 + V_j * L1 + V_jp1 * L2;
+        }
+
+        // Fallback: bilinear (linear in v) at v_min boundary
+        Real V_b = interp_x(j);
+        Real V_t = interp_x(j + 1);
+        Real v_b = grid.v(j), v_t = grid.v(j + 1);
         Real wv = (v0 - v_b) / (v_t - v_b);
-
-        Real V_bl = V[grid.idx(i, j)];
-        Real V_br = V[grid.idx(i + 1, j)];
-        Real V_tl = V[grid.idx(i, j + 1)];
-        Real V_tr = V[grid.idx(i + 1, j + 1)];
-
-        Real V_b = V_bl * (1.0 - wx) + V_br * wx;
-        Real V_t = V_tl * (1.0 - wx) + V_tr * wx;
         return V_b * (1.0 - wv) + V_t * wv;
     }
 };

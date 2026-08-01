@@ -41,6 +41,9 @@ cpphub_add_test(test_pde_engine unit/pricing/test_pde_engine.cpp)
 # v1.4: 2D PDE ADI 引擎测试 (Craig-Sneyd / Hundsdorfer-Verwer for Heston)
 cpphub_add_test(test_pde_adi_2d unit/pricing/test_pde_adi_2d.cpp)
 
+# v1.4: Chebyshev 配点谱方法测试 (1D BSM PDE, spectral convergence)
+cpphub_add_test(test_chebyshev_pde unit/pricing/test_chebyshev_pde.cpp)
+
 # Phase 2 M2: 树形引擎测试 (B 站实现)
 cpphub_add_test(test_tree_engine unit/pricing/test_tree_engine.cpp)
 
