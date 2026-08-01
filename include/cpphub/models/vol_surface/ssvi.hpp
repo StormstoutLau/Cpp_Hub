@@ -18,6 +18,7 @@
 //           https://arxiv.org/abs/1204.0646
 #include "cpphub/core/types.hpp"
 #include "cpphub/models/vol_surface/svi.hpp"
+#include "cpphub/calibration/calibrator.hpp"  // HestonParams
 #include <vector>
 #include <functional>
 #include <cmath>
@@ -58,6 +59,17 @@ public:
     static SSVIParams Heston_like(Real rho, Real eta, Real lambda, const std::vector<Real>& theta_slice);
     static SSVIParams Power_law(Real rho, Real eta, Real gamma, const std::vector<Real>& theta_slice);
 
+    // Heston → SSVI 解析映射 (Gatheral-Jacquier 2014 Theorem 3.1)
+    // 大期限极限下的渐近映射, 可作为 SSVI 标定的优质初始猜测
+    //   ρ_SSVI = ρ_Heston
+    //   θ(T) = (v0 - θ̄) * (1 - exp(-κT)) / κ + θ̄ * T   (ATM total variance)
+    //   φ(θ) = ξ / (κ * θ̄) * (1 - ρ²)                    (大期限常数极限)
+    static SSVIParams from_heston(const HestonParams& hp, Real T);
+
+    // 设置 Heston 初始猜测 (用于 calibrate 中的 DE/LM 初始化)
+    void set_heston_init(const HestonParams& hp) { heston_init_ = hp; has_heston_init_ = true; }
+    void clear_heston_init() { has_heston_init_ = false; }
+
     // 从市场数据校准
     CalibrationResult calibrate(
         const std::vector<Real>& strikes,
@@ -70,6 +82,8 @@ public:
 
 private:
     SSVIParams params_;
+    bool has_heston_init_ = false;
+    HestonParams heston_init_{};
     Real dvar_dk(Real k, Real theta) const;
     Real d2var_dk2(Real k, Real theta) const;
     // 数值导数辅助 (用于 φ(θ) 的导数,因 std::function 无法解析求导)
@@ -248,6 +262,42 @@ inline SSVIParams SSVI::Power_law(Real rho, Real eta, Real gamma,
     return p;
 }
 
+// Heston → SSVI 解析映射 (Gatheral-Jacquier 2014 Theorem 3.1)
+// 大期限极限下 Heston IV surface → SSVI 参数的渐近映射
+inline SSVIParams SSVI::from_heston(const HestonParams& hp, Real T) {
+    if (T <= 0.0) {
+        throw std::invalid_argument("SSVI::from_heston: T must be positive");
+    }
+    if (hp.kappa <= 0.0 || hp.theta <= 0.0 || hp.sigma_v <= 0.0) {
+        throw std::invalid_argument("SSVI::from_heston: kappa, theta, sigma_v must be positive");
+    }
+    if (std::abs(hp.rho) >= 1.0) {
+        throw std::invalid_argument("SSVI::from_heston: |rho| must be < 1");
+    }
+
+    // ATM total variance: θ(T) = (v0 - θ̄) * (1 - exp(-κT)) / κ + θ̄ * T
+    Real theta_T = (hp.v0 - hp.theta) * (1.0 - std::exp(-hp.kappa * T)) / hp.kappa
+                   + hp.theta * T;
+    if (theta_T <= 0.0) {
+        throw std::invalid_argument("SSVI::from_heston: computed theta(T) must be positive");
+    }
+
+    // SSVI rho = Heston rho
+    Real rho_ssvi = hp.rho;
+
+    // φ(θ) = ξ / (κ * θ̄) * (1 - ρ²)  [大期限常数极限]
+    Real phi_const = hp.sigma_v * (1.0 - hp.rho * hp.rho) / (hp.kappa * hp.theta);
+    if (phi_const <= 0.0) {
+        throw std::invalid_argument("SSVI::from_heston: computed phi must be positive");
+    }
+
+    SSVIParams p;
+    p.rho = rho_ssvi;
+    p.phi = [phi_const](Real) { return phi_const; };
+    p.theta_slice = {theta_T};
+    return p;
+}
+
 // 校准: 拟合 SSVI 参数 (rho, eta, gamma) 到市场数据
 // 采用分层策略: 先按期限校准 SVI 切片得到各 θ, 再拟合 SSVI 全局参数
 inline CalibrationResult SSVI::calibrate(
@@ -320,8 +370,24 @@ inline CalibrationResult SSVI::calibrate(
     // 初始猜测
     std::vector<Real> x0 = {-0.3, 1.0, 0.25};
 
+    // 若设置了 Heston 初始猜测, 用 from_heston 的解析映射提供 DE/LM 初始值
+    if (has_heston_init_) {
+        Real T_ref = maturities[0];  // 用第一个期限做参考
+        auto heston_ssvi = from_heston(heston_init_, T_ref);
+        x0[0] = heston_ssvi.rho;  // rho_init = rho_Heston
+        Real theta_ref = heston_ssvi.theta_slice[0];
+        Real phi_init = heston_ssvi.phi(theta_ref);
+        // Power-law: φ = η * θ^(-γ), 取 γ_init = 0.1 (大期限极限 γ→0)
+        Real gamma_init = 0.1;
+        Real eta_init = phi_init * std::pow(theta_ref, gamma_init);
+        x0[1] = std::max(1e-4, eta_init);
+        x0[2] = gamma_init;
+    }
+
     std::vector<Real> x_init = x0;
-    if (cfg.use_de_init) {
+    if (cfg.use_de_init && !has_heston_init_) {
+        // 仅在未设置 Heston 初始猜测时运行 DE 全局搜索
+        // (Heston 初始猜测已足够好, 可跳过 DE 节省时间)
         std::vector<Bounds> bounds = {
             {-0.99, 0.99},  // rho
             {1e-4, 10.0},   // eta
@@ -337,6 +403,9 @@ inline CalibrationResult SSVI::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj, bounds, de_cfg);
         x_init = de_result.x;
     }
@@ -345,6 +414,9 @@ inline CalibrationResult SSVI::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(residual, x_init, lm_cfg);
 
     // 更新内部参数

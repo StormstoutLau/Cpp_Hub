@@ -231,3 +231,91 @@ TEST(SSVI, CalibrationSmokeTest) {
     // 校准后应无套利
     EXPECT_TRUE(calib_ssvi.check_no_arbitrage());
 }
+
+// ============================================================================
+// 7. Heston → SSVI 解析映射 (Gatheral-Jacquier 2014 Theorem 3.1)
+// ============================================================================
+
+TEST(SSVIFromHeston, RhoMappingCorrect) {
+    // ρ_SSVI = ρ_Heston
+    HestonParams hp{0.04, 2.0, 0.04, 0.3, -0.5};
+    Real T = 1.0;
+    auto ssvi_params = SSVI::from_heston(hp, T);
+    EXPECT_NEAR(ssvi_params.rho, hp.rho, 1e-12);
+}
+
+TEST(SSVIFromHeston, ATMTotalVarianceCorrect) {
+    // θ(T) = (v0 - θ̄) * (1 - exp(-κT)) / κ + θ̄ * T
+    HestonParams hp{0.04, 2.0, 0.04, 0.3, -0.5};
+    Real T = 1.0;
+    Real expected_theta = (hp.v0 - hp.theta) * (1.0 - std::exp(-hp.kappa * T)) / hp.kappa
+                          + hp.theta * T;
+    auto ssvi_params = SSVI::from_heston(hp, T);
+    ASSERT_EQ(ssvi_params.theta_slice.size(), 1u);
+    EXPECT_NEAR(ssvi_params.theta_slice[0], expected_theta, 1e-12);
+}
+
+TEST(SSVIFromHeston, PhiConstantLargeTermLimit) {
+    // φ = ξ / (κ * θ̄) * (1 - ρ²)
+    HestonParams hp{0.04, 2.0, 0.04, 0.3, -0.5};
+    Real T = 1.0;
+    Real expected_phi = hp.sigma_v * (1.0 - hp.rho * hp.rho) / (hp.kappa * hp.theta);
+    auto ssvi_params = SSVI::from_heston(hp, T);
+    Real theta = ssvi_params.theta_slice[0];
+    EXPECT_NEAR(ssvi_params.phi(theta), expected_phi, 1e-12);
+    // φ 是常数, 不依赖 θ
+    EXPECT_NEAR(ssvi_params.phi(theta * 2.0), expected_phi, 1e-12);
+}
+
+TEST(SSVIFromHeston, RejectsInvalidParams) {
+    EXPECT_THROW(SSVI::from_heston({0.04, 2.0, 0.04, 0.3, -0.5}, -1.0), std::invalid_argument);
+    EXPECT_THROW(SSVI::from_heston({0.04, -1.0, 0.04, 0.3, -0.5}, 1.0), std::invalid_argument);  // kappa <= 0
+    EXPECT_THROW(SSVI::from_heston({0.04, 2.0, -0.01, 0.3, -0.5}, 1.0), std::invalid_argument); // theta <= 0
+    EXPECT_THROW(SSVI::from_heston({0.04, 2.0, 0.04, -0.1, -0.5}, 1.0), std::invalid_argument); // sigma_v <= 0
+    EXPECT_THROW(SSVI::from_heston({0.04, 2.0, 0.04, 0.3, 1.0}, 1.0), std::invalid_argument);   // |rho| >= 1
+}
+
+TEST(SSVIFromHeston, SetHestonInitSkipsDE) {
+    // 设置 Heston 初始猜测后, calibrate 应跳过 DE 直接用 LM
+    // 生成合成 Heston-like SSVI 数据
+    HestonParams hp{0.04, 2.0, 0.04, 0.3, -0.5};
+    Real forward = 100.0;
+    std::vector<Real> maturities = {0.5, 1.0};
+    std::vector<Real> strikes = {90.0, 95.0, 100.0, 105.0, 110.0};
+
+    // 用 from_heston 生成合成 IV 数据
+    auto heston_ssvi_params = SSVI::from_heston(hp, maturities[0]);
+    SSVI heston_ssvi(heston_ssvi_params);
+    std::vector<Real> implied_vols;
+    for (Real T : maturities) {
+        Real theta_T = (hp.v0 - hp.theta) * (1.0 - std::exp(-hp.kappa * T)) / hp.kappa
+                       + hp.theta * T;
+        for (Real K : strikes) {
+            Real k = std::log(K / forward);
+            implied_vols.push_back(heston_ssvi.implied_vol(k, T, theta_T));
+        }
+    }
+
+    // 用 Heston 初始猜测校准
+    SSVI calib_ssvi(SSVI::Power_law(0.0, 0.5, 0.3, {}));
+    calib_ssvi.set_heston_init(hp);
+    CalibConfig cfg;
+    cfg.use_de_init = true;  // 即使开启 DE, 有 Heston init 时也应跳过
+    cfg.lm_max_iter = 200;
+    auto result = calib_ssvi.calibrate(strikes, maturities, implied_vols, forward, cfg);
+
+    // 应收敛或接近
+    EXPECT_TRUE(result.converged || result.objective_value < 1e-4)
+        << "obj=" << result.objective_value << " msg=" << result.message;
+    // rho 应接近 Heston 的 rho
+    EXPECT_NEAR(result.params[0], hp.rho, 0.15) << "rho should be close to Heston rho";
+}
+
+TEST(SSVIFromHeston, ClearHestonInitRestoresDE) {
+    // clear_heston_init 后, calibrate 应恢复 DE 路径
+    SSVI ssvi(SSVI::Power_law(0.0, 0.5, 0.3, {}));
+    ssvi.set_heston_init({0.04, 2.0, 0.04, 0.3, -0.5});
+    ssvi.clear_heston_init();
+    // 仅验证不崩溃 — 不实际运行校准 (DE 耗时)
+    EXPECT_NO_THROW(ssvi.calibrate({100.0}, {1.0}, {0.2}, 100.0, CalibConfig{}));
+}

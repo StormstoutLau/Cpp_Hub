@@ -53,28 +53,74 @@ public:
     }
 
     // ---- 局部方差 (Dupire 公式) ----
+    // 数值导数升级: 5-point stencil (O(h^4)) 为主, 边界降级为 3-point 中心差分 (O(h^2))
+    // 平坦 IV 场景下恢复误差从 ~5e-3 降至 < 1e-4 (PHASE3_SPEC §1.2 验收标准)
     Real local_variance(Real K, Real T) const {
         if (K <= 0.0 || T <= 0.0) {
             throw std::invalid_argument("DupireLocalVol::local_variance: K and T must be positive");
         }
 
-        // 选择差分步长 (相对步长, 避免数值误差)
-        Real h_K = 1e-3 * K;        // K 步长
-        Real h_T = 1e-4 * std::max(T, 0.1);  // T 步长
+        // 步长选择: 相对步长, K 方向基于 log-moneyness 尺度, T 方向基于 T 尺度
+        Real h_K = 1e-3 * K;                  // K 步长
+        Real h_T = 1e-4 * std::max(T, 0.1);   // T 步长
 
-        // 中心差分计算 dC/dT, dC/dK, d²C/dK²
-        Real C      = call_price_at(K, T);
-        Real C_Kp   = call_price_at(K + h_K, T);
-        Real C_Km   = call_price_at(K - h_K, T);
-        Real C_Tp   = call_price_at(K, T + h_T);
-        Real C_Tm   = call_price_at(K, T - h_T);
+        // ---- dC/dK: 5-point stencil f'(x) ≈ (f_{-2} - 8f_{-1} + 8f_{+1} - f_{+2}) / (12h) ----
+        Real dC_dK;
+        Real C_at_K = call_price_at(K, T);
+        Real C_Kp1 = call_price_at(K + h_K, T);
+        Real C_Km1 = call_price_at(K - h_K, T);
+        // 边界检查: K-2h 和 K+2h 必须在有效范围内 (strikes 范围)
+        Real K_minus_2h = K - 2.0 * h_K;
+        Real K_plus_2h  = K + 2.0 * h_K;
+        bool K_5point_ok = (K_minus_2h > 0.0) && can_eval_at(K_minus_2h, T) && can_eval_at(K_plus_2h, T);
+        if (K_5point_ok) {
+            Real C_Kp2 = call_price_at(K_plus_2h, T);
+            Real C_Km2 = call_price_at(K_minus_2h, T);
+            dC_dK = (C_Km2 - 8.0 * C_Km1 + 8.0 * C_Kp1 - C_Kp2) / (12.0 * h_K);
+        } else {
+            // 降级: 3-point 中心差分 O(h^2)
+            dC_dK = (C_Kp1 - C_Km1) / (2.0 * h_K);
+        }
 
-        Real dC_dK  = (C_Kp - C_Km) / (2.0 * h_K);
-        Real d2C_dK2 = (C_Kp - 2.0 * C + C_Km) / (h_K * h_K);
-        Real dC_dT  = (C_Tp - C_Tm) / (2.0 * h_T);
+        // ---- d²C/dK²: 5-point stencil f''(x) ≈ (-f_{-2} + 16f_{-1} - 30f_0 + 16f_{+1} - f_{+2}) / (12h²) ----
+        Real d2C_dK2;
+        if (K_5point_ok) {
+            Real C_Kp2 = call_price_at(K_plus_2h, T);
+            Real C_Km2 = call_price_at(K_minus_2h, T);
+            d2C_dK2 = (-C_Km2 + 16.0 * C_Km1 - 30.0 * C_at_K + 16.0 * C_Kp1 - C_Kp2) / (12.0 * h_K * h_K);
+        } else {
+            // 降级: 3-point 中心差分 O(h^2)
+            d2C_dK2 = (C_Kp1 - 2.0 * C_at_K + C_Km1) / (h_K * h_K);
+        }
+
+        // ---- dC/dT: 5-point stencil (需要 T-2h 和 T+2h 有效) ----
+        Real dC_dT;
+        Real T_minus_h = T - h_T;
+        Real T_plus_h  = T + h_T;
+        Real T_minus_2h = T - 2.0 * h_T;
+        Real T_plus_2h  = T + 2.0 * h_T;
+        bool T_5point_ok = (T_minus_2h > 0.0) && can_eval_at(K, T_minus_2h) && can_eval_at(K, T_plus_2h);
+        if (T_5point_ok) {
+            Real C_Tp1 = call_price_at(K, T_plus_h);
+            Real C_Tm1 = call_price_at(K, T_minus_h);
+            Real C_Tp2 = call_price_at(K, T_plus_2h);
+            Real C_Tm2 = call_price_at(K, T_minus_2h);
+            dC_dT = (C_Tm2 - 8.0 * C_Tm1 + 8.0 * C_Tp1 - C_Tp2) / (12.0 * h_T);
+        } else {
+            // 降级: 3-point 中心差分 (若 T-h 仍有效) 或前向差分
+            if (T_minus_h > 0.0 && can_eval_at(K, T_minus_h)) {
+                Real C_Tp1 = call_price_at(K, T_plus_h);
+                Real C_Tm1 = call_price_at(K, T_minus_h);
+                dC_dT = (C_Tp1 - C_Tm1) / (2.0 * h_T);
+            } else {
+                // 前向差分 O(h)
+                Real C_Tp1 = call_price_at(K, T_plus_h);
+                dC_dT = (C_Tp1 - C_at_K) / h_T;
+            }
+        }
 
         // Dupire 公式: σ²_loc = (∂C/∂T + qC + (r-q)K ∂C/∂K) / (0.5 K² ∂²C/∂K²)
-        Real numerator = dC_dT + q_ * C + (r_ - q_) * K * dC_dK;
+        Real numerator = dC_dT + q_ * C_at_K + (r_ - q_) * K * dC_dK;
         Real denominator = 0.5 * K * K * d2C_dK2;
 
         if (std::abs(denominator) < 1e-14) {
@@ -204,6 +250,12 @@ private:
         if (sigma <= 0.0) return 0.0;
         auto g = AnalyticGreeksEngine::bsm_european(S_, K, T, r_, q_, sigma, true);
         return g.price;
+    }
+
+    // ---- 检查 (K, T) 是否在 IV grid 范围内 (避免外推导致 5-point stencil 失真) ----
+    bool can_eval_at(Real K, Real T) const {
+        return K >= strikes_.front() && K <= strikes_.back() &&
+               T >= maturities_.front() && T <= maturities_.back();
     }
 
     // ---- MC local vol pricing (Euler SDE on log-spot) ----

@@ -38,14 +38,43 @@ TEST(DupireLocalVol, FlatIVRecovery) {
 
     DupireLocalVol dup(strikes, maturities, ivs, /*S=*/100.0, /*r=*/0.05, /*q=*/0.02);
 
-    // ATM 附近应精确恢复 flat vol (中心区域数值差分最稳定)
+    // 中心区域 (5-point stencil 生效): 恢复误差应 < 1e-3 (O(h^4) 精度)
+    // 边界区域降级为 3-point (O(h^2)), 容差放宽到 5e-3
     for (Size j = 2; j < maturities.size() - 2; ++j) {
         for (Size i = 5; i < strikes.size() - 5; ++i) {
             Real lv = dup.local_vol(strikes[i], maturities[j]);
-            EXPECT_NEAR(lv, flat_vol, 5e-3)
+            EXPECT_NEAR(lv, flat_vol, 1e-3)
                 << "K=" << strikes[i] << " T=" << maturities[j];
         }
     }
+}
+
+// ========== 1b. Flat IV recovery — high precision (5-point stencil verification) ==========
+// PHASE3_SPEC §1.2 验收标准: Dupire 局部波动率重现误差 < 1bp (1e-4)
+// 5-point stencil (O(h^4)) 在中心区域应达到此精度, 3-point (O(h^2)) 无法达到
+TEST(DupireLocalVol, FlatIVRecoveryHighPrecision) {
+    // 细网格 (步长 1.0 in K, 0.05 in T) 确保 5-point stencil 完全落在 grid 内
+    std::vector<Real> strikes;
+    for (int i = 0; i < 41; ++i) strikes.push_back(80.0 + i * 1.0);  // 80..120 step 1
+    std::vector<Real> maturities;
+    for (int j = 0; j < 21; ++j) maturities.push_back(0.1 + j * 0.05);  // 0.1..1.1 step 0.05
+    Real flat_vol = 0.20;
+    auto ivs = flat_iv_grid(strikes, maturities, flat_vol);
+
+    DupireLocalVol dup(strikes, maturities, ivs, /*S=*/100.0, /*r=*/0.05, /*q=*/0.02);
+
+    // 中心区域: 5-point stencil 生效, 恢复误差 < 1e-4 (SPEC 验收标准)
+    // 避开最外层 2 个网格点 (确保 K±2h, T±2h 都在 grid 内)
+    Real max_err_center = 0.0;
+    for (Size j = 2; j < maturities.size() - 2; ++j) {
+        for (Size i = 4; i < strikes.size() - 4; ++i) {
+            Real lv = dup.local_vol(strikes[i], maturities[j]);
+            Real err = std::abs(lv - flat_vol);
+            if (err > max_err_center) max_err_center = err;
+        }
+    }
+    EXPECT_LT(max_err_center, 1e-4)
+        << "5-point stencil center region max_err=" << max_err_center;
 }
 
 // ========== 2. Local variance non-negative for flat IV ==========
@@ -128,8 +157,8 @@ TEST(DupireLocalVol, AnalyticGreeksConsistency) {
     // 数值 Dupire 与独立数值差分基准一致 (容差来自双线性插值)
     EXPECT_NEAR(sigma2_loc_numeric, sigma2_loc_ref, 5e-4)
         << "ref=" << sigma2_loc_ref << " numeric=" << sigma2_loc_numeric;
-    // 数值 Dupire 与理论值 sigma^2 一致
-    EXPECT_NEAR(sigma2_loc_numeric, sigma * sigma, 1e-3)
+    // 数值 Dupire 与理论值 sigma^2 一致 (5-point stencil O(h^4) 精度提升)
+    EXPECT_NEAR(sigma2_loc_numeric, sigma * sigma, 1e-4)
         << "theory=" << sigma * sigma << " numeric=" << sigma2_loc_numeric;
 }
 
@@ -186,9 +215,9 @@ TEST(DupireLocalVol, ZeroRateZeroDividend) {
 
     DupireLocalVol dup(strikes, maturities, ivs, 100.0, 0.0, 0.0);
 
-    // 中心区域应恢复 flat vol
+    // 中心区域应恢复 flat vol (5-point stencil 精度提升)
     Real lv = dup.local_vol(100.0, 0.5);
-    EXPECT_NEAR(lv, 0.20, 1e-2);
+    EXPECT_NEAR(lv, 0.20, 1e-3);
 }
 
 // ========== 8. Recovery error: simple MC verification ==========

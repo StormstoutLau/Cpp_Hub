@@ -369,3 +369,317 @@ TEST(SABRCalibrator, RoundTripOnSyntheticQuotes) {
         EXPECT_LT(std::abs(rec.rho), 1.0);
     }
 }
+
+// ===========================================================================
+// SABRCalibrator fixed-beta mode tests
+// ===========================================================================
+
+TEST(SABRCalibrator, FixedBetaState) {
+    SABRCalibrator cal;
+    EXPECT_FALSE(cal.has_fixed_beta());
+    cal.set_fixed_beta(0.5);
+    EXPECT_TRUE(cal.has_fixed_beta());
+    EXPECT_NEAR(cal.fixed_beta(), 0.5, 1e-12);
+    cal.clear_fixed_beta();
+    EXPECT_FALSE(cal.has_fixed_beta());
+}
+
+TEST(SABRCalibrator, FixedBetaInvalidRejects) {
+    SABRCalibrator cal;
+    EXPECT_THROW(cal.set_fixed_beta(-0.1), std::invalid_argument);
+    EXPECT_THROW(cal.set_fixed_beta(1.5), std::invalid_argument);
+}
+
+TEST(SABRCalibrator, FixedBetaBoundsReduced) {
+    auto b_full = SABRCalibrator::default_bounds();
+    auto b_fix  = SABRCalibrator::default_bounds_fixed_beta();
+    ASSERT_EQ(b_full.size(), 4u);
+    ASSERT_EQ(b_fix.size(), 3u);
+    // Reduced bounds should drop the beta slot (index 1)
+    EXPECT_NEAR(b_fix[0].lower, b_full[0].lower, 1e-12);  // alpha
+    EXPECT_NEAR(b_fix[0].upper, b_full[0].upper, 1e-12);
+    EXPECT_NEAR(b_fix[1].lower, b_full[2].lower, 1e-12);  // nu (skip beta)
+    EXPECT_NEAR(b_fix[1].upper, b_full[2].upper, 1e-12);
+    EXPECT_NEAR(b_fix[2].lower, b_full[3].lower, 1e-12);  // rho
+    EXPECT_NEAR(b_fix[2].upper, b_full[3].upper, 1e-12);
+}
+
+TEST(SABRCalibrator, FixedBetaRoundTrip) {
+    // Generate IVs from known SABR params with beta=0.5, fix beta=0.5, calibrate (alpha,nu,rho).
+    Real F = 100.0, r = 0.0, q = 0.0;
+    SABRParams true_p{0.25, 0.5, 0.4, -0.3};
+    std::vector<Real> strikes = {80.0, 90.0, 100.0, 110.0, 120.0};
+    Real T = 1.0;
+    std::vector<MarketQuote> quotes;
+    for (Real K : strikes) {
+        Real iv = detail::sabr_implied_vol_hagan(F * std::exp(r * T), K, T, true_p);
+        quotes.push_back({K, T, 0.0, iv, 0.0});
+    }
+
+    SABRCalibrator cal;
+    cal.set_market(F, r, q);
+    cal.set_fixed_beta(0.5);  // fix beta to true value
+    CalibConfig cfg;
+    cfg.use_de_init = false;
+    cfg.lm_max_iter = 500;
+    auto result = cal.calibrate(quotes, cfg);
+
+    EXPECT_TRUE(result.converged) << result.message;
+    ASSERT_EQ(result.params.size(), 3u);  // 3-param form
+    SABRParams rec = cal.extract_params(result.params);
+    // With beta fixed to the true value, alpha/nu/rho should recover tightly
+    EXPECT_NEAR(rec.alpha, true_p.alpha, 0.05);
+    EXPECT_NEAR(rec.beta,   0.5,        1e-12);  // exactly fixed
+    EXPECT_NEAR(rec.nu,    true_p.nu,   0.05);
+    EXPECT_NEAR(rec.rho,   true_p.rho,  0.10);
+    // Functional fit should be tight
+    Real max_resid = 0.0;
+    for (Real r_i : result.residuals) max_resid = std::max(max_resid, std::abs(r_i));
+    EXPECT_LT(max_resid, 0.01) << "max |residual|=" << max_resid;
+}
+
+TEST(SABRCalibrator, FixedBetaEquityConvention) {
+    // Equity convention: beta=0.5. Synthetic smile should calibrate cleanly.
+    Real F = 100.0, r = 0.0, q = 0.0;
+    SABRParams true_p{0.20, 0.5, 0.3, -0.2};
+    std::vector<Real> strikes = {85.0, 95.0, 100.0, 105.0, 115.0};
+    Real T = 0.5;
+    std::vector<MarketQuote> quotes;
+    for (Real K : strikes) {
+        Real iv = detail::sabr_implied_vol_hagan(F * std::exp(r * T), K, T, true_p);
+        quotes.push_back({K, T, 0.0, iv, 0.0});
+    }
+
+    SABRCalibrator cal;
+    cal.set_market(F, r, q);
+    cal.set_fixed_beta(0.5);  // equity convention
+    CalibConfig cfg;
+    cfg.use_de_init = false;
+    cfg.lm_max_iter = 500;
+    auto result = cal.calibrate(quotes, cfg);
+
+    EXPECT_TRUE(result.converged);
+    SABRParams rec = cal.extract_params(result.params);
+    EXPECT_NEAR(rec.beta, 0.5, 1e-12);
+    EXPECT_GT(rec.alpha, 0.0);
+    EXPECT_GT(rec.nu, 0.0);
+    EXPECT_LT(std::abs(rec.rho), 1.0);
+}
+
+TEST(SABRCalibrator, FixedBetaFXNormalVol) {
+    // FX normal-vol convention: beta=0.0. Generate smile and fix beta=0.0.
+    Real F = 1.10, r = 0.0, q = 0.0;  // EUR/USD-like forward
+    SABRParams true_p{0.0080, 0.0, 0.20, -0.1};
+    std::vector<Real> strikes = {1.05, 1.08, 1.10, 1.12, 1.15};
+    Real T = 1.0;
+    std::vector<MarketQuote> quotes;
+    for (Real K : strikes) {
+        Real iv = detail::sabr_implied_vol_hagan(F * std::exp(r * T), K, T, true_p);
+        quotes.push_back({K, T, 0.0, iv, 0.0});
+    }
+
+    SABRCalibrator cal;
+    cal.set_market(F, r, q);
+    cal.set_fixed_beta(0.0);  // FX normal vol
+    CalibConfig cfg;
+    cfg.use_de_init = false;
+    cfg.lm_max_iter = 500;
+    auto result = cal.calibrate(quotes, cfg);
+
+    EXPECT_TRUE(result.converged);
+    SABRParams rec = cal.extract_params(result.params);
+    EXPECT_NEAR(rec.beta, 0.0, 1e-12);
+    EXPECT_GT(rec.alpha, 0.0);
+}
+
+// ===========================================================================
+// v1.1 Task 5: 正则化与早停测试
+// ===========================================================================
+
+// --- LM 正则化基础: r=[x-2], 真值 x=2, prior=0, lambda=10 → 结果向 0 偏移 ---
+TEST(LMRegularization, PullsTowardPrior) {
+    // 残差: r(x) = x - 2, 真值 x*=2
+    // 无正则化: min 0.5*(x-2)^2 → x=2
+    // 有正则化 (lambda=10, prior=0): min 0.5*(x-2)^2 + 0.5*10*x^2
+    //   d/dx = (x-2) + 10*x = 0 → 11x = 2 → x = 2/11 ≈ 0.1818
+    ResidualFn r = [](const std::vector<Real>& x) -> std::vector<Real> {
+        return {x[0] - 2.0};
+    };
+    LevenbergMarquardt::Config cfg;
+    cfg.max_iterations = 200;
+    cfg.lambda_reg = 10.0;
+    cfg.params_prior = {0.0};
+    auto result = LevenbergMarquardt::minimize(r, {1.0}, cfg);
+    EXPECT_TRUE(result.converged);
+    // 解析解: x = 2/(1+10) = 2/11
+    EXPECT_NEAR(result.x[0], 2.0 / 11.0, 1e-6);
+}
+
+// --- LM 正则化 lambda=0 等价于无正则化 ---
+TEST(LMRegularization, LambdaZeroEquivalentToNoReg) {
+    ResidualFn r = [](const std::vector<Real>& x) -> std::vector<Real> {
+        return {x[0] - 2.0, x[1] - 3.0};
+    };
+    LevenbergMarquardt::Config cfg_no_reg;
+    cfg_no_reg.max_iterations = 200;
+    auto result_no_reg = LevenbergMarquardt::minimize(r, {0.0, 0.0}, cfg_no_reg);
+
+    LevenbergMarquardt::Config cfg_reg;
+    cfg_reg.max_iterations = 200;
+    cfg_reg.lambda_reg = 0.0;  // 禁用正则化
+    cfg_reg.params_prior = {5.0, 5.0};  // 即使设了 prior, lambda=0 也不影响
+    auto result_reg = LevenbergMarquardt::minimize(r, {0.0, 0.0}, cfg_reg);
+
+    EXPECT_NEAR(result_reg.x[0], result_no_reg.x[0], 1e-10);
+    EXPECT_NEAR(result_reg.x[1], result_no_reg.x[1], 1e-10);
+}
+
+// --- LM 正则化: prior.size() != x.size() 时自动禁用 ---
+TEST(LMRegularization, SizeMismatchDisablesReg) {
+    ResidualFn r = [](const std::vector<Real>& x) -> std::vector<Real> {
+        return {x[0] - 2.0};
+    };
+    LevenbergMarquardt::Config cfg;
+    cfg.max_iterations = 200;
+    cfg.lambda_reg = 10.0;
+    cfg.params_prior = {0.0, 0.0};  // size=2 != x.size()=1, 应禁用
+    auto result = LevenbergMarquardt::minimize(r, {1.0}, cfg);
+    EXPECT_TRUE(result.converged);
+    EXPECT_NEAR(result.x[0], 2.0, 1e-6);  // 无正则化, 回到真值
+}
+
+// --- LM 早停: 设置较大 RMSE 阈值, 验证提前停止 ---
+TEST(LMEarlyStop, StopsWhenRMSEBelowThreshold) {
+    // r(x) = x - 2, 真值 x=2, RMSE = |x-2|
+    // 设置 early_stop_rmse = 0.5, 当 |x-2| < 0.5 时停止
+    ResidualFn r = [](const std::vector<Real>& x) -> std::vector<Real> {
+        return {x[0] - 2.0};
+    };
+
+    // 启用早停: RMSE < 0.5 时停止 (宽松阈值, 应在第 1 次迭代就停止)
+    LevenbergMarquardt::Config cfg_es;
+    cfg_es.max_iterations = 200;
+    cfg_es.early_stop_rmse = 0.5;
+    auto result_es = LevenbergMarquardt::minimize(r, {0.0}, cfg_es);
+
+    EXPECT_TRUE(result_es.converged);
+    // 早停应触发, message 包含 "early_stop"
+    EXPECT_NE(result_es.message.find("early_stop"), std::string::npos)
+        << "expected early_stop in message, got: " << result_es.message;
+    EXPECT_LT(result_es.n_iterations, cfg_es.max_iterations);
+}
+
+// --- DE 正则化基础: f(x) = x^2, prior=3, lambda=10 → 结果向 3 偏移 ---
+TEST(DERegularization, PullsTowardPrior) {
+    // f(x) = x[0]^2 + x[1]^2, 真值 (0,0)
+    // 有正则化 (lambda=10, prior=(3,3)):
+    //   min x^2+y^2 + 0.5*10*((x-3)^2+(y-3)^2)
+    //   d/dx = 2x + 10(x-3) = 0 → 12x = 30 → x = 2.5
+    ObjectiveFn f = [](const std::vector<Real>& x) -> Real {
+        return x[0] * x[0] + x[1] * x[1];
+    };
+    std::vector<Bounds> bounds = {{-5, 5}, {-5, 5}};
+    DifferentialEvolution::Config cfg;
+    cfg.max_generations = 100;
+    cfg.tol = 1e-10;
+    cfg.lambda_reg = 10.0;
+    cfg.params_prior = {3.0, 3.0};
+    auto result = DifferentialEvolution::minimize(f, bounds, cfg);
+    // 解析解: x = 30/12 = 2.5
+    EXPECT_NEAR(result.x[0], 2.5, 0.05);
+    EXPECT_NEAR(result.x[1], 2.5, 0.05);
+    // 返回的 fx 应为原始目标 (不含正则化项)
+    EXPECT_NEAR(result.fx, 2.5 * 2.5 + 2.5 * 2.5, 0.5);
+}
+
+// --- DE 正则化 lambda=0 等价于无正则化 ---
+TEST(DERegularization, LambdaZeroEquivalentToNoReg) {
+    ObjectiveFn f = [](const std::vector<Real>& x) -> Real {
+        return (x[0] - 3.0) * (x[0] - 3.0) + (x[1] + 2.0) * (x[1] + 2.0);
+    };
+    std::vector<Bounds> bounds = {{-5, 5}, {-5, 5}};
+
+    DifferentialEvolution::Config cfg_no_reg;
+    cfg_no_reg.max_generations = 100;
+    cfg_no_reg.tol = 1e-10;
+    auto result_no_reg = DifferentialEvolution::minimize(f, bounds, cfg_no_reg);
+
+    DifferentialEvolution::Config cfg_reg;
+    cfg_reg.max_generations = 100;
+    cfg_reg.tol = 1e-10;
+    cfg_reg.lambda_reg = 0.0;
+    cfg_reg.params_prior = {0.0, 0.0};
+    auto result_reg = DifferentialEvolution::minimize(f, bounds, cfg_reg);
+
+    EXPECT_NEAR(result_reg.x[0], result_no_reg.x[0], 1e-3);
+    EXPECT_NEAR(result_reg.x[1], result_no_reg.x[1], 1e-3);
+}
+
+// --- DE 早停: 当原始目标 < threshold^2 时停止 ---
+TEST(DEEarlyStop, StopsWhenObjectiveBelowThreshold) {
+    // f(x) = x^2, 真值 0, early_stop_rmse=0.1 → f < 0.01 时停止
+    ObjectiveFn f = [](const std::vector<Real>& x) -> Real {
+        return x[0] * x[0] + x[1] * x[1];
+    };
+    std::vector<Bounds> bounds = {{-5, 5}, {-5, 5}};
+
+    DifferentialEvolution::Config cfg;
+    cfg.max_generations = 200;
+    cfg.tol = 1e-12;  // 严格收敛容差, 确保早停先于 stagnation
+    cfg.early_stop_rmse = 0.1;  // f < 0.01 时停止
+    auto result = DifferentialEvolution::minimize(f, bounds, cfg);
+    EXPECT_TRUE(result.converged);
+    EXPECT_EQ(result.message.find("early_stop"), 0u)
+        << "expected early_stop message, got: " << result.message;
+}
+
+// --- SABR 校准器端到端正则化测试 ---
+TEST(CalibRegularizationE2E, SABRRegularizationPullsTowardPrior) {
+    // 生成 SABR 合成数据 (beta 固定模式), 然后用正则化校准
+    // 验证: 当数据噪声大时, 正则化使参数向先验偏移
+    Real F = 100.0, r = 0.0, q = 0.0;
+    SABRParams true_p{0.20, 0.5, 0.3, -0.2};
+    std::vector<Real> strikes = {85.0, 95.0, 100.0, 105.0, 115.0};
+    Real T = 0.5;
+    std::vector<MarketQuote> quotes;
+    for (Real K : strikes) {
+        Real iv = detail::sabr_implied_vol_hagan(F * std::exp(r * T), K, T, true_p);
+        quotes.push_back({K, T, 0.0, iv, 0.0});
+    }
+
+    // 无正则化校准
+    SABRCalibrator cal_no_reg;
+    cal_no_reg.set_market(F, r, q);
+    cal_no_reg.set_fixed_beta(0.5);
+    CalibConfig cfg_no_reg;
+    cfg_no_reg.use_de_init = false;
+    cfg_no_reg.lm_max_iter = 200;
+    auto result_no_reg = cal_no_reg.calibrate(quotes, cfg_no_reg);
+
+    // 有正则化校准 (prior 远离真值, lambda 较大)
+    SABRCalibrator cal_reg;
+    cal_reg.set_market(F, r, q);
+    cal_reg.set_fixed_beta(0.5);
+    CalibConfig cfg_reg;
+    cfg_reg.use_de_init = false;
+    cfg_reg.lm_max_iter = 200;
+    cfg_reg.lambda_reg = 100.0;
+    // SABR 固定 beta 模式: params = [alpha, nu, rho]
+    // 先验设为远离真值的值
+    cfg_reg.params_prior = {0.5, 1.0, 0.5};  // 远离 true (0.2, 0.3, -0.2)
+    auto result_reg = cal_reg.calibrate(quotes, cfg_reg);
+
+    // 正则化结果应向先验偏移: alpha_reg 比 alpha_no_reg 更接近先验 0.5
+    Real alpha_no_reg = result_no_reg.params[0];
+    Real alpha_reg = result_reg.params[0];
+    EXPECT_LT(std::abs(alpha_reg - 0.5), std::abs(alpha_no_reg - 0.5))
+        << "regularized alpha should be closer to prior 0.5";
+}
+
+// --- CalibConfig 新字段默认值验证 ---
+TEST(CalibConfigDefaults, NewFieldsHaveCorrectDefaults) {
+    CalibConfig cfg;
+    EXPECT_DOUBLE_EQ(cfg.lambda_reg, 0.0);
+    EXPECT_TRUE(cfg.params_prior.empty());
+    EXPECT_DOUBLE_EQ(cfg.early_stop_rmse, 0.0);
+}

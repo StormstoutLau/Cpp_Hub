@@ -319,6 +319,9 @@ inline CalibrationResult HestonCalibrator::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj.to_objective_fn(), bounds, de_cfg);
         x_init = de_result.x;
     } else {
@@ -331,6 +334,9 @@ inline CalibrationResult HestonCalibrator::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(obj.to_residual_fn(), x_init, lm_cfg);
 
     result.params = lm_result.x;
@@ -362,13 +368,23 @@ public:
         const CalibConfig& cfg = CalibConfig{}) override;
     std::string name() const override { return "SABRCalibrator"; }
 
+    // Full 4-parameter bounds (alpha, beta, nu, rho)
     static std::vector<Bounds> default_bounds() {
         return {{1e-4, 5.0},      // alpha
                 {0.0, 1.0},        // beta
                 {1e-4, 5.0},       // nu
                 {-0.99, 0.99}};    // rho
     }
+    // Reduced 3-parameter bounds when beta is fixed (alpha, nu, rho)
+    static std::vector<Bounds> default_bounds_fixed_beta() {
+        return {{1e-4, 5.0},      // alpha
+                {1e-4, 5.0},       // nu
+                {-0.99, 0.99}};    // rho
+    }
     SABRParams extract_params(const std::vector<Real>& x) const {
+        if (has_fixed_beta_) {
+            return SABRParams{x[0], fixed_beta_, x[1], x[2]};
+        }
         return SABRParams{x[0], x[1], x[2], x[3]};
     }
 
@@ -377,10 +393,25 @@ public:
         (void)q_;  // unused for SABR (uses forward F = S e^{(r-q)T})
     }
 
+    // Fix beta to a constant value (common practice: equity=0.5, FX=0.0 or 1.0, rates=0.5).
+    // After calling this, calibrate() operates on a 3-parameter (alpha, nu, rho) problem.
+    void set_fixed_beta(Real beta) {
+        if (beta < 0.0 || beta > 1.0) {
+            throw std::invalid_argument("SABRCalibrator::set_fixed_beta: beta must be in [0,1]");
+        }
+        fixed_beta_ = beta;
+        has_fixed_beta_ = true;
+    }
+    void clear_fixed_beta() { has_fixed_beta_ = false; }
+    bool has_fixed_beta() const { return has_fixed_beta_; }
+    Real fixed_beta() const { return fixed_beta_; }
+
 private:
     Real F_ = 100.0;
     Real r_ = 0.0;
     Real q_ = 0.0;
+    Real fixed_beta_ = 0.5;       // valid only when has_fixed_beta_ = true
+    bool has_fixed_beta_ = false;
 };
 
 inline CalibrationResult SABRCalibrator::calibrate(
@@ -392,7 +423,59 @@ inline CalibrationResult SABRCalibrator::calibrate(
         return result;
     }
 
-    // IV model function via Hagan 2002
+    // Branch on fixed-beta mode:
+    //   - has_fixed_beta_ = true  → 3-param (alpha, nu, rho), beta = fixed_beta_
+    //   - has_fixed_beta_ = false → 4-param (alpha, beta, nu, rho)
+    if (has_fixed_beta_) {
+        // IV model function via Hagan 2002 (3-param form, beta fixed)
+        auto iv_fn = [this](const std::vector<Real>& x, Real K, Real T) -> Real {
+            SABRParams sp{x[0], fixed_beta_, x[1], x[2]};
+            if (sp.alpha <= 0.0) sp.alpha = 1e-4;
+            if (sp.nu <= 0.0) sp.nu = 1e-4;
+            if (sp.rho <= -1.0) sp.rho = -0.999;
+            if (sp.rho >= 1.0) sp.rho = 0.999;
+            Real F = F_ * std::exp((r_ - q_) * T);
+            return detail::sabr_implied_vol_hagan(F, K, T, sp);
+        };
+
+        auto obj = ObjectiveFunction::make_iv_objective(iv_fn, quotes,
+                     WeightingScheme::RelativeError);
+
+        std::vector<Real> x_init(3, 0.0);
+        if (cfg.use_de_init) {
+            auto bounds = default_bounds_fixed_beta();
+            DifferentialEvolution::Config de_cfg;
+            de_cfg.population_size = cfg.de_pop_size;
+            de_cfg.max_generations = cfg.de_generations;
+            de_cfg.seed = cfg.seed;
+            de_cfg.lambda_reg = cfg.lambda_reg;
+            de_cfg.params_prior = cfg.params_prior;
+            de_cfg.early_stop_rmse = cfg.early_stop_rmse;
+            auto de_result = DifferentialEvolution::minimize(obj.to_objective_fn(), bounds, de_cfg);
+            x_init = de_result.x;
+        } else {
+            x_init = {0.2, 0.3, -0.2};  // (alpha, nu, rho) defaults
+        }
+
+        LevenbergMarquardt::Config lm_cfg;
+        lm_cfg.max_iterations = cfg.lm_max_iter;
+        lm_cfg.ftol = cfg.ftol;
+        lm_cfg.xtol = cfg.xtol;
+        lm_cfg.lambda_reg = cfg.lambda_reg;
+        lm_cfg.params_prior = cfg.params_prior;
+        lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
+        auto lm_result = LevenbergMarquardt::minimize(obj.to_residual_fn(), x_init, lm_cfg);
+
+        result.params = lm_result.x;
+        result.objective_value = lm_result.fx;
+        result.n_iterations = lm_result.n_iterations;
+        result.converged = lm_result.converged;
+        result.message = lm_result.message;
+        result.residuals = obj.residuals(lm_result.x);
+        return result;
+    }
+
+    // Full 4-parameter calibration (original path)
     auto iv_fn = [this](const std::vector<Real>& x, Real K, Real T) -> Real {
         SABRParams sp{x[0], x[1], x[2], x[3]};
         if (sp.alpha <= 0.0) sp.alpha = 1e-4;
@@ -416,6 +499,9 @@ inline CalibrationResult SABRCalibrator::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj.to_objective_fn(), bounds, de_cfg);
         x_init = de_result.x;
     } else {
@@ -426,6 +512,9 @@ inline CalibrationResult SABRCalibrator::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(obj.to_residual_fn(), x_init, lm_cfg);
 
     result.params = lm_result.x;
@@ -523,6 +612,9 @@ inline CalibrationResult BatesCalibrator::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj.to_objective_fn(), bounds, de_cfg);
         x_init = de_result.x;
     } else {
@@ -534,6 +626,9 @@ inline CalibrationResult BatesCalibrator::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(obj.to_residual_fn(), x_init, lm_cfg);
 
     result.params = lm_result.x;
@@ -629,6 +724,9 @@ inline CalibrationResult VGCalibrator::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj.to_objective_fn(), bounds, de_cfg);
         x_init = de_result.x;
     } else {
@@ -639,6 +737,9 @@ inline CalibrationResult VGCalibrator::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(obj.to_residual_fn(), x_init, lm_cfg);
 
     result.params = lm_result.x;
@@ -717,6 +818,9 @@ inline CalibrationResult CEVCalibrator::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj.to_objective_fn(), bounds, de_cfg);
         x_init = de_result.x;
     } else {
@@ -727,6 +831,9 @@ inline CalibrationResult CEVCalibrator::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(obj.to_residual_fn(), x_init, lm_cfg);
 
     result.params = lm_result.x;
