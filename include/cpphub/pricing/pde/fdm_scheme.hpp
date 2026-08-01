@@ -12,7 +12,8 @@ inline namespace v1 {
 enum class FDMSchemeType {
     ExplicitEuler,
     ImplicitEuler,
-    CrankNicolson
+    CrankNicolson,
+    RannacherSmoothing
 };
 
 struct PDEParams {
@@ -134,6 +135,41 @@ public:
     }
 private:
     Real theta_;
+};
+
+// Rannacher smoothing: 前 n_warmup 步用 ImplicitEuler (L 稳定, damping 高频振荡),
+// 之后切换到 CrankNicolson. 用于处理非光滑 payoff (如行权价处 kink, 数字期权)
+// 导致的 CrankNicolson 振荡. 参考 Rannacher (1984), Giles & Carter (1988).
+// 简化版: warmup 阶段用 ImplicitEuler(dt) 全步, 保持总时间 = n_steps * dt = T.
+// 严格版会用 ImplicitEuler(dt/2) 半步 (需额外步数补偿).
+class RannacherSmoothing : public FDMScheme {
+public:
+    explicit RannacherSmoothing(Size n_warmup = 4, Real theta = 0.5)
+        : n_warmup_(n_warmup), theta_(theta), step_count_(0) {}
+
+    void reset() const { step_count_ = 0; }
+
+    void step(const std::vector<Real>& V_old, std::vector<Real>& V_new, Real dt,
+              const FDMGrid& grid, const PDEParams& params) const override {
+        if (step_count_ < n_warmup_) {
+            // warmup: ImplicitEuler 全步 (L 稳定, damping 非光滑初值的高频分量)
+            ImplicitEuler impl;
+            impl.step(V_old, V_new, dt, grid, params);
+        } else {
+            // 主循环: CrankNicolson 二阶精度
+            CrankNicolson cn(theta_);
+            cn.step(V_old, V_new, dt, grid, params);
+        }
+        ++step_count_;
+    }
+
+    Size warmup_steps() const noexcept { return n_warmup_; }
+    Size current_step() const noexcept { return step_count_; }
+
+private:
+    Size n_warmup_;
+    Real theta_;
+    mutable Size step_count_;
 };
 
 }  // namespace v1

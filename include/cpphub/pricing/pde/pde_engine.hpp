@@ -14,12 +14,22 @@
 namespace cpphub {
 inline namespace v1 {
 
+// 边界条件类型
+enum class BoundaryType {
+    Dirichlet,  // 强加边界值 (V(S_min), V(S_max) 由解析公式或 payoff 给定)
+    Neumann     // Γ=0 线性外推: V[0] = 2*V[1] - V[2], V[n-1] = 2*V[n-2] - V[n-3]
+};
+
 struct PDEEngineConfig {
     Size n_spatial = 400;
     Size n_time = 1000;
     Real alpha = 0.2;
     FDMSchemeType scheme = FDMSchemeType::CrankNicolson;
     Real s_multiplier = 5.0;
+    // Rannacher smoothing 参数 (仅当 scheme = RannacherSmoothing 时生效)
+    Size rannacher_warmup = 4;
+    // 边界条件类型 (默认 Dirichlet 保持向后兼容)
+    BoundaryType boundary = BoundaryType::Dirichlet;
 };
 
 class PDEEngine {
@@ -48,6 +58,7 @@ public:
             V_new = V;
             set_boundary(V_new, tau, grid, payoff, r, q, K, sigma, false);
             scheme->step(V, V_new, dt, grid, params);
+            finalize_boundary(V_new);
             V = V_new;
         }
 
@@ -100,6 +111,7 @@ public:
             V_new = V;
             set_boundary(V_new, tau, grid, payoff, r, q, K, sigma, true);
             psor_solve(V_new, payoff_vals, a, b, c, d, omega, tol, max_iter);
+            finalize_boundary(V_new);
             V = V_new;
         }
 
@@ -111,6 +123,80 @@ public:
         Real gamma;
         Real theta;
     };
+
+    // 障碍侧 (H < S0 为 down barrier, H > S0 为 up barrier)
+    enum class BarrierSide { Down, Up };
+
+    // 障碍期权 FDM 定价 (连续监控, Out 期权)
+    // 网格在障碍处截断, V[barrier] = 0 (Dirichlet)
+    // 另一端用解析 BSM 边界 (Dirichlet) 或线性外推 (Neumann)
+    Real price_barrier(const PayOff& payoff, Real S0, Real K, Real H, Real T,
+                        Real r, Real q, Real sigma, BarrierSide side) const {
+        PDEParams params{r, q, sigma, T, K, S0};
+        Real c = config_.alpha;
+        Real s_far = S0 * std::exp(c * sigma * std::sqrt(T) * 5.0);
+
+        // 构建截断网格: 障碍端为 H, 另一端为正常远场边界
+        Real s_min, s_max;
+        if (side == BarrierSide::Down) {
+            // Down barrier: H < S0, 网格 [H, s_far]
+            if (H >= S0) throw std::invalid_argument("price_barrier: Down requires H < S0");
+            s_min = H;
+            s_max = s_far;
+        } else {
+            // Up barrier: H > S0, 网格 [s_far_inv, H]
+            if (H <= S0) throw std::invalid_argument("price_barrier: Up requires H > S0");
+            s_min = S0 * std::exp(-c * sigma * std::sqrt(T) * 5.0);
+            s_max = H;
+        }
+
+        FDMGrid grid(custom_boundary, config_.n_spatial, s_min, s_max, S0, config_.alpha);
+        TimeGrid time(config_.n_time, T);
+        Size n = grid.size();
+        Size n_steps = config_.n_time;
+        Real dt = time.dt();
+
+        std::vector<Real> V(n), V_new(n);
+        for (Size i = 0; i < n; ++i) {
+            V[i] = payoff(grid.s(i));
+            // 障碍侧 payoff 为 0 (Out 期权触及障碍即失效)
+            if (side == BarrierSide::Down && grid.s(i) <= H) V[i] = 0.0;
+            if (side == BarrierSide::Up && grid.s(i) >= H) V[i] = 0.0;
+        }
+
+        auto scheme = create_scheme();
+
+        for (Size step = 0; step < n_steps; ++step) {
+            Real tau = static_cast<Real>(step + 1) * dt;
+            V_new = V;
+
+            // 障碍侧: V = 0 (Dirichlet)
+            if (side == BarrierSide::Down) {
+                V_new[0] = 0.0;
+                // 远场侧: 解析边界
+                Real S_max = grid.s_max();
+                if (payoff.name() == "Call") {
+                    V_new[n - 1] = bsm_call(S_max, K, tau, r, q, sigma);
+                } else {
+                    V_new[n - 1] = bsm_put(S_max, K, tau, r, q, sigma);
+                }
+            } else {
+                V_new[n - 1] = 0.0;
+                // 远场侧: 解析边界
+                Real S_min = grid.s_min();
+                if (payoff.name() == "Call") {
+                    V_new[0] = bsm_call(S_min, K, tau, r, q, sigma);
+                } else {
+                    V_new[0] = bsm_put(S_min, K, tau, r, q, sigma);
+                }
+            }
+
+            scheme->step(V, V_new, dt, grid, params);
+            V = V_new;
+        }
+
+        return interpolate_at_S0(V, grid, S0);
+    }
 
     Greeks greeks(const PayOff& payoff, Real S0, Real K, Real T,
                    Real r, Real q, Real sigma, bool american = false) const {
@@ -159,6 +245,13 @@ private:
                        const PayOff& payoff, Real r, Real q, Real K, Real sigma,
                        bool) const {
         Size n = V.size();
+        if (config_.boundary == BoundaryType::Neumann) {
+            // Neumann: Γ=0 线性外推 (初始边界用旧内部值, step 后由 finalize_boundary 更新)
+            V[0] = 2.0 * V[1] - V[2];
+            V[n - 1] = 2.0 * V[n - 2] - V[n - 3];
+            return;
+        }
+        // Dirichlet: 解析边界
         Real S_min = grid.s_min();
         Real S_max = grid.s_max();
         if (payoff.name() == "Call") {
@@ -172,6 +265,15 @@ private:
             V[0] = payoff(S_min) * df;
             V[n - 1] = payoff(S_max) * df;
         }
+    }
+
+    // Neumann 边界后处理: step 后用新内部值外推边界
+    void finalize_boundary(std::vector<Real>& V) const {
+        if (config_.boundary != BoundaryType::Neumann) return;
+        Size n = V.size();
+        if (n < 4) return;
+        V[0] = 2.0 * V[1] - V[2];
+        V[n - 1] = 2.0 * V[n - 2] - V[n - 3];
     }
 
     void psor_solve(std::vector<Real>& V, const std::vector<Real>& payoff,
@@ -219,6 +321,8 @@ private:
                 return std::make_unique<ExplicitEuler>();
             case FDMSchemeType::ImplicitEuler:
                 return std::make_unique<ImplicitEuler>();
+            case FDMSchemeType::RannacherSmoothing:
+                return std::make_unique<RannacherSmoothing>(config_.rannacher_warmup, 0.5);
             case FDMSchemeType::CrankNicolson:
             default:
                 return std::make_unique<CrankNicolson>(0.5);
