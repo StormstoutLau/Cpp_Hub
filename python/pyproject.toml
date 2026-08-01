@@ -19,8 +19,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "cpphub"
-version = "1.1.0"
-description = "Cpp_Hub: Quantitative finance library (BSM/Heston/MC/Greeks/VaR)"
+version = "1.4.0"
+description = "Cpp_Hub: Quantitative finance library (BSM/Heston/MC/Greeks/VaR/COS/PDE/Tree/RoughVol/SABR)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "../LICENSE"}
