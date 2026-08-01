@@ -8,6 +8,7 @@
 #include "cpphub/calibration/optimizer.hpp"
 #include <vector>
 #include <string>
+#include <map>
 #include <cmath>
 #include <algorithm>
 #include <stdexcept>
@@ -53,12 +54,31 @@ public:
     static SVIParams jump_wings_to_raw(const SVIParams& jw, Real T);
 
     // Calibrate to market quotes (strikes, maturities, implied vols) at fixed maturity T
+    // NOTE: This calibrates only to the first maturity (maturities[0]) as a single slice.
+    // For multi-slice calibration, use calibrate_slices() instead.
     CalibrationResult calibrate(
         const std::vector<Real>& strikes,
         const std::vector<Real>& maturities,
         const std::vector<Real>& implied_vols,
         Real forward,
         const CalibConfig& cfg = CalibConfig{});
+
+    // Multi-slice calibration: fit an independent SVI slice for each maturity.
+    // Input layout:
+    //   - strikes: shared strike grid (n_strikes)
+    //   - maturities: n_maturities maturity points
+    //   - implied_vols: flattened row-major, size = n_maturities * n_strikes
+    //       iv[j * n_strikes + i] = IV at (maturities[j], strikes[i])
+    // Returns a map keyed by maturity, with each entry holding the calibrated SVIParams
+    // and a per-slice CalibrationResult summary packed into the top-level result.
+    // The internal state of *this is set to the slice with the longest maturity.
+    std::map<Real, SVIParams> calibrate_slices(
+        const std::vector<Real>& strikes,
+        const std::vector<Real>& maturities,
+        const std::vector<Real>& implied_vols,
+        Real forward,
+        const CalibConfig& cfg = CalibConfig{},
+        CalibrationResult* summary = nullptr);
 
     SVIParams params() const { return params_; }
     SVIParamType type() const { return type_; }
@@ -328,6 +348,9 @@ inline CalibrationResult SVI::calibrate(
         de_cfg.population_size = cfg.de_pop_size;
         de_cfg.max_generations = cfg.de_generations;
         de_cfg.seed = cfg.seed;
+        de_cfg.lambda_reg = cfg.lambda_reg;
+        de_cfg.params_prior = cfg.params_prior;
+        de_cfg.early_stop_rmse = cfg.early_stop_rmse;
         auto de_result = DifferentialEvolution::minimize(obj, bounds, de_cfg);
         x_init = de_result.x;
     }
@@ -337,6 +360,9 @@ inline CalibrationResult SVI::calibrate(
     lm_cfg.max_iterations = cfg.lm_max_iter;
     lm_cfg.ftol = cfg.ftol;
     lm_cfg.xtol = cfg.xtol;
+    lm_cfg.lambda_reg = cfg.lambda_reg;
+    lm_cfg.params_prior = cfg.params_prior;
+    lm_cfg.early_stop_rmse = cfg.early_stop_rmse;
     auto lm_result = LevenbergMarquardt::minimize(residual, x_init, lm_cfg);
 
     result.params = lm_result.x;
@@ -350,6 +376,153 @@ inline CalibrationResult SVI::calibrate(
     params_ = SVIParams{lm_result.x[0], lm_result.x[1], lm_result.x[2], lm_result.x[3], lm_result.x[4]};
     type_ = SVIParamType::Raw;
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-slice calibration: independent SVI fit per maturity.
+// Returns map<T, SVIParams>; sets *summary with aggregate diagnostics if provided.
+// ---------------------------------------------------------------------------
+inline std::map<Real, SVIParams> SVI::calibrate_slices(
+        const std::vector<Real>& strikes,
+        const std::vector<Real>& maturities,
+        const std::vector<Real>& implied_vols,
+        Real forward,
+        const CalibConfig& cfg,
+        CalibrationResult* summary) {
+
+    std::map<Real, SVIParams> slices;
+    if (summary) {
+        summary->converged = true;
+        summary->message.clear();
+        summary->n_iterations = 0;
+        summary->objective_value = 0.0;
+        summary->residuals.clear();
+        summary->params.clear();
+    }
+
+    if (strikes.empty() || maturities.empty()) {
+        if (summary) {
+            summary->converged = false;
+            summary->message = "empty input data";
+        }
+        return slices;
+    }
+
+    Size n_strikes = strikes.size();
+    Size n_mat = maturities.size();
+    if (implied_vols.size() != n_mat * n_strikes) {
+        if (summary) {
+            summary->converged = false;
+            summary->message = "implied_vols size mismatch (expected n_mat * n_strikes)";
+        }
+        return slices;
+    }
+
+    Real last_T = maturities[0];
+    bool last_slice_converged = true;
+
+    for (Size j = 0; j < n_mat; ++j) {
+        Real T = maturities[j];
+
+        // Build slice targets: log-moneyness k_i and total variance w_i
+        std::vector<Real> k_targets;
+        std::vector<Real> w_targets;
+        k_targets.reserve(n_strikes);
+        w_targets.reserve(n_strikes);
+        for (Size i = 0; i < n_strikes; ++i) {
+            Real k = std::log(strikes[i] / forward);
+            Real iv = implied_vols[j * n_strikes + i];
+            Real w = iv * iv * T;
+            k_targets.push_back(k);
+            w_targets.push_back(w);
+        }
+
+        // Residual for this slice
+        ResidualFn residual = [&](const std::vector<Real>& x) -> std::vector<Real> {
+            SVIParams p{x[0], x[1], x[2], x[3], x[4]};
+            if (p.b < 0.0) p.b = 0.0;
+            if (p.sigma <= 0.0) p.sigma = 1e-4;
+            if (p.rho <= -1.0) p.rho = -0.999;
+            if (p.rho >= 1.0) p.rho = 0.999;
+            SVI s(p, SVIParamType::Raw);
+            std::vector<Real> r(n_strikes);
+            for (Size i = 0; i < n_strikes; ++i) {
+                r[i] = s.total_variance(k_targets[i]) - w_targets[i];
+            }
+            return r;
+        };
+
+        // Initial guess from slice data
+        Real w_min = *std::min_element(w_targets.begin(), w_targets.end());
+        std::vector<Real> x0 = {w_min * 0.9, 0.1, 0.0, 0.1, 0.0};
+
+        std::vector<Real> x_init = x0;
+        if (cfg.use_de_init) {
+            std::vector<Bounds> bounds = {
+                {-1.0, 5.0},     // a
+                {0.0, 5.0},      // b
+                {-0.99, 0.99},   // rho
+                {1e-4, 5.0},     // sigma
+                {-2.0, 2.0}      // m
+            };
+            ObjectiveFn obj = [&](const std::vector<Real>& xx) -> Real {
+                auto r = residual(xx);
+                Real s = 0.0;
+                for (Real v : r) s += v * v;
+                return s;
+            };
+            DifferentialEvolution::Config de_cfg;
+            de_cfg.population_size = cfg.de_pop_size;
+            de_cfg.max_generations = cfg.de_generations;
+            de_cfg.seed = cfg.seed + static_cast<uint64_t>(j);  // vary seed per slice
+            auto de_result = DifferentialEvolution::minimize(obj, bounds, de_cfg);
+            x_init = de_result.x;
+        }
+
+        LevenbergMarquardt::Config lm_cfg;
+        lm_cfg.max_iterations = cfg.lm_max_iter;
+        lm_cfg.ftol = cfg.ftol;
+        lm_cfg.xtol = cfg.xtol;
+        auto lm_result = LevenbergMarquardt::minimize(residual, x_init, lm_cfg);
+
+        SVIParams slice_p{lm_result.x[0], lm_result.x[1], lm_result.x[2], lm_result.x[3], lm_result.x[4]};
+        slices[T] = slice_p;
+
+        if (summary) {
+            summary->n_iterations += lm_result.n_iterations;
+            summary->objective_value += lm_result.fx;
+            if (!lm_result.converged) {
+                summary->converged = false;
+                summary->message += "slice T=" + std::to_string(T) + " did not converge; ";
+            }
+            // Pack slice params (5 per slice) sequentially
+            for (Real v : lm_result.x) summary->params.push_back(v);
+            // Store max |residual| for this slice as a summary residual
+            Real max_r = 0.0;
+            for (Real r_i : lm_result.x) (void)r_i;
+            auto r_vec = residual(lm_result.x);
+            for (Real r_i : r_vec) max_r = std::max(max_r, std::abs(r_i));
+            summary->residuals.push_back(max_r);
+        }
+
+        last_T = T;
+        last_slice_converged = last_slice_converged && lm_result.converged;
+    }
+
+    // Set internal state to the longest-maturity slice
+    if (!slices.empty()) {
+        auto last_it = slices.rbegin();  // map is sorted ascending by T
+        params_ = last_it->second;
+        T_ = last_it->first;
+        type_ = SVIParamType::Raw;
+    }
+
+    if (summary && summary->message.empty()) {
+        summary->message = "all " + std::to_string(n_mat) + " slices calibrated";
+    }
+    (void)last_T;
+    (void)last_slice_converged;
+    return slices;
 }
 
 }  // inline namespace v1

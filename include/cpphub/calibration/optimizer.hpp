@@ -54,6 +54,14 @@ struct CalibConfig {
     uint64_t seed = 42;
     bool use_de_init = true;
     bool compute_diagnostics = true;
+    // --- v1.1 校准稳定性增强 (Task 5) ---
+    // Tikhonov 正则化: 目标函数加 0.5 * lambda_reg * ||x - params_prior||^2
+    // 当 params_prior 为空或 lambda_reg <= 0 时不启用正则化
+    Real lambda_reg = 0.0;
+    std::vector<Real> params_prior;
+    // 早停: 当残差 RMSE = sqrt(2*fx / m) < early_stop_rmse 时停止迭代
+    // 0 表示不启用早停。实务中可设为 bid-ask spread 的一半
+    Real early_stop_rmse = 0.0;
 };
 
 namespace detail {
@@ -134,6 +142,14 @@ public:
         Real lambda_init = 1e-3;
         Real lambda_up = 10.0;
         Real lambda_down = 0.1;
+        // --- v1.1 Tikhonov 正则化 (Task 5) ---
+        // 目标函数: 0.5 * sum(r_i^2) + 0.5 * lambda_reg * ||x - params_prior||^2
+        // 实现方式: 扩展残差向量 r_ext = [r, sqrt(lambda_reg)*(x - prior)]
+        // 当 params_prior.size() != x0.size() 或 lambda_reg <= 0 时不启用
+        Real lambda_reg = 0.0;
+        std::vector<Real> params_prior;
+        // 早停: RMSE = sqrt(2*fx_orig / m_orig) < early_stop_rmse 时停止
+        Real early_stop_rmse = 0.0;
     };
 
     // GCC: 在 class 内使用 Config{} 作为默认参数会触发 "default member initializer
@@ -158,21 +174,63 @@ inline OptimizationResult LevenbergMarquardt::minimize(
         Real lambda = cfg.lambda_init;
         Size n_evals = 0;
 
-        auto compute_cost = [&](const std::vector<Real>& xx) -> Real {
+        // v1.1: Tikhonov 正则化 — 通过扩展残差向量实现
+        // r_ext = [r_orig(x), sqrt(lambda_reg) * (x - prior)]
+        // 这样 J_ext = [J_orig; sqrt(lambda_reg)*I], J^T J 自动加 lambda_reg*I,
+        // J^T r 自动加 lambda_reg*(x - prior), 严格等价于 Tikhonov 正则化 LM
+        bool use_reg = (cfg.lambda_reg > 0.0) &&
+                       (cfg.params_prior.size() == n);
+        Real sqrt_lambda_reg = use_reg ? std::sqrt(cfg.lambda_reg) : 0.0;
+
+        // 扩展残差函数: 在原始残差后追加 n 个正则化项
+        ResidualFn r_ext = [&residuals, use_reg, sqrt_lambda_reg, &cfg, n](
+                const std::vector<Real>& xx) -> std::vector<Real> {
+            auto r = residuals(xx);
+            if (!use_reg) return r;
+            Size m = r.size();
+            std::vector<Real> extended(m + n);
+            for (Size i = 0; i < m; ++i) extended[i] = r[i];
+            for (Size i = 0; i < n; ++i) {
+                extended[m + i] = sqrt_lambda_reg * (xx[i] - cfg.params_prior[i]);
+            }
+            return extended;
+        };
+
+        // 原始 cost (用于早停 RMSE 判断, 不含正则化项)
+        auto compute_cost_orig = [&](const std::vector<Real>& xx) -> Real {
             auto r = residuals(xx);
             ++n_evals;
             Real s = 0.0;
             for (Real v : r) s += v * v;
             return 0.5 * s;
         };
+        // 扩展 cost (实际优化目标, 含正则化项)
+        auto compute_cost_ext = [&](const std::vector<Real>& xx) -> Real {
+            auto r = r_ext(xx);
+            ++n_evals;
+            Real s = 0.0;
+            for (Real v : r) s += v * v;
+            return 0.5 * s;
+        };
 
-        Real fx = compute_cost(x);
+        Real fx = compute_cost_ext(x);
+        Real fx_orig = use_reg ? compute_cost_orig(x) : fx;
         result.n_iterations = 0;
+
+        // 早停检查: RMSE = sqrt(2*fx_orig / m_orig) < early_stop_rmse
+        auto check_early_stop = [&](Real fx_o) -> bool {
+            if (cfg.early_stop_rmse <= 0.0) return false;
+            auto r = residuals(x);  // 不计 n_evals (复用)
+            Size m = r.size();
+            if (m == 0) return false;
+            Real rmse = std::sqrt(2.0 * fx_o / static_cast<Real>(m));
+            return rmse < cfg.early_stop_rmse;
+        };
 
         for (Size iter = 0; iter < cfg.max_iterations; ++iter) {
             result.n_iterations = iter + 1;
-            auto r = residuals(x); ++n_evals;
-            auto J = detail::numerical_jacobian(residuals, x);
+            auto r = r_ext(x); ++n_evals;
+            auto J = detail::numerical_jacobian(r_ext, x);
             Size m = r.size();
 
             // Build J^T J (n×n) and J^T r (n)
@@ -192,6 +250,13 @@ inline OptimizationResult LevenbergMarquardt::minimize(
             if (gnorm < cfg.gtol) {
                 result.converged = true;
                 result.message = "gtol satisfied";
+                // v1.1: 早停优先报告 (若 RMSE 已低于阈值, 报告 early_stop 而非 gtol)
+                if (cfg.early_stop_rmse > 0.0) {
+                    Real fx_o = use_reg ? compute_cost_orig(x) : fx;
+                    if (check_early_stop(fx_o)) {
+                        result.message = "early_stop_rmse satisfied";
+                    }
+                }
                 break;
             }
 
@@ -213,7 +278,7 @@ inline OptimizationResult LevenbergMarquardt::minimize(
                 }
                 std::vector<Real> x_new(n);
                 for (Size i = 0; i < n; ++i) x_new[i] = x[i] + dx[i];
-                Real fx_new = compute_cost(x_new);
+                Real fx_new = compute_cost_ext(x_new);
                 if (fx_new < fx) {
                     Real dxnorm = 0.0;
                     for (Real d : dx) dxnorm += d * d;
@@ -221,6 +286,7 @@ inline OptimizationResult LevenbergMarquardt::minimize(
                     Real rel_impr = (fx - fx_new) / std::max(fx, 1e-30);
                     x = x_new;
                     fx = fx_new;
+                    if (use_reg) fx_orig = compute_cost_orig(x);
                     lambda = std::max(lambda * cfg.lambda_down, 1e-12);
                     step_accepted = true;
                     if (dxnorm < cfg.xtol) {
@@ -230,6 +296,11 @@ inline OptimizationResult LevenbergMarquardt::minimize(
                     if (rel_impr < cfg.ftol) {
                         result.converged = true;
                         result.message = "ftol satisfied";
+                    }
+                    // v1.1: 早停检查 (基于原始 RMSE)
+                    if (cfg.early_stop_rmse > 0.0 && check_early_stop(fx_orig)) {
+                        result.converged = true;
+                        result.message = "early_stop_rmse satisfied";
                     }
                     break;
                 } else {
@@ -444,6 +515,14 @@ public:
         Real CR = 0.9;       // crossover probability
         Real tol = 1e-8;
         uint64_t seed = 42;
+        // --- v1.1 Tikhonov 正则化 (Task 5) ---
+        // 目标函数: f(x) + 0.5 * lambda_reg * ||x - params_prior||^2
+        // 当 params_prior.size() != bounds.size() 或 lambda_reg <= 0 时不启用
+        Real lambda_reg = 0.0;
+        std::vector<Real> params_prior;
+        // 早停: 当原始目标 f(x_best) < early_stop_rmse^2 * m / 2 时停止
+        // (近似: DE 用 objective 而非 residual, 早停基于 best_fit)
+        Real early_stop_rmse = 0.0;
     };
 
     static OptimizationResult minimize(
@@ -464,6 +543,20 @@ inline OptimizationResult DifferentialEvolution::minimize(
             return result;
         }
 
+        // v1.1: Tikhonov 正则化 — 包装 objective 函数
+        bool use_reg = (cfg.lambda_reg > 0.0) &&
+                       (cfg.params_prior.size() == n);
+        ObjectiveFn f_wrapped = [&f, use_reg, &cfg, n](const std::vector<Real>& x) -> Real {
+            Real base = f(x);
+            if (!use_reg) return base;
+            Real reg = 0.0;
+            for (Size i = 0; i < n; ++i) {
+                Real d = x[i] - cfg.params_prior[i];
+                reg += d * d;
+            }
+            return base + 0.5 * cfg.lambda_reg * reg;
+        };
+
         uint64_t rng_state = cfg.seed;
         if (rng_state == 0) rng_state = 1;  // xorshift needs nonzero state
 
@@ -476,7 +569,7 @@ inline OptimizationResult DifferentialEvolution::minimize(
                 population[i][j] = bounds[j].lower +
                     detail::uniform01(rng_state) * (bounds[j].upper - bounds[j].lower);
             }
-            fitness[i] = f(population[i]);
+            fitness[i] = f_wrapped(population[i]);
         }
         Size n_evals = pop;
 
@@ -512,7 +605,7 @@ inline OptimizationResult DifferentialEvolution::minimize(
                     if (j == j_rand || detail::uniform01(rng_state) < cfg.CR) trial[j] = mutant[j];
                 }
 
-                Real f_trial = f(trial); ++n_evals;
+                Real f_trial = f_wrapped(trial); ++n_evals;
                 if (f_trial <= fitness[i]) {
                     population[i] = trial;
                     fitness[i] = f_trial;
@@ -521,6 +614,15 @@ inline OptimizationResult DifferentialEvolution::minimize(
                         best_idx = i;
                         improved = true;
                     }
+                }
+            }
+            // v1.1: 早停检查 (基于原始 objective, 不含正则化项)
+            if (cfg.early_stop_rmse > 0.0) {
+                Real base_fit = f(population[best_idx]); ++n_evals;
+                if (base_fit < cfg.early_stop_rmse * cfg.early_stop_rmse) {
+                    result.converged = true;
+                    result.message = "early_stop_rmse satisfied";
+                    break;
                 }
             }
             // Stagnation check
@@ -543,7 +645,8 @@ inline OptimizationResult DifferentialEvolution::minimize(
         }
 
         result.x = population[best_idx];
-        result.fx = best_fit;
+        // 返回原始 objective 值 (不含正则化), 便于跨校准器比较
+        result.fx = use_reg ? f(result.x) : best_fit;
         result.n_function_evaluations = n_evals;
         if (result.message.empty()) {
             result.converged = false;
