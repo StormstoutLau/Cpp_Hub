@@ -19,6 +19,9 @@ cpphub_add_test(test_payoff_factory unit/instruments/test_payoff_factory.cpp)
 # pricing 测试
 cpphub_add_test(test_bsm_analytic unit/pricing/test_bsm_analytic.cpp)
 
+# v1.4: 路径相关解析解测试 (Kemna-Vorst / Reiner-Rubinstein / Goldman-Sosin-Gatto)
+cpphub_add_test(test_path_dependent_analytic unit/pricing/test_path_dependent_analytic.cpp)
+
 # Phase 2 M1: models 测试 (A 站实现)
 cpphub_add_test(test_heston_process unit/models/test_heston_process.cpp)
 
@@ -35,6 +38,9 @@ cpphub_add_test(test_levy_cf unit/pricing/test_levy_cf.cpp)
 # Phase 2 M2: PDE 引擎测试 (A 站实现)
 cpphub_add_test(test_pde_engine unit/pricing/test_pde_engine.cpp)
 
+# v1.4: 2D PDE ADI 引擎测试 (Craig-Sneyd / Hundsdorfer-Verwer for Heston)
+cpphub_add_test(test_pde_adi_2d unit/pricing/test_pde_adi_2d.cpp)
+
 # Phase 2 M2: 树形引擎测试 (B 站实现)
 cpphub_add_test(test_tree_engine unit/pricing/test_tree_engine.cpp)
 
@@ -46,6 +52,9 @@ cpphub_add_test(test_variance_reduction unit/monte_carlo/test_variance_reduction
 
 # 高级方差缩减方法测试 (Importance Sampling / Conditional MC / Stratified Sampling)
 cpphub_add_test(test_variance_reduction_advanced unit/monte_carlo/test_variance_reduction_advanced.cpp)
+
+# v1.4 统一方差缩减框架测试 (Antithetic 独立类 + VREngine + IS Put + Z 复用)
+cpphub_add_test(test_unified_vr unit/monte_carlo/test_unified_vr.cpp)
 
 # Phase 2 M3: 端到端集成测试 (B 站实现)
 cpphub_add_test(test_integration_phase2 unit/monte_carlo/test_integration_phase2.cpp)
