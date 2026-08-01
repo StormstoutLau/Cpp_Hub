@@ -24,7 +24,6 @@
 #include "cpphub/core/constants.hpp"
 #include "cpphub/core/math.hpp"
 #include "cpphub/core/rng.hpp"
-#include "cpphub/monte_carlo/control_variate.hpp"
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -161,6 +160,74 @@ public:
     ISConfig config() const { return cfg_; }
 
     Real theta() const { return theta_; }
+
+    // 批量 IS 估计: BSM 欧式 Put (使用 Girsanov 测度变换)
+    // 与 Call 对称: payoff = max(K - S_T, 0), 同一 theta* (使 S_T 集中在 K 附近)
+    ISResult price_european_put(Real S0, Real K, Real T, Real r, Real q, Real sigma,
+                                 Size n_paths, uint64_t seed) const {
+        if (n_paths == 0) throw std::invalid_argument("IS: n_paths must be positive");
+        if (T <= 0.0) {
+            ISResult res;
+            res.price = std::max(K - S0, 0.0);
+            return res;
+        }
+
+        Real theta_use = theta_;
+        if (cfg_.auto_optimize || auto_optimize_pending_) {
+            theta_use = optimal_theta_put(S0, K, T, r, q, sigma);
+        }
+
+        Real mu_T = (r - q - 0.5 * sigma * sigma) * T;
+        Real sqrtT = std::sqrt(T);
+        Real df = std::exp(-r * T);
+
+        Real sum_x = 0.0, sum_xx = 0.0;
+        Real sum_x_mc = 0.0, sum_xx_mc = 0.0;
+
+        for (Size i = 0; i < n_paths; ++i) {
+            Philox4x64 rng(seed, static_cast<uint64_t>(i));
+            uint64_t r1 = rng();
+            uint64_t r2 = rng();
+            Real u1 = (r1 >> 11) * (1.0 / 9007199254740992.0);
+            Real u2 = (r2 >> 11) * (1.0 / 9007199254740992.0);
+            Real Z = box_muller(u1, u2).first;
+
+            // IS 路径: S_T^Q = S0 * exp(mu_T + sigma*sqrt(T)*(Z + theta))
+            Real W_T_Q = sqrtT * (Z + theta_use);
+            Real S_T_Q = S0 * std::exp(mu_T + sigma * W_T_Q);
+            Real payoff_is = std::max(K - S_T_Q, 0.0);
+            Real weight = std::exp(-theta_use * Z - 0.5 * theta_use * theta_use);
+            Real X_is = payoff_is * weight;
+
+            // 标准 MC 路径 (P 下)
+            Real S_T_P = S0 * std::exp(mu_T + sigma * sqrtT * Z);
+            Real X_mc = std::max(K - S_T_P, 0.0);
+
+            sum_x += X_is;
+            sum_xx += X_is * X_is;
+            sum_x_mc += X_mc;
+            sum_xx_mc += X_mc * X_mc;
+        }
+
+        Real inv_n = 1.0 / static_cast<Real>(n_paths);
+        Real mean_is = sum_x * inv_n;
+        Real var_is = sum_xx * inv_n - mean_is * mean_is;
+        if (var_is < 0.0) var_is = 0.0;
+
+        Real mean_mc = sum_x_mc * inv_n;
+        Real var_mc = sum_xx_mc * inv_n - mean_mc * mean_mc;
+        if (var_mc < 0.0) var_mc = 0.0;
+
+        ISResult res;
+        res.price = df * mean_is;
+        res.std_error = df * std::sqrt(var_is * inv_n);
+        if (var_is > 1e-30) {
+            res.variance_reduction_ratio = var_mc / var_is;
+        } else {
+            res.variance_reduction_ratio = std::numeric_limits<Real>::max();
+        }
+        return res;
+    }
 
 private:
     ISConfig cfg_;

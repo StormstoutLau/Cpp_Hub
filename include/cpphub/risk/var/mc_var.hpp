@@ -18,7 +18,8 @@ struct MCVarConfig {
     Size n_paths = 100000;
     uint64_t seed = 42;
     bool antithetic = true;
-    bool use_control_variate = false;
+    // 注: use_control_variate 字段已移除 (死字段, 从未被读取)
+    //     如需 CV, 请使用 VREngine::price_single_asset (variance_reduction.hpp)
 };
 
 class MCVaR {

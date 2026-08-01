@@ -95,49 +95,75 @@ public:
 
     // 批量生成 n_paths 条路径，返回 (n_paths x (n_steps+1)) 平铺数组
     // 路径 i 的第 j 个点: paths[i * (n_steps+1) + j]
+    // antithetic=true: 生成 n_paths/2 原始 + n_paths/2 反变量 (共享 Z, sign 翻转)
     std::vector<Real> generate_paths(Size n_paths, uint64_t seed, bool antithetic = false) const {
         Size path_len = cfg_.n_steps + 1;
-        Size total_paths = antithetic ? n_paths : n_paths;
-        // antithetic: 生成 n_paths/2 原始 + n_paths/2 反变量
+        // antithetic: 总路径数仍为 n_paths (前半原始, 后半反变量)
+        Size total_paths = n_paths;
         Size n_generate = antithetic ? (n_paths + 1) / 2 : n_paths;
         std::vector<Real> paths(total_paths * path_len);
         // 使用确定性分块: 每条路径独立 stream = path_idx
         for (Size p = 0; p < n_generate; ++p) {
             Philox4x64 rng(seed, p);  // key=seed, stream=path_idx
-            std::vector<Real> path = generate_path(rng);
+            // 生成原始路径, 同时保存 Z 供反变量复用
+            std::vector<Real> Zs(cfg_.n_steps);
+            std::vector<Real> path(cfg_.n_steps + 1);
+            path[0] = cfg_.S0;
+            Real drift, vol;
+            switch (scheme_) {
+                case PathScheme::Exact:
+                    drift = (cfg_.r - cfg_.q - 0.5 * cfg_.sigma * cfg_.sigma) * dt_;
+                    vol = cfg_.sigma * sqrt_dt_;
+                    for (Size i = 1; i <= cfg_.n_steps; ++i) {
+                        Real Z = next_normal(rng);
+                        Zs[i - 1] = Z;
+                        path[i] = path[i - 1] * std::exp(drift + vol * Z);
+                    }
+                    break;
+                case PathScheme::Euler:
+                    drift = (cfg_.r - cfg_.q) * dt_;
+                    vol = cfg_.sigma * sqrt_dt_;
+                    for (Size i = 1; i <= cfg_.n_steps; ++i) {
+                        Real Z = next_normal(rng);
+                        Zs[i - 1] = Z;
+                        path[i] = path[i - 1] * (1.0 + drift + vol * Z);
+                        if (path[i] <= 0.0) path[i] = 1e-10;
+                    }
+                    break;
+                case PathScheme::Milstein:
+                    drift = (cfg_.r - cfg_.q) * dt_;
+                    vol = cfg_.sigma * sqrt_dt_;
+                    for (Size i = 1; i <= cfg_.n_steps; ++i) {
+                        Real Z = next_normal(rng);
+                        Zs[i - 1] = Z;
+                        path[i] = path[i - 1] * (1.0 + drift + vol * Z
+                                  + 0.5 * cfg_.sigma * cfg_.sigma * dt_ * (Z * Z - 1.0));
+                        if (path[i] <= 0.0) path[i] = 1e-10;
+                    }
+                    break;
+            }
             for (Size j = 0; j < path_len; ++j) {
                 paths[p * path_len + j] = path[j];
             }
+            // 反变量路径: 复用 Z, sign 翻转 (-vol * Z)
             if (antithetic && p + n_generate < n_paths) {
-                // 反变量路径: 翻转所有 Z 的符号
-                // 重新生成，但用 -Z (等效于用相同的 uniforms 但取反)
-                Philox4x64 rng2(seed, p);
                 std::vector<Real> anti_path(cfg_.n_steps + 1);
                 anti_path[0] = cfg_.S0;
-                Real drift, vol;
                 switch (scheme_) {
                     case PathScheme::Exact:
-                        drift = (cfg_.r - cfg_.q - 0.5 * cfg_.sigma * cfg_.sigma) * dt_;
-                        vol = cfg_.sigma * sqrt_dt_;
                         for (Size i = 1; i <= cfg_.n_steps; ++i) {
-                            Real Z = next_normal(rng2);
-                            anti_path[i] = anti_path[i - 1] * std::exp(drift - vol * Z);
+                            anti_path[i] = anti_path[i - 1] * std::exp(drift - vol * Zs[i - 1]);
                         }
                         break;
                     case PathScheme::Euler:
-                        drift = (cfg_.r - cfg_.q) * dt_;
-                        vol = cfg_.sigma * sqrt_dt_;
                         for (Size i = 1; i <= cfg_.n_steps; ++i) {
-                            Real Z = next_normal(rng2);
-                            anti_path[i] = anti_path[i - 1] * (1.0 + drift - vol * Z);
+                            anti_path[i] = anti_path[i - 1] * (1.0 + drift - vol * Zs[i - 1]);
                             if (anti_path[i] <= 0.0) anti_path[i] = 1e-10;
                         }
                         break;
                     case PathScheme::Milstein:
-                        drift = (cfg_.r - cfg_.q) * dt_;
-                        vol = cfg_.sigma * sqrt_dt_;
                         for (Size i = 1; i <= cfg_.n_steps; ++i) {
-                            Real Z = next_normal(rng2);
+                            Real Z = Zs[i - 1];
                             anti_path[i] = anti_path[i - 1] * (1.0 + drift - vol * Z
                                       + 0.5 * cfg_.sigma * cfg_.sigma * dt_ * (Z * Z - 1.0));
                             if (anti_path[i] <= 0.0) anti_path[i] = 1e-10;

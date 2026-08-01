@@ -84,7 +84,6 @@ int main() {
     cfg.n_paths = N_PATHS;
     cfg.seed = 42;
     cfg.antithetic = true;
-    cfg.use_control_variate = false;
 
     MCVaR mcvar(
         [&pf](const std::vector<Real>& spots) { return pf.value(spots); },
