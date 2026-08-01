@@ -167,6 +167,20 @@
 | 2026-07-31 | tests/unit/performance/test_gpu_mc.cpp | 15 GPU MC 测试 (配置/设备/定价/确定性/SE/批量/性能) | MC 容差 4*SE (99.99% CI); 确定性位精确; SE 收敛 ratio ∈ [1.5, 2.8] | 3h | 验收 |
 | 2026-07-31 | Phase 4 LITE 验收 | 320/320 全量测试通过 (15 GPU + 17 SSVI + 16 PyXVal + 272 Phase 1-3) | MSVC Release 11.05s; AUDIT_CHECKLIST Phase 4 LITE section 全 ✅ | 2h | **完成** |
 
+### v1.1+ 维护迭代 (Day 8+)
+
+| 日期 | 模块 | 完成项 | 问题/决策 | 耗时 | 下一步 |
+|------|------|--------|-----------|------|--------|
+| 2026-08-01 | calibration/calibrator.hpp | SABR beta 固定模式 | `set_fixed_beta()` / `clear_fixed_beta()` 接口; 3 参数 (α,ν,ρ) 路径; 6 测试 (Equity β=0.5, FX β=0.0) | 1h | SVI 多期限 |
+| 2026-08-01 | models/vol_surface/svi.hpp | SVI 多期限切片校准 | `calibrate_slices()` 返回 `map<T, SVIParams>`; 5 测试 (空输入/尺寸不匹配/单切片等价/三切片收敛/Summary) | 1.5h | Dupire 精度 |
+| 2026-08-01 | models/vol_surface/dupire_local_vol.hpp | Dupire 局部波动率恢复精度提升 | K 方向三次样条求导 + T 方向 5-point stencil (O(h⁴)); 平坦 IV 误差 5e-3→<1e-4 达 SPEC | 2h | Heston→SSVI |
+| 2026-08-01 | models/vol_surface/ssvi.hpp | Heston→SSVI 解析映射 | `from_heston()` Gatheral-Jacquier 2014 Thm 3.1; `set_heston_init()` 初始猜测; 8 测试 | 1.5h | 校准稳定性 |
+| 2026-08-01 | calibration/optimizer.hpp | 校准稳定性增强 (Tikhonov + 早停) | `lambda_reg` + `params_prior` + `early_stop_rmse`; LM 扩展残差向量, DE 包装目标函数; 10 测试 | 3h | COS 百慕大 |
+| 2026-08-01 | pricing/fourier/cos_method.hpp | COS 百慕大期权定价 (Fang-Oosterlee 2009 §5) | 递归 COS: payoff 系数初始化 → 倒推 continuation value via DCT → max(g,c) 更新 V_k; 增量 CF 工厂 `make_gbm_inc_cf_factory`; `price_bermudan()` 方法 + `cos_bermudan_call_gbm` / `cos_bermudan_put_gbm` 便捷工厂 | 3h | 回归测试 |
+| 2026-08-01 | tests/unit/pricing/test_fourier_engine.cpp | 百慕大 COS 测试 15 项 | 退化欧式 / 无分红看涨=欧式 / 看跌溢价 / 有分红看涨溢价 / CRR 交叉验证 (5e-3) / 单调性 / 工厂一致性 / 异常验证 / 增量 CF 性质 | 2h | 全量回归 |
+| 2026-08-01 | 全量回归 | 1193/1193 全部通过 (原 1178 + 新增 15) | MSVC Release 113s; 零回归 | 0.5h | 提交 |
+
+
 ---
 
 ## 里程碑汇总表
@@ -1474,5 +1488,83 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 2. **分 commit 提交**: P3/P4 虽同时验收, 但分属不同模块 (IR vs Credit), 分两个 commit 保持原子性。
 3. **P5 主站执行**: Discovery 002 与 Paper A (Conduction Intensity) 直接相关, 需主站精确控制测试逻辑 (BS 极限公式修正、τ→0 极限修正), 不委托副线。
 4. **deepseek-v4-flash-free 质量再次确认**: A/B 站均一次通过 (各 12 分钟), 跨平台验证 (GCC+MSVC) 成功, 与 Batch 10b/11/12 表现一致。
+
+---
+
+## v1.3 D-H 任务完成 + 高频计量深度调研 (2026-08-01)
+
+### 任务执行概览
+
+**五任务并行分发** (主站拆解 → A/B站执行 → 主站验收合并):
+
+| 任务 | 模块 | 执行站 | Commit | 测试数 | 关键验证 |
+|------|------|--------|--------|--------|----------|
+| D | CVA WWR | B站 | `673d36d` | 14 | HW/Copula/MC 三方法一致, rho=0 退化 1e-10 |
+| E | 多模型标定器 | A站 | `b56d56d` | 15 | Bates/VG/CEV DE+LM, 合成数据恢复 |
+| F | CGMY/Kou Levy CF | 主站 | `92e288a` | 18 | 修复 Kou 鞅条件 eta2<1 和 CGMY omega |
+| G | Rough Heston CF | A站 | `54c5ad2` | 21 | 分数阶 Adams + Riccati, H=0.5 退化 1e-4 |
+| H | Rough Heston Process | B站 | `33ebdb2` | 12 | Volterra 核 + 分数阶 Euler, MC vs COS 1.2% |
+
+**全量回归**: 1103/1103 通过 (从 1023 → 1103, +80 测试, 363s MSVC, 零回归)
+
+### 关键技术成果
+
+1. **Rough Heston 特征函数** (v1.2 收尾):
+   - Caputo 分数阶导数 `D^α` (α=H+0.5∈(0.5,1)) 的 Adams-Bashforth-Moulton 预测校正实现
+   - 分数阶 Riccati ODE: `D^α h(u,t) = 0.5(u²+iu) + (ρσiu-κ)h - 0.5σ²h²`, h(0)=0
+   - 特征函数: `φ(u) = exp(iu·lnS₀ + iu(r-q)T + v₀·h(u,T) + κθ·I^α h(u,T))`
+   - H=0.5 (α=1) 精确退化为标准 Heston CF, 容差 1e-4
+   - 大 |u| 稳定性: n_terms=256 时 u_max≈155 在分数阶 Riccati 稳定性边界内
+
+2. **Rough Heston 过程层**:
+   - Volterra 核 `K[j][i] = [(t_{j+1}-t_i)^α - (t_{j+1}-t_{i+1})^α]/α` 预计算缓存 O(N²)
+   - 分数阶 Euler + Full Truncation 保证 v_j≥0
+   - MC vs COS 交叉验证: 1.2% (H=0.5 退化场景)
+
+3. **CVA Wrong-Way Risk**:
+   - 三方法实现: Hull-White 近似 / Gaussian Copula (20节点 Gauss-Hermite) / MC 模拟
+   - 一致性验证: HW vs Copula 3.0%, MC vs Copula 1.7%, rho=0 退化 1e-10
+
+4. **多模型标定器**: Bates(8参数)/VG(3参数)/CEV(2参数), DE 全局搜索 → LM 精炼
+
+5. **Levy 过程 CF**: CGMY + Kou, 修复 Kou 鞅条件 (eta2<1) 和 CGMY omega 公式
+
+### 高频计量深度调研
+
+**产出两份调研报告** (位于 `docs/research/`, .gitignore 排除):
+
+1. **HIGHFREQ_ECONOMETRICS_THEORY.md** — 理论方法体系
+   - 已实现测度: RV(ABDL 2003) / RK(BNHLS 2008) / BPV(BN-S 2004) / RS(BNKS 2010) / Pre-averaging(JLMPR 2009)
+   - 跳跃检测: BNS(2006) / Lee-Mykland(2008) / co-jump(Jacod-Todorov 2009)
+   - 微观结构噪声: MA(1) / Pre-averaging / Local Method / 噪声方差估计
+   - 波动率建模: HAR(Corsi 2009) / HEAVY(Shephard-Sheppard 2010) / Realized GARCH(Hansen-Huang-Shek 2012)
+   - 高频因子: VPIN(ELO 2012) / Amihud(2002) / OFI(Cont-Kukanov-Stoikov 2014)
+   - 2020-2025 进展: ML资产定价 / 深度OFI / Realized Semicovariances
+   - 37 条已验证文献 (OpenAlex/Semantic Scholar/arXiv 交叉核验)
+
+2. **HIGHFREQ_ECONOMETRICS_ECOSYSTEM.md** — 生态与教材
+   - **C++ 生态几乎空白**: QuantLib v1.43 无 RV/RK/BPV/跳跃检验, Boost 无专用工具, hftbacktest 是 Python+Rust 回测框架非计量库
+   - **R highfrequency 包主导**: v1.0.3 (2026-01), 80+ 函数, JSS 同行评审论文, 覆盖 RV/RK/BPV/Jump/HAR/HEAVY/噪声/流动性全链路
+   - **Python 生态分散**: arch (vol) + statsmodels + financial-data-structures (López de Prado bars) 拼凑, 无统一库
+   - **Julia/MATLAB 薄弱**: 无成熟高频计量库
+   - **教材评估**: Aït-Sahalia & Jacod (2014 Princeton) + Hautsch (2012/2019 Cambridge) 为两大支柱; Hasbrouck (2007 Oxford) 实证微观结构圣经; Tsay (2010 Wiley) 第5章为入门起点
+   - 覆盖矩阵: 10 本教材 × 10 方法维度评分
+
+### Cpp_Hub v1.4 高频计量模块实施建议
+
+**模块拆分**: `include/cpphub/hfecon/` 下分 data/measures/tests/noise/models/liquidity 五子层
+
+**四波实施优先级**:
+
+| 波次 | 版本 | 项目数 | 核心内容 | 对标 highfrequency |
+|------|------|--------|----------|-------------------|
+| 第一波 | v1.4.0 | 4 | TAQ reader + RV/BPV/RS + BNS 跳跃 | 30% 功能, 10-50× 性能 |
+| 第二波 | v1.4.1 | 5 | Lee-Mykland + HAR + RK + 噪声初阶 | 60% 功能 |
+| 第三波 | v1.4.2 | 4 | Pre-averaging + 多元协方差 + co-jump | 80% 功能 |
+| 第四波 | v1.4.3 | 5 | HEAVY/Realized GARCH + VPIN/OFI/价差分解 | 90%+ 功能 |
+
+**性能目标**: C++ 50+ Mtick/s (R Rcpp 的 10-50×), 复用 v1.3 的 core/linalg/rng + SIMD/OpenMP
+
+**与 v1.3 衔接**: 复用 `core/` (types/linalg/rng/math) 与 `monte_carlo/` 基础设施, 与衍生品定价栈解耦但共享底层
 
 ---

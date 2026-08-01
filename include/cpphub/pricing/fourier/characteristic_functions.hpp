@@ -282,5 +282,33 @@ inline std::pair<Real, Real> cos_truncation_range(const CharFn& phi, Real S0, Re
     return {a, b};
 }
 
+// ============ 增量特征函数工厂 (用于百慕大/美式期权 COS 递归) ============
+// SOURCE: Fang & Oosterlee (2009) §5 "Bermudan Options"
+//
+// 百慕大期权定价需要 "增量特征函数" φ_inc(u; Δt) = E[exp(iu·(X_{t+Δt} - X_t))]
+// 其中 X_t = ln S_t. 对于 Lévy 过程 (GBM, VG, CGMY, Kou 等), 增量独立同分布,
+// φ_inc 只依赖 Δt, 不依赖历史路径. 对于亲和过程 (Heston, Bates), 增量依赖
+// 当前方差状态, 需用户提供条件 CF (超出本工厂范围).
+//
+// 工厂接口: 给定 Δt, 返回 CharFn (增量 CF)
+using IncCharFnFactory = std::function<CharFn(Real dt)>;
+
+// GBM 增量 CF 工厂: X_{t+Δt} - X_t ~ N(μ·Δt, σ²·Δt), μ = r - q - σ²/2
+// φ_inc(u; Δt) = exp(iu·μ·Δt - σ²·u²·Δt/2)
+inline IncCharFnFactory make_gbm_inc_cf_factory(Real r, Real q, Real sigma) {
+    if (sigma <= 0.0) throw std::invalid_argument("gbm_inc_cf_factory: sigma must be positive");
+    Real mu = r - q - 0.5 * sigma * sigma;
+    Real var_rate = sigma * sigma;  // 单位时间方差
+    return [mu, var_rate](Real dt) -> CharFn {
+        if (dt <= 0.0) throw std::invalid_argument("gbm_inc_cf: dt must be positive");
+        Real mu_dt = mu * dt;
+        Real var_dt = var_rate * dt;
+        return [mu_dt, var_dt](Complex u) -> Complex {
+            Complex iu = Complex(0.0, 1.0) * u;
+            return std::exp(iu * mu_dt - Complex(var_dt / 2.0, 0.0) * (u * u));
+        };
+    };
+}
+
 }  // namespace v1
 }  // namespace cpphub
