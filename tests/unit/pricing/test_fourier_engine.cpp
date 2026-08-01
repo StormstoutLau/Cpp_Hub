@@ -13,6 +13,8 @@
 #include "cpphub/pricing/analytic/heston_cf.hpp"
 #include "cpphub/monte_carlo/control_variate.hpp"
 #include "cpphub/calibration/calibrator.hpp"
+#include "cpphub/pricing/tree/binomial.hpp"
+#include "cpphub/instruments/payoff/vanilla.hpp"
 #include <cmath>
 #include <vector>
 #include <complex>
@@ -507,4 +509,241 @@ TEST(COSMethodTest, VG_Call_PriceReasonable) {
     EXPECT_GT(vg_price, 0.0);
     EXPECT_LT(vg_price, bsm_price * 1.5);
     EXPECT_GT(vg_price, bsm_price * 0.5);
+}
+
+// ============ 百慕大期权 COS 方法测试 (Fang-Oosterlee 2009 §5) ============
+
+// 辅助: 用 CRR 二叉树对百慕大期权定价 (交叉验证基准)
+static Real crr_bermudan_call(Real S0, Real K, Real T, Real r, Real q, Real sigma,
+                               Size n_steps, const std::vector<Real>& exercise_times) {
+    BinomialParams params{S0, K, T, r, q, sigma, n_steps};
+    BinomialTreeEngine engine(params, BinomialType::CRR);
+    CallPayOff payoff(K);
+    // 将行权时间转换为步数索引
+    std::vector<Size> exercise_steps;
+    Real dt = T / static_cast<Real>(n_steps);
+    for (Real t : exercise_times) {
+        Size step = static_cast<Size>(std::round(t / dt));
+        if (step > 0 && step < n_steps) {
+            exercise_steps.push_back(step - 1);  // price_bermudan 用 i-1 索引
+        }
+    }
+    return engine.price_bermudan(payoff, exercise_steps);
+}
+
+static Real crr_bermudan_put(Real S0, Real K, Real T, Real r, Real q, Real sigma,
+                              Size n_steps, const std::vector<Real>& exercise_times) {
+    BinomialParams params{S0, K, T, r, q, sigma, n_steps};
+    BinomialTreeEngine engine(params, BinomialType::CRR);
+    PutPayOff payoff(K);
+    std::vector<Size> exercise_steps;
+    Real dt = T / static_cast<Real>(n_steps);
+    for (Real t : exercise_times) {
+        Size step = static_cast<Size>(std::round(t / dt));
+        if (step > 0 && step < n_steps) {
+            exercise_steps.push_back(step - 1);
+        }
+    }
+    return engine.price_bermudan(payoff, exercise_steps);
+}
+
+// 1. 单行权日 (= T) 退化为欧式
+TEST(COSBermudanTest, SingleExerciseDateDegeneratesToEuropean) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.02, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 10.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    Real bermudan = engine.price_bermudan(K, true, {T}, inc_factory);
+    Real european = engine.price_call(K);
+    EXPECT_NEAR(bermudan, european, 1e-10);
+}
+
+// 2. 无分红看涨百慕大 = 欧式看涨 (经典结论: q=0 时不应提前行权)
+TEST(COSBermudanTest, NoDividendCallBermudanEqualsEuropean) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 10.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    std::vector<Real> ex_times = {T / 3.0, 2.0 * T / 3.0, T};
+    Real bermudan = engine.price_bermudan(K, true, ex_times, inc_factory);
+    Real european = engine.price_call(K);
+    // q=0 时看涨百慕大 = 欧式 (容差放宽因数值误差)
+    EXPECT_NEAR(bermudan, european, 5e-3);
+}
+
+// 3. 看跌百慕大 >= 欧式 (r>0 时有提前行权溢价)
+TEST(COSBermudanTest, PutBermudanExceedsEuropean) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 10.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    std::vector<Real> ex_times = {T / 4.0, T / 2.0, 3.0 * T / 4.0, T};
+    Real bermudan = engine.price_bermudan(K, false, ex_times, inc_factory);
+    Real european = engine.price_put(K);
+    EXPECT_GT(bermudan, european - 1e-6);  // 百慕大应严格大于欧式
+}
+
+// 4. 有分红的看涨百慕大 > 欧式 (q>0 时提前行权有溢价)
+TEST(COSBermudanTest, DividendCallBermudanExceedsEuropean) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.10, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 10.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    std::vector<Real> ex_times = {T / 4.0, T / 2.0, 3.0 * T / 4.0, T};
+    Real bermudan = engine.price_bermudan(K, true, ex_times, inc_factory);
+    Real european = engine.price_call(K);
+    EXPECT_GT(bermudan, european - 1e-6);
+}
+
+// 5. 与 CRR 二叉树交叉验证 (看跌, 3 行权日)
+TEST(COSBermudanTest, PutCrossValidatesWithCRR) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.06, q = 0.02, sigma = 0.30;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 12.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    std::vector<Real> ex_times = {T / 3.0, 2.0 * T / 3.0, T};
+    Real cos_price = engine.price_bermudan(K, false, ex_times, inc_factory);
+    Real crr_price = crr_bermudan_put(S0, K, T, r, q, sigma, 2000, ex_times);
+    // 容差: COS vs CRR (n=2000) 应在 5e-3 内
+    EXPECT_NEAR(cos_price, crr_price, 5e-3)
+        << "COS=" << cos_price << " CRR=" << crr_price;
+}
+
+// 6. 与 CRR 二叉树交叉验证 (看涨, 有分红, 4 行权日)
+TEST(COSBermudanTest, CallWithDividendCrossValidatesWithCRR) {
+    Real S0 = 100.0, K = 95.0, T = 1.0, r = 0.05, q = 0.08, sigma = 0.25;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 12.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    std::vector<Real> ex_times = {0.25, 0.5, 0.75, T};
+    Real cos_price = engine.price_bermudan(K, true, ex_times, inc_factory);
+    Real crr_price = crr_bermudan_call(S0, K, T, r, q, sigma, 2000, ex_times);
+    EXPECT_NEAR(cos_price, crr_price, 5e-3)
+        << "COS=" << cos_price << " CRR=" << crr_price;
+}
+
+// 7. 多行权日单调性: 行权日越多, 百慕大价格越高 (趋近美式)
+TEST(COSBermudanTest, MoreExerciseDatesGivesHigherPrice) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.08, sigma = 0.25;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 12.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+
+    // 2 行权日 vs 5 行权日
+    Real p2 = engine.price_bermudan(K, true, {T / 2.0, T}, inc_factory);
+    Real p5 = engine.price_bermudan(K, true, {0.2, 0.4, 0.6, 0.8, T}, inc_factory);
+    EXPECT_GE(p5, p2 - 1e-6);  // 更多行权日 → 价格更高
+}
+
+// 8. 便捷工厂函数一致性
+TEST(COSBermudanTest, FactoryFunctionMatchesDirectCall) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.02, sigma = 0.20;
+    std::vector<Real> ex_times = {T / 3.0, 2.0 * T / 3.0, T};
+
+    Real factory_price = cos_bermudan_call_gbm(S0, K, T, r, q, sigma, ex_times);
+
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine::Config cfg;
+    cfg.n_terms = 256;
+    cfg.L = 10.0;
+    COSEngine engine(phi, S0, r, q, T, cfg);
+    Real direct_price = engine.price_bermudan(K, true, ex_times, inc_factory);
+
+    EXPECT_NEAR(factory_price, direct_price, 1e-12);
+}
+
+// 9. 参数验证: 空行权日抛异常
+TEST(COSBermudanTest, EmptyExerciseTimesThrows) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine engine(phi, S0, r, q, T);
+    EXPECT_THROW(engine.price_bermudan(K, true, {}, inc_factory), std::invalid_argument);
+}
+
+// 10. 参数验证: 非递增行权日抛异常
+TEST(COSBermudanTest, NonIncreasingExerciseTimesThrows) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine engine(phi, S0, r, q, T);
+    EXPECT_THROW(engine.price_bermudan(K, true, {0.5, 0.5, T}, inc_factory), std::invalid_argument);
+    EXPECT_THROW(engine.price_bermudan(K, true, {0.7, 0.3, T}, inc_factory), std::invalid_argument);
+}
+
+// 11. 参数验证: 首行权日 <= 0 抛异常
+TEST(COSBermudanTest, NonPositiveFirstExerciseThrows) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine engine(phi, S0, r, q, T);
+    EXPECT_THROW(engine.price_bermudan(K, true, {0.0, T}, inc_factory), std::invalid_argument);
+    EXPECT_THROW(engine.price_bermudan(K, true, {-0.1, T}, inc_factory), std::invalid_argument);
+}
+
+// 12. 参数验证: 末行权日 != T 抛异常
+TEST(COSBermudanTest, LastExerciseNotTThrows) {
+    Real S0 = 100.0, K = 100.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
+    auto phi = make_gbm_cf(S0, r, q, sigma, T);
+    auto inc_factory = make_gbm_inc_cf_factory(r, q, sigma);
+    COSEngine engine(phi, S0, r, q, T);
+    EXPECT_THROW(engine.price_bermudan(K, true, {0.3, 0.7, 0.9}, inc_factory), std::invalid_argument);
+}
+
+// 13. 增量 CF 工厂验证
+TEST(IncCharFnFactoryTest, GBM_IncCF_AtZeroReturnsOne) {
+    auto factory = make_gbm_inc_cf_factory(0.05, 0.02, 0.20);
+    auto phi = factory(1.0);
+    Complex val = phi(Complex(0.0, 0.0));
+    EXPECT_NEAR(val.real(), 1.0, 1e-12);
+    EXPECT_NEAR(val.imag(), 0.0, 1e-12);
+}
+
+TEST(IncCharFnFactoryTest, GBM_IncCF_UnitModulusForRealU) {
+    auto factory = make_gbm_inc_cf_factory(0.05, 0.02, 0.20);
+    auto phi = factory(1.0);
+    for (Real u = 0.0; u <= 10.0; u += 0.5) {
+        Complex val = phi(Complex(u, 0.0));
+        EXPECT_LE(std::abs(val), 1.0 + 1e-12);
+    }
+}
+
+TEST(IncCharFnFactoryTest, GBM_IncCF_ScalesWithDt) {
+    // φ_inc(u; 2Δt) = φ_inc(u; Δt)^2 (独立增量性质)
+    auto factory = make_gbm_inc_cf_factory(0.05, 0.02, 0.20);
+    auto phi1 = factory(1.0);
+    auto phi2 = factory(2.0);
+    Complex u(1.5, 0.0);
+    Complex val1 = phi1(u);
+    Complex val2 = phi2(u);
+    EXPECT_NEAR(val2.real(), (val1 * val1).real(), 1e-10);
+    EXPECT_NEAR(val2.imag(), (val1 * val1).imag(), 1e-10);
 }
