@@ -196,3 +196,8 @@ endif()
 # 对标 R highfrequency 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08)
 # 基准数据: tests/fixtures/hfe/baselines.json (由 generate_r_baselines.R 生成)
 cpphub_add_test(test_hfe_realized_measures unit/hfecon/test_realized_measures.cpp)
+
+# v1.4.1 Phase 5: HFE Realized Kernel (BNS 2008 ECTA) + 噪声方差 + 最优带宽
+# 对标 R highfrequency 1.0.3 rKernelCov (KK() + kernelEstimator() 源码实测)
+# 基准数据: tests/fixtures/hfe/generate_v141_baselines.R 生成
+cpphub_add_test(test_realized_kernel unit/hfecon/test_realized_kernel.cpp)
