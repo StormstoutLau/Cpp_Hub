@@ -10,6 +10,11 @@
 #pragma warning(disable: 4996)  // 'sscanf': This function or variable may be unsafe
 #endif
 
+// POSIX timegm (GNU 扩展, 用于 UTC epoch 转换) — 必须在 namespace 外声明
+#if !defined(_MSC_VER) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <vector>
 #include <string>
 #include <fstream>
@@ -289,9 +294,8 @@ private:
             t = std::mktime(&tm);  // 回退本地时区
         }
 #else
-        // POSIX timegm (GCC/Clang); 若不可用回退 mktime
-        extern time_t timegm(struct tm*);
-        t = timegm(&tm);
+        // POSIX timegm (GCC/Clang, 需 _GNU_SOURCE); 若不可用回退 mktime
+        t = ::timegm(&tm);
         if (t == static_cast<std::time_t>(-1)) {
             t = std::mktime(&tm);
         }
