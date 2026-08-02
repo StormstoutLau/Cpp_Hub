@@ -3,6 +3,8 @@
 > A header-first C++20 quantitative pricing library — BS / Heston / PDE / Tree / MC / AAD Greeks / VaR / SVI, with Python bindings and optional CUDA MC.
 >
 > 一个以头文件为主的 C++20 量化定价库：解析解 / 蒙特卡洛 / PDE / 树形 / AAD Greeks / VaR / SVI 波动率曲面，附带 Python 绑定与可选 CUDA MC 内核。
+>
+> v1.4.0 起新增高频计量经济学模块 (HFE), 对标 R `highfrequency` 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08), 提供 C++ 工程级 RV/BPV/RSV/BNS 跳跃检验实现。
 
 ---
 
@@ -12,6 +14,7 @@
 |---|---|---|
 | **Phase 1–3** | Core / PayOff / BS / Heston / MC / Sobol QMC / PDE / Tree / AAD-Lite Greeks / Pathwise & LR Greeks / Greeks Factory / VaR & Backtesting / Calibration / SVI | 286 / 286 ✅ |
 | **Phase 4 LITE** | SSVI 跨期限 / Python 绑定 (nanobind) / GPU MC (CUDA, 主控站可选) | 320 / 320 ✅ |
+| **Phase 5 v1.4.0** | HFE: TAQ Reader / Realized Measures (RV/RVol/RQ/BPV/RSV) / BNS Jump Test | 18 / 18 ✅ (R baseline 对标, spec 矩阵 15 + R baseline exact 3) |
 | **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 286 / 286 位精确一致 |
 
 跨平台浮点确定性由 `-ffp-contract=off` (GCC) + `/fp:precise` (MSVC) 保证 IEEE-754 严格模式。
@@ -26,6 +29,7 @@
 - **Risk**: MC VaR / ES, Kupiec POF backtesting
 - **Volatility surface**: SVI / SSVI (Gatheral-Jacquier, no-arb butterfly / calendar conditions)
 - **Calibration**: LM / Nelder–Mead / DE optimizers
+- **High-frequency econometrics (v1.4.0+)**: TAQ CSV reader + time aggregation, Realized Variance / Volatility / Quarticity, Bipower Variation (jump-robust), Realized Semivariance (±), BNS Jump Test (BN-S 2006, with Truncated Power Quarticity), 多资产 Realized Covariance — 对标 R `highfrequency` 1.0.3, 容差 1e-12
 - **Python bindings**: `import cpphub` via nanobind (BSM / Heston / MC / Greeks / VaR)
 - **GPU MC** (optional): CUDA Philox4x64-10 RNG, bit-exact match with CPU `cpphub::core::rng`
 
@@ -41,9 +45,17 @@ Cpp_Hub/
 │   ├── pricing/            # analytic, monte_carlo, pde, tree
 │   ├── risk/               # greeks (aad/pathwise/lr), var
 │   ├── calibration/        # calibrator, objective, optimizer
+│   ├── hfecon/             # v1.4.0+ 高频计量经济学 (对标 R highfrequency 1.0.3)
+│   │   ├── data/           # TAQ reader (CSV, 时间聚合)
+│   │   ├── measures/       # RV / RVol / RQ / BPV / RSV / rCov
+│   │   ├── tests/          # BNS Jump Test (BN-S 2006, TPQ)
+│   │   ├── noise/          # (v1.4.1) 微结构噪声, Realized Kernel
+│   │   ├── models/         # (v1.4.2) HAR, HEAVY
+│   │   └── liquidity/      # (v1.4.3) 流动性度量
 │   └── performance/gpu/    # gpu_mc (CUDA optional)
 ├── src/                    # Non-header sources (CUDA kernels + CPU stubs)
 ├── tests/                  # Unit + validation tests (GoogleTest)
+│   └── fixtures/hfe/       # R baseline 生成脚本 + baselines.json (CI gate)
 ├── benchmarks/             # Performance benchmarks
 ├── python/                 # Python bindings (nanobind) + pytest
 ├── third_party/autodiff/   # Vendored autodiff headers (forward/reverse mode)
@@ -101,6 +113,8 @@ Without CUDA, a CPU stub is compiled automatically and 15 GPU MC tests still run
 | AAD Greeks vs analytic | 1e-10 | ✅ |
 | Pathwise / LR / Analytic / AAD Greeks cross-check | 1e-6 | ✅ |
 | Cross-platform float determinism | bit-exact | ✅ (MSVC + 2× GCC) |
+| HFE Realized Measures vs R `highfrequency` 1.0.3 | 1e-12 | ✅ (RV/RVol/RQ/BPV/RSV, 9 case baseline) |
+| HFE BNS Jump Test vs R `BNSjumpTest` | 1e-10 | ✅ (Z statistic + p-value, no-jump + jump 双向) |
 
 ---
 

@@ -191,3 +191,8 @@ if(CPPHUB_ENABLE_C_API)
     target_link_libraries(test_c_api PRIVATE cpphub_core cpphub_c_api GTest::gtest_main)
     gtest_discover_tests(test_c_api)
 endif()
+
+# v1.4.0 Phase 5: 高频计量经济学模块 (HFE) 测试
+# 对标 R highfrequency 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08)
+# 基准数据: tests/fixtures/hfe/baselines.json (由 generate_r_baselines.R 生成)
+cpphub_add_test(test_hfe_realized_measures unit/hfecon/test_realized_measures.cpp)
