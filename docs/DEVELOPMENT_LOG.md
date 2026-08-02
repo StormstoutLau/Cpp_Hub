@@ -1746,11 +1746,39 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 2. R 源码是唯一真实源, BNS 2008 论文公式仅作参考, 实现必须对标 R `KK()` + `kernelEstimator()`
 3. 核函数公式幻觉通过 `reverse_kernels.R` 反推 + R 源码下载核对双重验证排除
 
-### v1.4.1 待办收尾
+### v1.4.1 跨平台验证 (2026-08-02)
 
-- [ ] A 站 (scott-lau-NEX.local) GCC 编译 + ctest 跨平台验证
-- [ ] B 站 (scott-lau-GTR-Pro.local) GCC 编译 + ctest 跨平台验证
-- [ ] 三平台一致后, AUDIT_CHECKLIST E2/E3/E4 转为 ✅, v1.4.1 审计结论从 ✅ 主控站通过 → ✅ 正式通过
-- [ ] git push to origin/main
+**验证流程**:
+1. A/B 站 fresh clone (HTTPS, `--depth 1`) — 两站均无 Cpp_Hub 仓库, GitHub SSH 不通 (A 站 key 未加 GitHub, B 站无 key), HTTPS 可达
+2. cmake configure + build + ctest — 首次 build 发现 `test_hfe_realized_measures` 链接失败
+3. timegm GCC 链接错误修复 (commit cf7c1e0) + push
+4. A/B 站 git pull + rebuild + ctest — 三平台全部通过
+
+**timegm GCC 链接错误根因分析**:
+- `taq_reader.hpp` 中 `extern time_t timegm(struct tm*)` 声明位于 `namespace cpphub::v1::hfecon` 内部
+- GCC 链接器因此寻找 `cpphub::v1::hfecon::timegm(tm*)` 而非全局 `::timegm` (glibc GNU 扩展)
+- MSVC 用 `_mkgmtime` 不受影响, 故主控站一直通过
+- 修复: 删除 namespace 内 extern 声明, 文件顶部 (namespace 外) 定义 `_GNU_SOURCE`, 改用 `::timegm(&tm)` 显式调用全局函数
+- 教训: **extern 声明不能放在 namespace 内**, 会改变符号查找路径
+
+**三平台验证结果**:
+
+| 平台 | 编译器 | 测试通过 | 失败 | 跳过 | 总耗时 |
+|------|--------|----------|------|------|--------|
+| 主控站 (Win10) | MSVC 19.x | 1300/1300 | 0 | 0 | 229.17 sec |
+| A 站 (Ubuntu NEX) | GCC 13.3.0 | 1300/1300 | 0 | 0 | 49.39 sec |
+| B 站 (Ubuntu GTR-Pro) | GCC 13.3.0 | 1300/1300 | 0 | 0 | 46.38 sec |
+
+- v1.4.0 + v1.4.1 合计 32 个 HFE 测试三平台 100% 一致
+- AUDIT_CHECKLIST E2/E3/E4 全部转为 ✅
+- v1.4.0 审计结论: 🟡 条件通过 → ✅ 正式通过 (92/100)
+- v1.4.1 审计结论: ✅ 主控站通过 → ✅ 正式通过 (95/100)
+
+### v1.4.1 待办收尾 (已完成)
+
+- [x] A 站 (scott-lau-NEX.local) GCC 编译 + ctest 跨平台验证 — 1300/1300 通过 (49.39s)
+- [x] B 站 (scott-lau-GTR-Pro.local) GCC 编译 + ctest 跨平台验证 — 1300/1300 通过 (46.38s)
+- [x] 三平台一致后, AUDIT_CHECKLIST E2/E3/E4 转为 ✅, v1.4.1 审计结论从 ✅ 主控站通过 → ✅ 正式通过
+- [x] git push to origin/main — commit cf7c1e0 (timegm 修复) 已推送
 
 ---

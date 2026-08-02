@@ -16,7 +16,7 @@
 | **Phase 4 LITE** | SSVI 跨期限 / Python 绑定 (nanobind) / GPU MC (CUDA, 主控站可选) | 320 / 320 ✅ |
 | **Phase 5 v1.4.0** | HFE: TAQ Reader / Realized Measures (RV/RVol/RQ/BPV/RSV) / BNS Jump Test | 18 / 18 ✅ (R baseline 对标, spec 矩阵 15 + R baseline exact 3) |
 | **Phase 5 v1.4.1** | HFE: Realized Kernel (BNS 2008) / 12 核函数 / 噪声方差 ω² / 最优带宽 H* | 14 / 14 ✅ (R baseline 对标, 11 核函数 + 3 R baseline) |
-| **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 286 / 286 位精确一致 (v1.4.0/v1.4.1 待 A/B 站验证) |
+| **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 1300 / 1300 位精确一致 ✅ (v1.4.0+v1.4.1 三平台验证通过) |
 
 跨平台浮点确定性由 `-ffp-contract=off` (GCC) + `/fp:precise` (MSVC) 保证 IEEE-754 严格模式。
 
