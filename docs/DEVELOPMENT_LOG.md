@@ -1782,3 +1782,111 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - [x] git push to origin/main — commit cf7c1e0 (timegm 修复) 已推送
 
 ---
+
+## Phase 5: 高频计量经济学模块 (HFE) — v1.4.2 第三波
+
+> **范围**: 多资产协方差估计 (5 方法) + HAR/HEAVY 波动率预测模型
+> **对标基准**: R `highfrequency` 1.0.3 rHYCov/rTSCov/rMRCov/rAVGCov/rRTSCov/HARmodel/HEAVYmodel
+> **学术依据**:
+>   - [HY 2005] Hayashi & Yoshida, *Econometric Theory* 21, 335-366 (Hayashi-Yoshida 协方差)
+>   - [BNS 2011] Barndorff-Nielsen et al., *Econometrica* 79(4), 1289-1314 (多资产 Realized Kernel)
+>   - [Corsi 2009] *JFE* 7(2), 174-196 (HAR 模型)
+>   - [SS 2010] Shephard & Sheppard, *Rev. Econ. Studies* 77, 537-571 (HEAVY 模型)
+> **审计 checklist**: `docs/audit/AUDIT_CHECKLIST.md` Phase 5 Wave A/B/C 章节
+
+### v1.4.2 实施日志
+
+| 日期 | 模块 | 完成项 | 问题/决策 | 耗时 | 下一步 |
+|------|------|--------|-----------|------|--------|
+| 2026-08-03 | Wave A: rHYCov | `hayashi_yoshida_cov.hpp` + `cov_utils.hpp` (refresh_time_matching/make_psd) | 非同步协方差, 整数索引周期聚合 | — | Wave B |
+| 2026-08-03 | Wave B: rTSCov | `two_scale_cov.hpp` (TSRV + TSCov_bi) | 对角线/非对角线调整系数不同 (spec D1) | — | rMRCov |
+| 2026-08-03 | Wave B: rMRCov | `modulated_realized_cov.hpp` | 参数名 make_psd 遮蔽函数名 → 改名 make_psd_flag | — | rAVGCov |
+| 2026-08-03 | Wave B: rAVGCov | `preaveraged_cov.hpp` (ravg_univariate + ravg_bivariate) | 单资产 (m+1)/m 校正, 双资产无校正 | — | rRTSCov |
+| 2026-08-03 | Wave B: rRTSCov | `robust_two_scale_cov.hpp` (RTSRV + RTSCov_bi + inv_pchisq3) | 参数名遮蔽同样修复; eta 截断迭代 20 次 | — | Wave C |
+| 2026-08-03 | Wave C: HAR | `har_model.hpp` (har_agg + ols_estimate + 7 种模型类型) | HARJ 共线性陷阱: RM2 必须独立随机种子 | — | HEAVY |
+| 2026-08-03 | Wave C: HEAVY | `heavy_model.hpp` (calc_rec_var_eq + heavy_llh + NelderMead MLE) | heavyLLH 方差方程用 ret^2 递归 (非 rm) | — | 测试编写 |
+| 2026-08-03 | 测试编写 | 62 个测试: Wave A (6) + Wave B (28) + Wave C (28) | 硬编码 baseline 策略 (沿用 v1.4.0/v1.4.1) | — | 编译验证 |
+| 2026-08-03 | 编译 + 测试 | MSVC Release 编译 0 error, 62/62 新测试通过 | 修复参数遮蔽 + HARJ 共线性 + 手算期望值错误 | — | 全量回归 |
+| 2026-08-03 | 全量回归 | ctest -C Release, 1362/1362 通过 (849.53 sec) | 无退化, 比 v1.4.1 增 62 个测试 | — | A/B 站跨平台 |
+
+### v1.4.2 新增文件清单
+
+**头文件 (8 个)**:
+- `include/cpphub/hfecon/measures/cov_utils.hpp` (基础设施: make_psd + refresh_time_matching)
+- `include/cpphub/hfecon/measures/hayashi_yoshida_cov.hpp` (Wave A)
+- `include/cpphub/hfecon/measures/two_scale_cov.hpp` (Wave B: rTSCov)
+- `include/cpphub/hfecon/measures/modulated_realized_cov.hpp` (Wave B: rMRCov)
+- `include/cpphub/hfecon/measures/preaveraged_cov.hpp` (Wave B: rAVGCov)
+- `include/cpphub/hfecon/measures/robust_two_scale_cov.hpp` (Wave B: rRTSCov)
+- `include/cpphub/hfecon/models/har_model.hpp` (Wave C: HAR)
+- `include/cpphub/hfecon/models/heavy_model.hpp` (Wave C: HEAVY)
+
+**测试文件 (7 个, 62 测试)**:
+- `tests/unit/hfecon/test_hayashi_yoshida_cov.cpp` (6 测试)
+- `tests/unit/hfecon/test_two_scale_cov.cpp` (5 测试)
+- `tests/unit/hfecon/test_modulated_realized_cov.cpp` (7 测试)
+- `tests/unit/hfecon/test_preaveraged_cov.cpp` (7 测试)
+- `tests/unit/hfecon/test_robust_two_scale_cov.cpp` (9 测试)
+- `tests/unit/hfecon/test_har_model.cpp` (14 测试)
+- `tests/unit/hfecon/test_heavy_model.cpp` (14 测试)
+
+### v1.4.2 关键技术决策
+
+1. **cov_utils.hpp 作为共享基础设施**: `make_psd` (Jacobi 特征值分解 PSD 投影) 和 `refresh_time_matching` (非同步时间对齐) 被 5 个协方差估计器共用, 优先实现
+2. **rHYCov 整数索引时间匹配**: R 实现用整数索引周期聚合而非连续时间匹配, C++ 严格对标 R 行为
+3. **rTSCov 对角线/非对角线调整系数不同**: TSRV (单资产) 与 TSCov_bi (双资产) 的调整系数公式不同 (spec D1), C++ 分别实现
+4. **rAVGCov 单资产/双资产校正因子不对称**: 单资产 ravg_univariate 有 (m+1)/m 校正, 双资产 ravg_bivariate 无校正, 完美相关时 ratio ≈ m/(m+1)
+5. **rRTSCov 迭代截断**: eta 参数控制截断, inv_pchisq3 实现 chi-square 分布逆 CDF, 迭代 20 次收敛
+6. **HAR 模型 7 种类型**: HAR/HARJ/HARQ/CHAR/HARQ-J/HAR-CJ/CHARQ, 统一 OLS 估计框架, 支持 log/sqrt 变换
+7. **HEAVY 模型 NelderMead + penalty**: C++ 用 Nelder-Mead 优化 + penalty 函数近似约束 (R 用 solnp/SQP), 不保证严格约束, 用 TOL_VERY_LOOSE=1e-3 容差
+8. **R baseline 硬编码策略**: 沿用 v1.4.0/v1.4.1, 避免 A/B 站 R 环境依赖
+
+### v1.4.2 R 源码幻觉排除 (3 处)
+
+**幻觉 1: heavyLLH 方差方程递归变量**
+- spec 注释: `condVar = calcRecVarEq(par, rm)` (用 rm 递归)
+- R 源码实测: `internalHEAVY.R` L36 `condVar <- calcRecVarEq(par, ret^2)` (用 ret^2 递归)
+- 修正: 方差方程用 ret^2 递归, 只有 RM 方程 (RMEq=TRUE) 用 rm 递归
+- **排查方法**: 直接读 R 源码, 不信 spec 注释
+
+**幻觉 2: calc_rec_var_eq 初始值 g[0]**
+- 直觉假设: g[0] = mean(ret^2) 或 g[0] = rm[0]
+- R 源码实测: `HEAVYmodel.cpp` L7 `g[0] = mean(rm)` (用 rm 的均值, 非 ret^2)
+- 修正: spec 显式标注, 测试期望值重新计算
+
+**幻觉 3: HARJ 测试共线性**
+- 原测试: `RM2 = RM1 * 0.95` 模拟 BPV < RV
+- 问题: `J = RM1 - RM2 = 0.05*RM1` 与 RM1 完美共线性, OLS 设计矩阵奇异
+- 修复: RM2 用独立随机种子生成 (`make_rv_series(100, 0.0095, 0.3, 99)`)
+- **教训**: HARJ 的 J = RV - BPV, 测试数据必须保证 RV 和 BPV 有独立随机性
+
+### v1.4.2 编译陷阱 (2 处)
+
+**陷阱 1: 参数名遮蔽函数名 (MSVC C2064)**
+- 问题: `robust_two_scale_cov.hpp` 和 `modulated_realized_cov.hpp` 中参数 `bool make_psd` 遮蔽同命名空间函数 `make_psd(cov, d)`
+- 现象: MSVC 报 "项不会计算为接受 N 个参数的函数"
+- 修复: 参数改名为 `make_psd_flag`
+- **教训**: 当函数与参数同名时, 参数在函数体内遮蔽函数
+
+**陷阱 2: NelderMead penalty 不保证严格约束**
+- 问题: HEAVY 模型 MLE 估计中, omega 可能略负 (-0.0003), 违反非负约束
+- 原因: Nelder-Mead + penalty 是近似方法, R 用 solnp (SQP) 能严格满足约束
+- 修复: 用 TOL_VERY_LOOSE=1e-3 容差, 允许小范围违反约束
+
+### v1.4.2 全量回归结果 (MSVC 主控站)
+
+| 平台 | 编译器 | 测试通过 | 失败 | 跳过 | 总耗时 |
+|------|--------|----------|------|------|--------|
+| 主控站 (Win10) | MSVC 19.42 | 1362/1362 | 0 | 0 | 849.53 sec |
+
+- v1.4.0 + v1.4.1 + v1.4.2 合计 94 个 HFE 测试
+- 全量基线: 1268 (Phase 1-4) + 94 (HFE) = 1362
+- 新增 62 测试: Wave A (rHYCov, 6) + Wave B (rTSCov/rMRCov/rAVGCov/rRTSCov, 28) + Wave C (HAR/HEAVY, 28)
+
+### v1.4.2 待办收尾
+
+- [ ] A 站 (scott-lau-NEX.local) GCC 编译 + ctest 跨平台验证
+- [ ] B 站 (scott-lau-GTR-Pro.local) GCC 编译 + ctest 跨平台验证
+- [ ] 三平台一致后, git commit + push
+
+---
