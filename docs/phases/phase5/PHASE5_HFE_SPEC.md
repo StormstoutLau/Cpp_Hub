@@ -306,44 +306,307 @@ source("generate_baselines.R")
 
 ---
 
-## 4. 第二波 (v1.4.1) 交付项 (待 v1.4.0 完成后细化)
+## 4. 第二波 (v1.4.1) 交付项 — Realized Kernel (微结构噪声稳健 RV)
 
-**目标**: 微结构噪声分析 + realized kernel + 稀疏抽样
+> **范围修正 (2026-08-02 严格 review)**: 原 spec 列出的 `sparseSampling`/`noiseBPM`/`noiseAC`/`optimFrequ` 在 highfrequency 1.0.3 中**不存在** (verify_v141_functions2.R/3.R 实测). 仅 `rKernelCov` 真实存在且可用. 稀疏抽样功能已由 v1.4.0 `aggregate_price(alignBy, alignPeriod)` 覆盖. 本波范围严格限定为 Realized Kernel 单资产 RV.
 
-| 项 | 文件 | R 对照 | 文献 |
+**目标**: 实现微结构噪声稳健的 Realized Kernel 估计量 (BNS 2008 ECTA), 对标 R `rKernelCov` 单资产模式
+
+**预计新增测试**: 14 个 (11 核函数 + 3 R baseline 对标), 总数 1286 → 1300
+
+### 4.1 文献基础 (零幻觉, 全部 DOI 可溯源)
+
+| 编号 | 文献 | DOI / 来源 | 用途 |
 |---|---|---|---|
-| 稀疏抽样 | `measures/sparse_sampling.hpp` | `sparseSampling` | [H-L 2006] |
-| Realized Kernel | `measures/realized_kernel.hpp` | `rKernelCov` | Barndorff-Nielsen et al. (2008) |
-| 噪声方差估计 | `noise/noise_variance.hpp` | `noiseBPM` | [H-L 2006] |
-| 最优抽样频率 | `noise/optimal_frequency.hpp` | `optimFrequ` | [H-L 2006] |
-| 噪声自相关 | `noise/noise_autocorr.hpp` | `noiseAC` | [H-L 2006] |
+| [BNS 2008] | Barndorff-Nielsen, Hansen, Lunde, Shephard, "Designing realized kernels to measure the ex post variation of equity prices in the presence of noise" | *Econometrica* 76(6), 1481-1536, doi:10.1111/j.1468-0262.2008.00837.x | Realized Kernel 定义, 11 核函数, bandwidth 选择 |
+| [BNS 2011] | Barndorff-Nielsen, Hansen, Lunde, Shephard, "Multivariate realised kernels: consistent positive semi-definite estimators of the covariation of equity prices with noise and non-synchronous trading" | *Econometrica* 79(4), 1289-1314, doi:10.3982/ECTA8119 | 多资产 Kernel Cov (推迟 v1.4.2) |
+| [H-L 2006] | Hansen & Lunde, "Realized Variance and Market Microstructure Noise" | *JBES* 24(2), 127-161, doi:10.1198/073500106000000072 | 噪声方差 ω² 估计 §3 |
+
+### 4.2 项 1: 核函数库 (`measures/kernels.hpp`)
+
+**文件**: `include/cpphub/hfecon/measures/kernels.hpp`
+
+**R 对照**: `listAvailableKernels()` — 实测返回 11 个核 (verify_v141_functions3.R 2026-08-02)
+
+| C++ 枚举 | R 字符串 | k(x) 定义 (highfrequency 1.0.3 源码 `KK()` 实测, realizedMeasures.cpp L16-74) | 支撑 |
+|---|---|---|---|
+| `Rectangular` | `"rectangular"` | `1` | 全部 (不归零) |
+| `Bartlett` | `"Bartlett"` | `1 - x` | x ∈ [0,1] |
+| `Second` | `"Second"` | `1 - 2x³` | x ∈ [0,1] |
+| `Epanechnikov` | `"Epanechnikov"` | `1 - x²` | x ∈ [0,1] |
+| `Cubic` | `"Cubic"` | `1 - 3x² + 2x³` | x ∈ [0,1] |
+| `Fifth` | `"Fifth"` | `1 - 10x³ + 15x⁴ - 6x⁵` | x ∈ [0,1] |
+| `Sixth` | `"Sixth"` | `1 - 15x⁴ + 24x⁵ - 10x⁶` | x ∈ [0,1] |
+| `Seventh` | `"Seventh"` | `1 - 21x⁵ + 35x⁶ - 15x⁷` | x ∈ [0,1] |
+| `Eighth` | `"Eighth"` | `1 - 28x⁶ + 48x⁷ - 21x⁸` | x ∈ [0,1] |
+| `Parzen` | `"Parzen"` | `1 - 6x² + 6x³` (x ≤ 0.5); `2(1-x)³` (x > 0.5) | x ∈ [0,1] |
+| `TukeyHanning` | `"TukeyHanning"` | `(1 + sin(π/2 - πx))/2` | x ∈ [0,1] |
+| `ModifiedTukeyHanning` | `"ModifiedTukeyHanning"` | `(1 - sin(π/2 - π(1-x)²))/2` | x ∈ [0,1] |
+
+> **公式来源 (零幻觉)**: highfrequency 1.0.3 CRAN 源码 `realizedMeasures.cpp` 函数 `KK(double x, int type)`, 通过 `download.file("https://cran.r-project.org/src/contrib/highfrequency_1.0.3.tar.gz")` 下载并解压获取 (2026-08-02 实测).
+>
+> **与 BNS 2008 论文的差异 (重要)**:
+> 1. `Second` 核: R 实现 `1 - 2x³`, BNS 2008 Table 1 为 `1 - x²` — **R 实现与论文不符**
+> 2. `Seventh`/`Eighth` 核: R 实现多项式阶数与系数均与 BNS 2008 Table 1 不同 — **R 实现与论文不符**
+> 3. `Parzen` 核: R 实现是分段多项式 (Bartlett-Parzen 形式), 与 BNS 2008 §3 一致
+> 4. `TukeyHanning`/`ModifiedTukeyHanning`: R 用 `sin(π/2 - πx)` 形式, 与 BNS 2008 `(1+cos(πx))/2` 等价 (sin(π/2 - θ) = cos(θ))
+>
+> **决策**: C++ 实现严格对标 R 源码 (而非 BNS 论文), 以保证 R baseline 数值一致. 差异记录为 "discovery" (R 实现偏离论文).
+
+**接口签名**:
+
+```cpp
+enum class KernelType {
+    Rectangular, Bartlett, Second, Epanechnikov, Cubic,
+    Fifth, Sixth, Seventh, Eighth, Parzen, TukeyHanning, ModifiedTukeyHanning
+};
+
+// 核函数值 k(x), 支持 |x| > 1 时返回 0
+// 异常: 未知 KernelType 抛 invalid_argument
+Real kernel_value(KernelType type, Real x) noexcept(false);
+
+// 从 R 字符串解析 KernelType (大小写敏感, 与 R listAvailableKernels() 一致)
+// 异常: 未知字符串抛 invalid_argument
+KernelType parse_kernel_type(const std::string& name);
+```
+
+### 4.3 项 2: 噪声方差估计 (`noise/noise_variance.hpp`)
+
+**文件**: `include/cpphub/hfecon/noise/noise_variance.hpp`
+
+**R 对照**: highfrequency 1.0.3 无独立导出函数, rKernelCov 内部使用 (BNS 2008 §4.4)
+
+**算法 (BNS 2008 eq. 40, H-L 2006 §3)**:
+
+```
+ω² = (1/(2n)) * Σ_{i=1}^{n} r_i²     (n = 收益率数)
+```
+
+**接口签名**:
+
+```cpp
+struct NoiseVarianceResult {
+    Real omega2;    // 噪声方差估计 ω²
+    Real integrated_variance;  // IV 估计 (RV - ω²)
+    Size n_obs;
+};
+
+class NoiseVarianceEstimator {
+public:
+    // 输入: 日内对数收益率序列
+    // 异常: n < 2 抛 invalid_argument
+    static NoiseVarianceResult estimate(const std::vector<Real>& log_returns);
+};
+```
+
+### 4.4 项 3: 最优 Bandwidth 选择 (`noise/bandwidth.hpp`)
+
+**文件**: `include/cpphub/hfecon/noise/bandwidth.hpp`
+
+**R 对照**: rKernelCov 内部 `bandwidth` 选择 (BNS 2008 §4.5)
+
+**算法 (BNS 2008 eq. 51)**:
+
+```
+H* = c × ξ^(4/5) × (ω²/IV)^(2/5) × n^(3/5)
+
+其中:
+  c = 5.74 (Bartlett 核的最优常数, BNS 2008 Table 4)
+  ξ² = IV + 2ω²  (或更稳健的估计)
+  ω² = 噪声方差 (项 4.3)
+  IV  = RV - ω²  (积分方差估计)
+  n   = 观测数
+
+round 到最近整数, 下界 H ≥ 1
+```
+
+**接口签名**:
+
+```cpp
+// 输入: 噪声方差 ω², 积分方差 IV, 观测数 n, 核类型
+// 返回: 最优 bandwidth H (整数, ≥ 1)
+// 异常: omega2 ≤ 0 或 IV ≤ 0 或 n == 0 抛 invalid_argument
+Size optimal_bandwidth(Real omega2, Real integrated_variance,
+                       Size n_obs, KernelType type);
+```
+
+### 4.5 项 4: Realized Kernel 主估计量 (`measures/realized_kernel.hpp`)
+
+**文件**: `include/cpphub/hfecon/measures/realized_kernel.hpp`
+
+**R 对照**: `rKernelCov(rData, cor=FALSE, kernelType="Bartlett", kernelParam=1, kernelDOFadj=TRUE)`
+
+**R 实测签名 (verify_v141_functions3.R)**:
+```
+rKernelCov(rData, cor = FALSE, alignBy = NULL, alignPeriod = NULL,
+           makeReturns = FALSE, kernelType = "rectangular",
+           kernelParam = 1, kernelDOFadj = TRUE, ...)
+```
+
+**算法 (highfrequency 1.0.3 源码 `kernelEstimator()` 实测, realizedMeasures.cpp L77-111)**:
+
+```
+// 输入: r (长度 n), bandwidth H (= kernelParam), 核类型 type, DOF 调整 adj
+// 注意: R 实现与 BNS 2008 论文有 2 处关键差异
+
+nab = n - 1
+
+// Step 1: 计算自协方差 ab[h], ab2[h] (h = 0..H)
+ab[h]  = Σ_{i=0}^{n-1-h} r[i] * r[i+h]    // forward lag h (γ_h)
+ab2[h] = Σ_{i=h}^{n-1}   r[i] * r[i-h]    // backward lag h (γ_{-h})
+
+// Step 2: 加权求和
+ans = 0
+for h = 0 to H:
+    if h == 0:
+        w = 1.0                              // γ_0 权重恒为 1
+    else:
+        w = KK((h-1)/H, type)                // 关键: (h-1)/H, 不是 h/H (半整数偏移)
+
+    if adj == 0:
+        theadj = 1.0
+    else:
+        theadj = n / (n - h)                 // 关键: 逐 lag 调整, 不是整体 n/(n-H)
+
+    if h == 0:
+        ans += w * theadj * ab[0]            // γ_0
+    else:
+        ans += w * (theadj*ab[h] + theadj*ab2[h])  // γ_h + γ_{-h}
+
+return ans
+```
+
+**与 BNS 2008 论文的关键差异 (重要)**:
+1. **权重偏移**: R 用 `w = KK((h-1)/H)`, BNS 论文用 `w = KK(h/H)`. 后果: R 实现中 h=1 时 w=KK(0)=1 (所有核 k(0)=1), 而 BNS 论文中 h=1 时 w=KK(1/H)≠1.
+2. **DOF 调整**: R 用逐 lag 调整 `theadj = n/(n-h)`, BNS 论文用整体调整 `n/(n-H)`.
+3. **决策**: C++ 实现严格对标 R 源码, 以保证 R baseline 数值一致 (容差 1e-12).
+
+**接口签名**:
+
+```cpp
+struct RealizedKernelResult {
+    Real rk;              // Realized Kernel 估计值 (DOF 调整后, 若启用)
+    Real rv;              // γ_0 (Realized Variance, 未调整)
+    Real gamma_1;         // γ_1 (一阶自协方差, 用于噪声诊断)
+    Size bandwidth;       // 实际使用的 H (= kernelParam)
+    Size n_obs;
+    KernelType kernel;
+    bool dof_adjusted;    // 是否应用 DOF 调整
+};
+
+class RealizedKernel {
+public:
+    // 主接口: 严格对标 R rKernelCov 单资产模式
+    // 输入: 日内对数收益率序列 (R rData)
+    // 参数:
+    //   kernel         - 核类型 (默认 Rectangular, 与 R 默认 kernelType="rectangular" 一致)
+    //   kernel_param   - bandwidth H (默认 1, 与 R 默认 kernelParam=1 一致)
+    //   kernel_dof_adj - 是否应用 DOF 调整 (默认 true, 与 R 默认 kernelDOFadj=TRUE 一致)
+    // 异常: n < kernel_param + 1 抛 invalid_argument (需足够观测计算 ab[H])
+    //       kernel_param == 0 抛 invalid_argument
+    static RealizedKernelResult estimate(
+        const std::vector<Real>& log_returns,
+        KernelType kernel = KernelType::Rectangular,
+        Size kernel_param = 1,
+        bool kernel_dof_adj = true);
+
+    // 便捷接口: 输入价格序列 (内部 make_returns)
+    static RealizedKernelResult estimate_from_prices(
+        const std::vector<Real>& prices,
+        KernelType kernel = KernelType::Rectangular,
+        Size kernel_param = 1,
+        bool kernel_dof_adj = true);
+};
+```
+
+> **设计决策 (基于 R 源码实测)**:
+> 1. **不自动选择 bandwidth**: R `rKernelCov` 接受用户提供的 `kernelParam`, 不内部计算最优 H. C++ 实现保持一致, `kernel_param` 为必填参数 (默认 1).
+> 2. **默认 kernelType=Rectangular**: 与 R 默认一致 (`kernelType="rectangular"`). v1.4.0 spec 误写为 Bartlett, 已修正.
+> 3. **噪声方差与 bandwidth 选择 (项 4.3/4.4)**: 作为 C++ 扩展工具保留 (BNS 2008 公式), 标注"非 R 对标", 供高级用户使用, 但 `RealizedKernel::estimate` 不调用它们.
+
+### 4.6 项 5: 测试矩阵 (`tests/unit/hfecon/test_realized_kernel.cpp`)
+
+**预计测试**: 14 个
+
+**A. 核函数单测 (11 个, 对照 R listAvailableKernels + kfunc 源码)**:
+
+| # | 测试名 | 描述 | 容差 |
+|---|---|---|---|
+| 1 | `Kernel.Rectangular` | k(0)=1, k(0.5)=1, k(1)=1, k(1.5)=0 | 1e-15 |
+| 2 | `Kernel.Bartlett` | k(0)=1, k(0.5)=0.5, k(1)=0, k(1.5)=0 | 1e-15 |
+| 3 | `Kernel.Second` | k(0)=1, k(0.5)=0.75, k(1)=0 | 1e-15 |
+| 4 | `Kernel.Epanechnikov` | k(0)=1, k(0.5)=0.75, k(1)=0 | 1e-15 |
+| 5 | `Kernel.Cubic` | k(0)=1, k(0.5)=0.5, k(1)=0 | 1e-15 |
+| 6 | `Kernel.Fifth` | k(0)=1, k(0.5)=?, k(1)=0 | 1e-15 |
+| 7 | `Kernel.Sixth` | k(0)=1, k(1)=0 | 1e-15 |
+| 8 | `Kernel.Seventh` | k(0)=1, k(1)=0 | 1e-15 |
+| 9 | `Kernel.Eighth` | k(0)=1, k(1)=0 | 1e-15 |
+| 10 | `Kernel.Parzen` | k(0)=1, k(0.25)=?, k(0.5)=0.5, k(1)=0 | 1e-15 |
+| 11 | `Kernel.TukeyHanning` | k(0)=1, k(0.5)=0.5, k(1)=0 | 1e-15 |
+
+**B. R baseline 对标 (3 个, 硬编码 R 输出值)**:
+
+| # | 测试名 | 场景 | 对照 | 容差 |
+|---|---|---|---|---|
+| 12 | `RBaselineExact.KernelBartlett` | R `rKernelCov(ret, kernelType="Bartlett", kernelParam=1)` 单资产 | R 输出值 | 1e-12 |
+| 13 | `RBaselineExact.KernelParzen` | R `rKernelCov(ret, kernelType="Parzen", kernelParam=1)` 单资产 | R 输出值 | 1e-12 |
+| 14 | `RBaselineExact.KernelNoiseRejection` | 含噪声合成数据, RK 应显著小于 RV (噪声稳健性) | 相对差 > 5% | - |
+
+**R baseline 生成脚本**: `tests/fixtures/hfe/generate_v141_baselines.R`
 
 ---
 
-## 5. 第三波 (v1.4.2) 交付项 (待 v1.4.1 完成后细化)
+## 5. 第三波 (v1.4.2) 交付项 — 多资产 Cov 估计 + HAR/HEAVY 预测模型
 
-**目标**: HAR 模型 + HEAVY 模型 + RV 预测
+> **范围调整 (2026-08-02)**: 基于 verify_v141_functions3.R 实测, highfrequency 1.0.3 提供多资产噪声稳健协方差估计方法 (rAVGCov/rTSCov/rMRCov/rHYCov 等) 与 HAR/HEAVY 预测模型. 原计划中的 "ARFIMA 估计" 与 "预测精度评估" highfrequency 无对应函数, 推迟或剔除.
 
-| 项 | 文件 | R 对照 | 文献 |
+**目标**: 多资产噪声稳健协方差 + HAR/HEAVY RV 预测模型
+
+**预计新增测试**: ~25 个, 总数 1300 → ~1325
+
+### 5.1 多资产 Cov 估计 (5 个方法, 全部 R 对标)
+
+| 项 | 文件 | R 对照 (实测签名) | 文献 |
 |---|---|---|---|
-| HAR 模型 | `models/har_model.hpp` | `HARmodel` | Corsi (2009) |
-| HEAVY 模型 | `models/heavy_model.hpp` | `HEAVYmodel` | Shephard & Sheppard (2010) |
-| ARFIMA 估计 | `models/arfima.hpp` | (R `forecast`) | [ABD 2003] |
-| 预测精度评估 | `models/forecast_eval.hpp` | (无直接对照) | Patton (2011) |
+| Pre-averaging Cov | `measures/preaveraged_cov.hpp` | `rAVGCov(rData, cor, alignBy, alignPeriod, k, makeReturns)` | Jacaud, Li, Mykland, Podolskij, Vetter (2009), *AOS* 37(1), 280-318, doi:10.1214/07-AOS568 |
+| Two-scale Cov | `measures/two_scale_cov.hpp` | `rTSCov(pData, cor, K, J, ...)` | Zhang, Mykland, Aït-Sahalia (2005), *JASA* 100(472), 1394-1411, doi:10.1198/016214505000000548 |
+| Robust Two-scale | `measures/robust_two_scale_cov.hpp` | `rRTSCov(pData, cor, startIV, noisevar, K, J, ...)` | Zhang (2011), *JASA* 106(495), doi:10.1198/jasa.2011.tm10384 |
+| Modulated RC | `measures/modulated_realized_cov.hpp` | `rMRCov(...)` | Christensen, Podolskij, Vetter (2013), *J. Econometrics* 173(1), doi:10.1016/j.jeconom.2012.08.016 |
+| Hayashi-Yoshida | `measures/hayashi_yoshida_cov.hpp` | `rHYCov(...)` | Hayashi & Yoshida (2005), *J. Financial Econometrics* 3(4), doi:10.1093/jjfinec/nbi013 |
+
+### 5.2 HAR/HEAVY 预测模型
+
+| 项 | 文件 | R 对照 (实测签名) | 文献 |
+|---|---|---|---|
+| HAR 模型 | `models/har_model.hpp` | `HARmodel(data, periods, periodsJ, periodsQ, leverage, RVest, type, inputType, jumpTest, alpha, h, transform, ...)` | Corsi (2009), *JFE* 4(2), 174-196, doi:10.1093/jjfinec/nbp001 |
+| HEAVY 模型 | `models/heavy_model.hpp` | `HEAVYmodel(data, startingValues)` | Shephard & Sheppard (2010), *Restat* 92(2), doi:10.1162/REST_a_00017; Noureldin, Shephard, Sheppard (2012), *JAE* 27(8), doi:10.1002/jae.1260 |
 
 ---
 
-## 6. 第四波 (v1.4.3) 交付项 (待 v1.4.2 完成后细化)
+## 6. 第四波 (v1.4.3) 交付项 — 流动性度量 + 高级跳跃检验
 
-**目标**: 流动性度量 + 多资产 + 高级跳跃检验
+> **范围调整 (2026-08-02)**: 基于 verify_v141_functions3.R 实测, highfrequency 提供 `getLiquidityMeasures(tqData, win=300)` 综合流动性接口与 AJ/JO/rank/intraday 四种跳跃检验. 原 spec 的 "门限跳跃检验" highfrequency 无直接对应 (rankJumpTest 接近), 取消该子项.
 
-| 项 | 文件 | R 对照 | 文献 |
+**目标**: 流动性度量 + 多种跳跃检验
+
+**预计新增测试**: ~15 个, 总数 ~1325 → ~1340
+
+### 6.1 流动性度量
+
+| 项 | 文件 | R 对照 (实测签名) | 文献 |
 |---|---|---|---|
-| 有效价差 | `liquidity/effective_spread.hpp` | `getLiquidityMeasures` | Hasbrouck (2009) |
-| 实现价差 | `liquidity/realized_spread.hpp` | `getLiquidityMeasures` | Hasbrouck (2009) |
-| Amihud 流动性 | `liquidity/amihud.hpp` | (无直接对照) | Amihud (2002) |
-| AJ 跳跃检验 | `tests/aj_jump_test.hpp` | `AJjumpTest` | [A-J 2009] |
-| 门限跳跃检验 | `tests/threshold_jump_test.hpp` | (无直接对照) | Corsi, Pirino, Renò (2010) |
+| 综合流动性度量 | `liquidity/liquidity_measures.hpp` | `getLiquidityMeasures(tqData, win=300)` | Hasbrouck (2009), *J. Finance* 64(4), doi:10.1111/j.1540-6261.2009.01475.x |
+| 价差清洗工具 | `liquidity/spread_cleaner.hpp` | `rmLargeSpread`/`rmNegativeSpread`/`spreadPrices` | BKS 2022 JSS vignette §6 |
+
+### 6.2 高级跳跃检验 (3 个 R 对标 + 1 个无对照)
+
+| 项 | 文件 | R 对照 (实测签名) | 文献 |
+|---|---|---|---|
+| AJ 跳跃检验 | `tests/aj_jump_test.hpp` | `AJjumpTest(pData, p=4, k=2, alignBy, alignPeriod, alphaMultiplier=4, alpha=0.975)` | Andersen, Bollerslev, Dobrev (2007), *WP*; Aït-Sahalia & Jacod (2009) |
+| JO 跳跃检验 | `tests/jo_jump_test.hpp` | `JOjumpTest(pData, power=4, alignBy, alignPeriod, alpha=0.975)` | Jiang & Oomen (2008), *Mathematical Finance* 18(3), doi:10.1111/j.1467-9965.2008.00343.x |
+| Rank 跳跃检验 | `tests/rank_jump_test.hpp` | `rankJumpTest(marketPrice, stockPrices, alpha=c(5,3), coarseFreq=10, localWindow=30, rank=1, BoxPox=1, quantiles, nBoot=1000, ...)` | Bollerslev, Todorov (2011), *JFE* 9(2), doi:10.1093/jjfinec/nbr010 |
+| 日内跳跃检验 | `tests/intraday_jump_test.hpp` | `intradayJumpTest(pData, volEstimator="RM", driftEstimator="none", alpha=0.95, alignBy, alignPeriod, marketOpen, marketClose, tz, n, ...)` | Lee & Mykland (2008), *JFE* 6(5), doi:10.1093/jjfinec/nbn002 |
+| Amihud 流动性 | `liquidity/amihud.hpp` | (无直接对照) | Amihud (2002), *JFM* 6(1), doi:10.2202/1538-0645.1152 |
 
 ---
 

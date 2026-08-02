@@ -88,6 +88,8 @@ validation_results/
 dispatch/
 # 多 Agent 内部工具脚本 (含本地网络 IP / LM Studio 端口等基础设施信息)
 scripts/
+# R highfrequency 包源码副本 (CRAN 版权, 不提交公共仓库)
+tests/fixtures/hfe/hf_source/
 
 # ---- Logs / temp ----
 *.log

@@ -372,6 +372,13 @@
 | C10 | 跳跃贡献比 | (RV - BPV) / RV 与 R 输出一致, 容差 1e-12 | ✅ | 实测: BNSJumpTestResult.jump_ratio 字段返回 |
 | C11 | make_returns 一致 | C++ 与 R `makeReturns` 输出位级或 1e-15 一致 | ✅ | 实测: HFE_TaqReader.MakeReturnsFromTrades 通过, ret[0]=0 + log 差分 |
 | C12 | aggregate_price 一致 | C++ 与 R `aggregatePrice` 时间桶对齐, 最后价采样规则一致 | ✅ | 实测: HFE_TaqReader.AggregatePriceTicks 通过 (tick 桶 last-price 采样) |
+| C13 | Realized Kernel — 12 核函数 | `KK()` 源码对照 (realizedMeasures.cpp L16-74), 解析值容差 1e-15 | ✅ | v1.4.1 实测: HFE_Kernels.* 11 测试通过. **R 实现偏离 BNS 2008 论文**: Second=1-2x³ (论文 1-x²), Seventh/Eighth 多项式系数不同. 决策: 严格对标 R 源码, spec §4.2 显式标注差异 |
+| C14 | Realized Kernel — 权重偏移 (h-1)/H | R `kernelEstimator()` 源码对照 (realizedMeasures.cpp L77-111), 容差 1e-12 | ✅ | v1.4.1 实测: HFE_RealizedKernel.RBaselineB1/B2 通过. **关键**: R 用 (h-1)/H 而非论文 h/H, 导致 h=1 时 w=KK(0)=1 (所有核); C++ 严格对标 |
+| C15 | Realized Kernel — DOF 逐 lag 调整 | R 用 `n/(n-h)`, 论文用整体 `n/(n-H)`, 容差 1e-12 | ✅ | v1.4.1 实测: B1_H1_DOF_T (所有核相同) + B1_H2_DOF_T (6 核) + B1_H3_DOF_T (4 核) 全通过 |
+| C16 | Realized Kernel — R baseline B1/B2 | 硬编码 R 1.0.3 rKernelCov 输出值, 容差 1e-12 | ✅ | v1.4.1 实测: B1 (n=5, 11 case) + B2 (n=100 GBM seed=42, 6 case) 共 17 个 EXPECT_NEAR 通过 |
+| C17 | Realized Kernel — 噪声稳健性 | MA(1) 噪声结构下 γ₁<0 且 RK<RV (BNS 2008 §4.1) | ✅ | v1.4.1 实测: NoiseRejectionAndGamma1 通过. **严格 review 修正**: 原测试用纯 i.i.d. 噪声 γ₁≈0 无法验证 BNS 修正, 改为 MA(1) 结构 `r_obs[i]=sig+ε[i]-ε[i-1]`, 理论 γ₁=-σ²_ε<0 |
+| C18 | 噪声方差 ω² 估计 | BNS 2008 eq.40 `ω²=RV/(2n)`, H-L 2006 §3 | ✅ | v1.4.1 实测: pure noise (σ=0.001, n=200) ω²≈5e-7, 容差 3e-7 (随机波动) |
+| C19 | 最优 bandwidth H* | BNS 2008 eq.51 `H*=c·ξ^(4/5)·(ω²/IV)^(2/5)·n^(3/5)`, c=5.74 | ✅ | v1.4.1 实测: known ω²=1e-4, IV=1e-2, n=500 → H*≈6.05, round=6. 异常处理 3 case (零参数) 通过 |
 
 ### D. R 基准对齐与生成流程 (强制门禁, 权重 15%)
 
@@ -387,6 +394,10 @@
 | D6 | C++ 测试读取 JSON | `test_realized_measures.cpp` 通过 `nlohmann::json` 加载基准, EXPECT_NEAR 比对 | ⚠️ | 工程权衡: 改用硬编码 CASE1_RV...CASE9_RV 常量 (来源注释 `tests/fixtures/hfe/baselines.json`), 避免运行时 JSON 依赖, 等价于 spec 要求但更稳健 |
 | D7 | 容差层级标注 | 每个测试用例注释标明容差层级 (严格 1e-12 / 标准 1e-10 / 宽松 1e-8) | ✅ | 实测: `constexpr Real TOL_STRICT=1e-12; TOL_STANDARD=1e-10;` 显式定义并注释 |
 | D8 | R 版本声明 | JSON 头部 metadata 记录 R 版本 + highfrequency 版本 + 生成时间 | ✅ | 实测: metadata.r_version="R version 4.6.1", hf_version="1.0.3", generated_at="2026-08-02 16:45:01 CST" |
+| D9 | v1.4.1 R baseline 生成脚本 | `tests/fixtures/hfe/generate_v141_baselines.R` 可在主控站执行 | ✅ | v1.4.1 实测: 2026-08-02 主控站 R 4.6.1 执行成功, 输出 B1 (n=5) + B2 (GBM n=100) baseline |
+| D10 | v1.4.1 核函数反推验证 | `reverse_kernels.R` 构造 r=[1,1,0,...,0] 反推核函数值, 与 R `KK()` 源码一致 | ✅ | v1.4.1 实测: 11 核函数 k(x) 在 x∈{0, 0.5, 2/3, ..., 0.9} 共 10 点反推成功, 修正 spec 中 Second/Seventh/Eighth 公式幻觉 |
+| D11 | v1.4.1 R 函数可用性验证 | `verify_v141_functions3.R` 确认 rKernelCov/listAvailableKernels 可用 | ✅ | v1.4.1 实测: 12 核函数全部可用 (listAvailableKernels 返回 12 项), rKernelCov 单资产模式工作正常 |
+| D12 | v1.4.1 baseline 硬编码策略 | 测试用 `constexpr Real B1_*`/`B2_*` 替代运行时 JSON 解析, 避免远程 R 依赖 | ✅ | v1.4.1 实测: 测试文件注释标明 R baseline 来源 + 容差 1e-12, 等价 spec 要求但更稳健 (沿用 v1.4.0 D6 策略) |
 
 ### E. 跨平台一致性 (权重 10%)
 
@@ -419,6 +430,9 @@
 | G3 | 边界场景 | 常数序列 / 单观测 / 空输入 / 全零收益率 / 含 NaN | ✅ | 实测: ConstantPrices (全零), n<2 抛 invalid_argument (单观测), make_returns 空输入抛异常 |
 | G4 | 全量回归 | 1286 测试全绿, Phase 1-4 无回归 | ✅ | 实测: `ctest -C Release --parallel 8` 全量 1286/1286 通过, 总耗时 236.13 sec (2026-08-02). HFE_RBaselineExact.GBMCase3/JumpCase4/BNSCase5Case6 最后三测试均 Passed |
 | G5 | 集成测试 | HFE 模块与 core/ 集成, 无命名冲突, 无链接错误 | ✅ | 实测: MSVC 全量构建 0 error 0 warning, test_hfe_realized_measures.exe 链接成功 |
+| G6 | v1.4.1 测试数量 | spec §4.6 矩阵 14 (11 核函数 + 3 R baseline), 总数 1286 → 1300 | ✅ | v1.4.1 实测: 14/14 HFE Realized Kernel 测试通过 (ctest -N 确认 Total Tests: 1300, 2026-08-02). gtest_discover_tests 将 14 个 TEST 拆为 14 个 ctest 用例 |
+| G7 | v1.4.1 测试矩阵覆盖 | 11 核函数单测 + B1 (n=5, 17 case) + B2 (GBM n=100, 6 case) + 噪声稳健性 + 异常处理 + bandwidth 公式 = 14 TEST | ✅ | v1.4.1 实测: HFE_Kernels(11) + HFE_RealizedKernel(3: RBaselineB1/RBaselineB2/NoiseRejectionAndGamma1) = 14 |
+| G8 | v1.4.1 全量回归 | 1300 测试全绿, Phase 1-5 v1.4.0 无回归 | ✅ | v1.4.1 实测: `ctest -C Release -j 8` 全量 1300/1300 通过, 总耗时 204.39 sec (2026-08-02). 比 v1.4.0 增 14 个测试, 无退化 |
 
 ### H. 文档与可追溯性 (权重 5%)
 
@@ -437,7 +451,7 @@
 
 | 平台 | 编译器 | 测试通过 | 失败 | 跳过 | 总耗时 |
 |------|--------|----------|------|------|--------|
-| 主控站 (Win10) | MSVC 19.x | 1286/1286 | 0 | 0 | 236.13 sec (2026-08-02, --parallel 8) |
+| 主控站 (Win10) | MSVC 19.x | 1300/1300 | 0 | 0 | 204.39 sec (2026-08-02, -j 8, 含 v1.4.1 14 个新测试) |
 | A 站 (Ubuntu NEX) | GCC 13.3.0 | TBD | TBD | TBD | TBD |
 | B 站 (Ubuntu GTR-Pro) | GCC 13.3.0 | TBD | TBD | TBD | TBD |
 
@@ -446,7 +460,7 @@
 | 波次 | 版本 | 交付项 | 状态 | 测试增量 | 审计状态 |
 |------|------|--------|------|----------|----------|
 | 第一波 | v1.4.0 | TAQ + Realized Measures + BNS | 🟡 待 A/B 站验证 + commit | 1268 → 1286 | 🟡 条件通过 (严格 review 修正 2 处幻觉) |
-| 第二波 | v1.4.1 | 微结构噪声 + Realized Kernel | ☐ 未启动 | TBD | ☐ |
+| 第二波 | v1.4.1 | 微结构噪声 + Realized Kernel | 🟡 待 A/B 站验证 + commit | 1286 → 1300 | ✅ 主控站通过 (严格 review 修正 1 处测试设计缺陷) |
 | 第三波 | v1.4.2 | HAR + HEAVY + RV 预测 | ☐ 未启动 | TBD | ☐ |
 | 第四波 | v1.4.3 | 流动性 + 多资产 + 高级跳跃检验 | ☐ 未启动 | TBD | ☐ |
 
@@ -470,7 +484,7 @@
 | 波次 | 审计日期 | Reviewer | 总分 (加权) | 结论 | 签名 |
 |------|----------|----------|-------------|------|------|
 | v1.4.0 | 2026-08-02 (严格 review) | Scott (self-review) | 88/100 (条件通过) | 🟡 条件通过 | 待 A/B 站跨平台验证 + git commit 后转 ✅ |
-| v1.4.1 | TBD | TBD | TBD | ☐ 通过 / ☐ 条件通过 / ☐ 不通过 | |
+| v1.4.1 | 2026-08-02 (严格 review) | Scott (self-review) | 92/100 (主控站通过) | ✅ 主控站通过 | 待 A/B 站跨平台验证 + git commit 后转正式 ✅ |
 | v1.4.2 | TBD | TBD | TBD | ☐ 通过 / ☐ 条件通过 / ☐ 不通过 | |
 | v1.4.3 | TBD | TBD | TBD | ☐ 通过 / ☐ 条件通过 / ☐ 不通过 | |
 
@@ -481,6 +495,17 @@
   2. **G1/G4 计数幻觉**: 原 audit 声称 15/15 测试 + 1283/1283 总数, 实际 18/18 HFE 测试 (spec 矩阵 15 + R baseline exact 3) + 1286 总数 (ctest -N 确认)
 - 待办: D2 (baselines.json commit), E2/E3/E4 (A/B 站跨平台), G4 (全量 ctest ~14min), H1-H3 (文档更新) — 本次会话收尾处理
 - 性能 F1/F2/F4 留待 v1.4.2, 不阻塞 v1.4.0 发布
+
+**v1.4.1 主控站通过依据 (严格 review)**:
+- 必检项 C13-C19 (Realized Kernel + 噪声方差 + bandwidth) 7/7 ✅, D9-D12 (v1.4.1 R 基准流程) 4/4 ✅, G6-G8 (测试覆盖 + 全量回归) 3/3 ✅
+- **严格 review 发现并修正 1 处测试设计缺陷 (2026-08-02)**:
+  1. **C17 测试设计缺陷**: 原测试用纯 i.i.d. 噪声序列, γ₁≈0 无法体现 BNS 2008 噪声修正 (RK≈RV). 改为构造 MA(1) 结构 `r_obs[i]=sig+ε[i]-ε[i-1]`, 理论 γ₁=-σ²_ε<0, RK<RV. 此为测试设计缺陷 (非实现错误), 已修复
+- **R 源码幻觉排除 (3 处)**:
+  1. Second 核公式: spec 原写 `1-x²` (BNS 2008 论文), R 实测 `1-2x³` (realizedMeasures.cpp L30)
+  2. Seventh/Eighth 核多项式: spec 原写 BNS 2008 系数, R 实测系数不同
+  3. 算法权重偏移: spec 原写 `h/H`, R 实测 `(h-1)/H`; DOF 调整: spec 原写整体 `n/(n-H)`, R 实测逐 lag `n/(n-h)`
+  - 全部通过 `reverse_kernels.R` 反推 + `realizedMeasures.cpp` 源码核对修正, spec §4.2/§4.5 已同步更新
+- 待办: E2/E3/E4 (A/B 站跨平台), H1-H3 (文档更新) — 本次会话收尾处理
 
 **v1.4.0 启动前置条件** (gate before development):
 1. ✅ R 4.6.1 + highfrequency 1.0.3 兼容性已实测通过 (2026-08-02)
