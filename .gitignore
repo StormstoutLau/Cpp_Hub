@@ -90,6 +90,8 @@ dispatch/
 scripts/
 # R highfrequency 包源码副本 (CRAN 版权, 不提交公共仓库)
 tests/fixtures/hfe/hf_source/
+tests/fixtures/hfe/hf_src/
+tests/fixtures/hfe/v142_source_dump.txt
 
 # ---- Logs / temp ----
 *.log

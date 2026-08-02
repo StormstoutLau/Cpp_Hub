@@ -559,27 +559,70 @@ public:
 ## 5. 第三波 (v1.4.2) 交付项 — 多资产 Cov 估计 + HAR/HEAVY 预测模型
 
 > **范围调整 (2026-08-02)**: 基于 verify_v141_functions3.R 实测, highfrequency 1.0.3 提供多资产噪声稳健协方差估计方法 (rAVGCov/rTSCov/rMRCov/rHYCov 等) 与 HAR/HEAVY 预测模型. 原计划中的 "ARFIMA 估计" 与 "预测精度评估" highfrequency 无对应函数, 推迟或剔除.
+>
+> **R 源码调研 (2026-08-02)**: dump 7 个函数完整源码 (`tests/fixtures/hfe/v142_source_dump.txt`, 74KB), 识别 9 项 R 源码 vs 论文差异 (幻觉源). 严格对标 R 实现, spec 显式标注差异.
 
 **目标**: 多资产噪声稳健协方差 + HAR/HEAVY RV 预测模型
 
-**预计新增测试**: ~25 个, 总数 1300 → ~1325
+**预计新增测试**: ~31 个, 总数 1300 → ~1331
+
+**实施波次** (基于依赖关系):
+- **波次 A** (基础设施): `refreshTimeMatching` + `preAveraging` 内部工具 + rHYCov (最简单)
+- **波次 B** (Cov 估计器): rAVGCov + rTSCov + rRTSCov + rMRCov
+- **波次 C** (预测模型): HARmodel + HEAVYmodel
 
 ### 5.1 多资产 Cov 估计 (5 个方法, 全部 R 对标)
 
 | 项 | 文件 | R 对照 (实测签名) | 文献 |
 |---|---|---|---|
-| Pre-averaging Cov | `measures/preaveraged_cov.hpp` | `rAVGCov(rData, cor, alignBy, alignPeriod, k, makeReturns)` | Jacaud, Li, Mykland, Podolskij, Vetter (2009), *AOS* 37(1), 280-318, doi:10.1214/07-AOS568 |
-| Two-scale Cov | `measures/two_scale_cov.hpp` | `rTSCov(pData, cor, K, J, ...)` | Zhang, Mykland, Aït-Sahalia (2005), *JASA* 100(472), 1394-1411, doi:10.1198/016214505000000548 |
-| Robust Two-scale | `measures/robust_two_scale_cov.hpp` | `rRTSCov(pData, cor, startIV, noisevar, K, J, ...)` | Zhang (2011), *JASA* 106(495), doi:10.1198/jasa.2011.tm10384 |
-| Modulated RC | `measures/modulated_realized_cov.hpp` | `rMRCov(...)` | Christensen, Podolskij, Vetter (2013), *J. Econometrics* 173(1), doi:10.1016/j.jeconom.2012.08.016 |
-| Hayashi-Yoshida | `measures/hayashi_yoshida_cov.hpp` | `rHYCov(...)` | Hayashi & Yoshida (2005), *J. Financial Econometrics* 3(4), doi:10.1093/jjfinec/nbi013 |
+| Hayashi-Yoshida | `measures/hayashi_yoshida_cov.hpp` | `rHYCov(rData, cor=FALSE, period=1, alignBy="seconds", alignPeriod=1, makeReturns=FALSE, makePsd=TRUE)` | Hayashi & Yoshida (2005), *J. Financial Econometrics* 3(4), doi:10.1093/jjfinec/nbi013 |
+| Pre-averaging Cov | `measures/preaveraged_cov.hpp` | `rAVGCov(rData, cor=FALSE, alignBy="minutes", alignPeriod=5, k=1, makeReturns=FALSE)` | Jacaud, Li, Mykland, Podolskij, Vetter (2009), *AOS* 37(1), 280-318, doi:10.1214/07-AOS568 |
+| Two-scale Cov | `measures/two_scale_cov.hpp` | `rTSCov(pData, cor=FALSE, K=300, J=1, KCov=NULL, JCov=NULL, KVar=NULL, JVar=NULL, makePsd=FALSE)` | Zhang, Mykland, Aït-Sahalia (2005), *JASA* 100(472), 1394-1411, doi:10.1198/016214505000000548 |
+| Robust Two-scale | `measures/robust_two_scale_cov.hpp` | `rRTSCov(pData, cor=FALSE, startIV=NULL, noisevar=NULL, K=300, J=1, ..., eta=9, makePsd=FALSE)` | Zhang (2011), *JASA* 106(495), doi:10.1198/jasa.2011.tm10384 |
+| Modulated RC | `measures/modulated_realized_cov.hpp` | `rMRCov(pData, pairwise=FALSE, makePsd=FALSE, theta=0.8, crossAssetNoiseCorrection=FALSE)` | Christensen, Podolskij, Vetter (2013), *J. Econometrics* 173(1), doi:10.1016/j.jeconom.2012.08.016 |
 
 ### 5.2 HAR/HEAVY 预测模型
 
 | 项 | 文件 | R 对照 (实测签名) | 文献 |
 |---|---|---|---|
-| HAR 模型 | `models/har_model.hpp` | `HARmodel(data, periods, periodsJ, periodsQ, leverage, RVest, type, inputType, jumpTest, alpha, h, transform, ...)` | Corsi (2009), *JFE* 4(2), 174-196, doi:10.1093/jjfinec/nbp001 |
-| HEAVY 模型 | `models/heavy_model.hpp` | `HEAVYmodel(data, startingValues)` | Shephard & Sheppard (2010), *Restat* 92(2), doi:10.1162/REST_a_00017; Noureldin, Shephard, Sheppard (2012), *JAE* 27(8), doi:10.1002/jae.1260 |
+| HAR 模型 | `models/har_model.hpp` | `HARmodel(data, periods=c(1,5,22), periodsJ=c(1,5,22), periodsQ=c(1), leverage=NULL, RVest=c("rCov","rBPCov","rQuar"), type="HAR", inputType="RM", jumpTest="ABDJumptest", alpha=0.05, h=1, transform=NULL, externalRegressor=NULL, periodsExternal=c(1))` | Corsi (2009), *JFE* 4(2), 174-196, doi:10.1093/jjfinec/nbp001 |
+| HEAVY 模型 | `models/heavy_model.hpp` | `HEAVYmodel(data, startingValues=NULL)` | Shephard & Sheppard (2010), *Restat* 92(2), doi:10.1162/REST_a_00017; Noureldin, Shephard, Sheppard (2012), *JAE* 27(8), doi:10.1002/jae.1260 |
+
+### 5.3 R 源码 vs 论文差异 (排幻觉, 2026-08-02 实测)
+
+| 编号 | 函数 | 差异 | 决策 |
+|---|---|---|---|
+| D1 | rTSCov | 对角线用 TSRV 公式 (`n/(n-K+1)·[Y,Y]^(K) - n/(n-J+1)·[Y,Y]^(J)`), 非对角线用 TSCov_bi 公式 (`[Y,Y]^(K) - [Y,Y]^(J)` 无系数) | C++ 分别实现两个公式 |
+| D2 | rAVGCov | 单资产加 `(m+1)/m` 系数 (m = alignPeriod/k), 多资产不加 | 单/多资产分支处理 |
+| D3 | rMRCov | 三分支: `crv` (单资产) / `preavbi` (双资产) / 矩阵版, 公式不兼容; `psi2kn` vs `psi2=1/12` 不同 | 按 R 三分支实现 |
+| D4 | rHYCov | 用整数索引而非时间戳 (`pcovcc` 退化版), `period` 参数仅用于对齐 | C++ 实现整数索引版 |
+| D5 | rHYCov | 默认 `makePsd=TRUE` (其他 Cov 函数 FALSE), 强制 PSD 投影 | 默认参数对齐 R |
+| D6 | rRTSCov | `eta=9` 硬编码 `ccc=1.0415`, 其余 eta 查 30 项表 | 实现 eta=9 快速路径 + 查表 |
+| D7 | HARmodel | RQ 变换用 BPQ 2016 (`sqrt(RQ) - sqrt(mean(RM3))`), 非 Corsi 2009 原始 RQ | 实现 BPQ 变换 |
+| D8 | HEAVYmodel | 强制去均值 (`data - mean(data)`), 无常数项; 用 BFGS 优化 MLE | C++ 实现 BFGS + 去均值 |
+| D9 | HARmodel | `har_agg` 索引边界 `[j-p, j-1]` 含 j-1 不含 j (R 1-based → C++ 0-based 需调整) | 仔细处理索引 |
+
+### 5.4 可移植 C++ 源码 (来自 highfrequency 1.0.3 src/)
+
+| 函数 | 位置 | 用途 |
+|---|---|---|
+| `refreshTimeMatching` | internals.cpp L23-72 | 4 个 Cov 函数共用的非同步时间匹配 |
+| `preAveragingReturnsInternal` | internals.cpp L83-106 | rMRCov 专属 pre-averaging |
+| `pcovcc` | realizedMeasures.cpp L130-157 | rHYCov 专属 (整数索引版) |
+| `har_agg` | HARmodel.cpp L7-21 | HARmodel 滚动窗口聚合 |
+| `calcRecVarEq` | HEAVYmodel.cpp L5-15 | HEAVYmodel 方差递归 |
+
+### 5.5 测试矩阵 (31 个新测试)
+
+| 模块 | 测试数 | 场景 |
+|---|---|---|
+| rHYCov | 5 | 单资产 (常数序列) + 双资产 (已知 ρ=0.5) + makePsd + period 参数 + 异常处理 |
+| rAVGCov | 5 | 单资产 + 双资产 + k 参数 + alignBy 参数 + 异常处理 |
+| rTSCov | 5 | 单资产 + 双资产 + K/J 参数 + makePsd + 异常处理 |
+| rRTSCov | 4 | 单资产 + 双资产 + noisevar + eta 参数 |
+| rMRCov | 4 | 单资产 + 双资产 + theta 参数 + 异常处理 |
+| HARmodel | 4 | 基础 HAR + type="HARJ" + type="CHAR" + transform |
+| HEAVYmodel | 4 | 基础估计 + startingValues + 残差诊断 + 异常处理 |
 
 ---
 

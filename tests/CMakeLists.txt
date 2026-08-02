@@ -201,3 +201,31 @@ cpphub_add_test(test_hfe_realized_measures unit/hfecon/test_realized_measures.cp
 # 对标 R highfrequency 1.0.3 rKernelCov (KK() + kernelEstimator() 源码实测)
 # 基准数据: tests/fixtures/hfe/generate_v141_baselines.R 生成
 cpphub_add_test(test_realized_kernel unit/hfecon/test_realized_kernel.cpp)
+
+# v1.4.2 Phase 5 Wave A: HFE Hayashi-Yoshida 协方差 + makePsd 工具
+# 对标 R highfrequency 1.0.3 rHYCov + pcovcc + makePsd
+cpphub_add_test(test_hayashi_yoshida_cov unit/hfecon/test_hayashi_yoshida_cov.cpp)
+
+# v1.4.2 Phase 5 Wave B: HFE Two-Scale 协方差 (rTSCov + TSRV + TSCov_bi)
+# 对标 R highfrequency 1.0.3 rTSCov
+cpphub_add_test(test_two_scale_cov unit/hfecon/test_two_scale_cov.cpp)
+
+# v1.4.2 Phase 5 Wave B: HFE Modulated Realized 协方差 (rMRCov)
+# 对标 R highfrequency 1.0.3 rMRCov
+cpphub_add_test(test_modulated_realized_cov unit/hfecon/test_modulated_realized_cov.cpp)
+
+# v1.4.2 Phase 5 Wave B: HFE Pre-averaged 协方差 (rAVGCov)
+# 对标 R highfrequency 1.0.3 rAVGCov (preAveragingReturnsInternal + rAVGCov_bi)
+cpphub_add_test(test_preaveraged_cov unit/hfecon/test_preaveraged_cov.cpp)
+
+# v1.4.2 Phase 5 Wave B: HFE Robust Two-Scale 协方差 (rRTSCov + RTSRV)
+# 对标 R highfrequency 1.0.3 rRTSCov (RTSRV + RTSCov_bi + inv_pchisq3)
+cpphub_add_test(test_robust_two_scale_cov unit/hfecon/test_robust_two_scale_cov.cpp)
+
+# v1.4.2 Phase 5 Wave C: HFE HAR 模型 (Corsi 2009 + BPQ 2016 RQ 变换)
+# 对标 R highfrequency 1.0.3 HARmodel (HAR/HARJ/HARQ/CHAR + log/sqrt 变换)
+cpphub_add_test(test_har_model unit/hfecon/test_har_model.cpp)
+
+# v1.4.2 Phase 5 Wave C: HFE HEAVY 模型 (Shephard & Sheppard 2010)
+# 对标 R highfrequency 1.0.3 HEAVYmodel (calcRecVarEq + heavyLLH + NelderMead MLE)
+cpphub_add_test(test_heavy_model unit/hfecon/test_heavy_model.cpp)
