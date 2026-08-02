@@ -628,28 +628,317 @@ public:
 
 ## 6. 第四波 (v1.4.3) 交付项 — 流动性度量 + 高级跳跃检验
 
-> **范围调整 (2026-08-02)**: 基于 verify_v141_functions3.R 实测, highfrequency 提供 `getLiquidityMeasures(tqData, win=300)` 综合流动性接口与 AJ/JO/rank/intraday 四种跳跃检验. 原 spec 的 "门限跳跃检验" highfrequency 无直接对应 (rankJumpTest 接近), 取消该子项.
+> **范围调整 (2026-08-03 R 源码深度调研后)**: 
+> - 基于 `liquidityMeasures.R`/`jumpTests.R`/`internalJumpTests.R`/`internals.cpp`/`dataHandling.R`/`spotVolAndDrift.R` 实测源码
+> - `intradayJumpTest` 依赖 `spotVol` (7 种估计器) + `spotDrift`, 完整实现工作量过大. v1.4.3 仅实现 `volEstimator="RM"` 模式 (滚动窗口 rBPCov), `driftEstimator="none"`. PARM 模式推迟.
+> - `rankJumpTest` 需多资产输入 (marketPrice + stockPrices list), 含 SVD + bootstrap, 完整实现.
+> - 预计新增测试: ~25 个, 总数 1362 → ~1387
 
-**目标**: 流动性度量 + 多种跳跃检验
+**目标**: 流动性度量 (3 文件) + 高级跳跃检验 (4 文件)
 
-**预计新增测试**: ~15 个, 总数 ~1325 → ~1340
+### 6.0 依赖分析与基础设施
+
+| 新文件 | 依赖 (已有) | R 对照源码 |
+|---|---|---|
+| `liquidity/spread_cleaner.hpp` | core/ | dataHandling.R L1617/1670/3019 |
+| `liquidity/liquidity_measures.hpp` | core/ | liquidityMeasures.R L231/346 |
+| `liquidity/amihud.hpp` | core/ | (无 R 对照) |
+| `tests/aj_jump_test.hpp` | measures/realized_measures | jumpTests.R L106 + internalJumpTests.R |
+| `tests/jo_jump_test.hpp` | measures/realized_measures | jumpTests.R L446 + internals.cpp L207 |
+| `tests/intraday_jump_test.hpp` | measures/realized_measures, data/ | jumpTests.R L583 + spotVolAndDrift.R L656 |
+| `tests/rank_jump_test.hpp` | core/ (Jacobi SVD) | jumpTests.R L976 + internalJumpTests.R L149 |
 
 ### 6.1 流动性度量
 
-| 项 | 文件 | R 对照 (实测签名) | 文献 |
-|---|---|---|---|
-| 综合流动性度量 | `liquidity/liquidity_measures.hpp` | `getLiquidityMeasures(tqData, win=300)` | Hasbrouck (2009), *J. Finance* 64(4), doi:10.1111/j.1540-6261.2009.01475.x |
-| 价差清洗工具 | `liquidity/spread_cleaner.hpp` | `rmLargeSpread`/`rmNegativeSpread`/`spreadPrices` | BKS 2022 JSS vignette §6 |
+#### 6.1.1 价差清洗工具 (`liquidity/spread_cleaner.hpp`)
 
-### 6.2 高级跳跃检验 (3 个 R 对标 + 1 个无对照)
+**R 对照**: `rmLargeSpread(qData, maxi=50)` / `rmNegativeSpread(qData)` / `spreadPrices(data)`
 
-| 项 | 文件 | R 对照 (实测签名) | 文献 |
+**C++ 接口**:
+```cpp
+namespace cpphub::v1::hfecon {
+
+// 每日计算 SPREAD = OFR - BID 中位数, 保留 SPREAD < SPREAD_MEDIAN * maxi
+template<typename QuoteContainer>
+QuoteContainer rm_large_spread(const QuoteContainer& qData, double maxi = 50.0);
+
+// 保留 OFR > BID (严格大于)
+template<typename QuoteContainer>
+QuoteContainer rm_negative_spread(const QuoteContainer& qData);
+
+// 长格式 (DT, SYMBOL, PRICE) → 宽格式 (DT, sym1, sym2, ...)
+std::vector<std::vector<double>> spread_prices(
+    const std::vector<std::chrono::system_clock::time_point>& dt,
+    const std::vector<std::string>& symbols,
+    const std::vector<double>& prices);
+
+} // namespace
+```
+
+**算法 (R 源码对标)**:
+- `rmLargeSpread`: 按日期分组 → 每日 SPREAD_MEDIAN = median(OFR-BID) → 保留 SPREAD < SPREAD_MEDIAN * maxi
+- `rmNegativeSpread`: OFR > BID
+- `spreadPrices`: split by SYMBOL → outer join on DT
+
+#### 6.1.2 综合流动性度量 (`liquidity/liquidity_measures.hpp`)
+
+**R 对照**: `getLiquidityMeasures(tqData, win=300)` — 23 种度量
+
+**C++ 接口**:
+```cpp
+namespace cpphub::v1::hfecon {
+
+struct LiquidityMeasures {
+    std::vector<double> effectiveSpread, realizedSpread, valueTrade, signedValueTrade;
+    std::vector<double> depthImbalanceDifference, depthImbalanceRatio;
+    std::vector<double> proportionalEffectiveSpread, proportionalRealizedSpread;
+    std::vector<double> priceImpact, proportionalPriceImpact;
+    std::vector<double> halfTradedSpread, proportionalHalfTradedSpread;
+    std::vector<double> squaredLogReturn, absLogReturn;
+    std::vector<double> quotedSpread, proportionalQuotedSpread;
+    std::vector<double> logQuotedSpread, logQuotedSize, quotedSlope, logQSlope;
+    std::vector<double> midQuoteSquaredReturn, midQuoteAbsReturn, signedTradeSize;
+};
+
+LiquidityMeasures get_liquidity_measures(
+    const std::vector<double>& price, const std::vector<double>& bid,
+    const std::vector<double>& ofr, const std::vector<double>& size,
+    const std::vector<double>& ofrsiz, const std::vector<double>& bidsiz,
+    const std::optional<std::vector<int>>& direction = std::nullopt,
+    int win = 300);
+
+// Lee-Ready 交易方向推断: 返回 1 (buy) 或 -1 (sell)
+std::vector<int> get_trade_direction(
+    const std::vector<double>& price,
+    const std::vector<double>& bid,
+    const std::vector<double>& ofr);
+
+} // namespace
+```
+
+**算法 (R 源码对标, 排幻觉)**:
+
+`get_trade_direction` (**排幻觉 D1** — tick rule + midpoint 混合, 非纯 Lee-Ready):
+1. `midpoints = (bid + ofr) / 2`
+2. `rets = diff(price)`, 首元素 = 0 (R: `c(TRUE, ...)`)
+3. tick rule: rets > 0 → 1, rets < 0 → -1, rets == 0 → NA + locf
+4. **midpoint 覆盖**: price < mid → -1, price > mid → 1, price == mid → 保留 tick rule
+5. 首观测 = 1 (buy)
+
+`get_liquidity_measures`:
+- effectiveSpread = `2 * direction * (PRICE - mid)`
+- realizedSpread = `2 * direction * (PRICE - mid[t+win])` (**排幻觉 D2**: lead shift, 越界为 NaN)
+- depthImbalanceRatio = `(direction * OFRSIZ / BIDSIZ) ^ direction` (**排幻觉 D3**: direction 在底数和指数)
+- 其余 20 种按定义直接计算
+
+#### 6.1.3 Amihud 流动性 (`liquidity/amihud.hpp`)
+
+**R 对照**: 无 (highfrequency 无直接实现)
+
+```cpp
+namespace cpphub::v1::hfecon {
+// ILLIQ_t = (1/N) * sum |r_t| / DVOL_t
+double amihud_illiquidity(
+    const std::vector<double>& dailyReturns,
+    const std::vector<double>& dailyDollarVolume);
+} // namespace
+```
+
+### 6.2 高级跳跃检验
+
+#### 6.2.1 AJ 跳跃检验 (`tests/aj_jump_test.hpp`)
+
+**R 对照**: `AJjumpTest(pData, p=4, k=2, alignBy, alignPeriod, alphaMultiplier=4, alpha=0.975)`
+**文献**: Aït-Sahalia & Jacod (2009), *Annals of Statistics* 37(1), 184-222
+
+```cpp
+namespace cpphub::v1::hfecon {
+struct AJJumpTestResult { double ztest, criticalLower, criticalUpper, pvalue; };
+AJJumpTestResult aj_jump_test(
+    const std::vector<double>& pData,
+    int p = 4, int k = 2,
+    const std::string& alignBy = "seconds", int alignPeriod = 1,
+    double alphaMultiplier = 4.0, double alpha = 0.975);
+} // namespace
+```
+
+**算法 (排幻觉 D4-D9)**:
+1. **动态 alpha** (D4): `alpha = alphaMultiplier * sqrt(rCov(pData))` — 非固定, 与 RV 平方根成正比
+2. `N = length(pData) - 1`, `w = 0.47`, `cvalue = alpha * (1/N)^w`
+3. `h = alignPeriod * scale(alignBy)` (scale: seconds=1, minutes=60, hours=3600)
+4. **整数抽样** (D5): `seq1 = seq(1, N, h)`, `seq2 = seq(1, N, h*k)`
+5. `r = |makeReturns(pData)|`, pv1 = sum(r[seq1]^p), pv2 = sum(r[seq2]^p), S = pv2/pv1
+6. **selection 筛选** (D6): `rse = r[|r| < cvalue]` — 只用小收益率
+7. `V = calculateV(rse, p, k, N)`, `AJtest = (S - k^(p/2-1)) / sqrt(V)`
+
+`calculateV` (D7): `Ap = (1/N)^(1-p/2)/mup * sum(rse^p)`, `A2p = (1/N)^(1-p)/mu2p * sum(rse^(2p))`, `V = calculateNpk(p,k) * A2p / (N * Ap^2)`
+
+`calculateNpk` (D8): `npk = (1/mup^2) * (k^(p-2)*(1+k)*mu2p + k^(p-2)*(k-1)*mup^2 - 2*k^(p/2-1)*fmupk(p,k))`
+
+`fmupk` 查表 (D9 — R 硬编码, 非论文公式):
+| p\k | 2 | 3 | 4 |
 |---|---|---|---|
-| AJ 跳跃检验 | `tests/aj_jump_test.hpp` | `AJjumpTest(pData, p=4, k=2, alignBy, alignPeriod, alphaMultiplier=4, alpha=0.975)` | Andersen, Bollerslev, Dobrev (2007), *WP*; Aït-Sahalia & Jacod (2009) |
-| JO 跳跃检验 | `tests/jo_jump_test.hpp` | `JOjumpTest(pData, power=4, alignBy, alignPeriod, alpha=0.975)` | Jiang & Oomen (2008), *Mathematical Finance* 18(3), doi:10.1111/j.1467-9965.2008.00343.x |
-| Rank 跳跃检验 | `tests/rank_jump_test.hpp` | `rankJumpTest(marketPrice, stockPrices, alpha=c(5,3), coarseFreq=10, localWindow=30, rank=1, BoxPox=1, quantiles, nBoot=1000, ...)` | Bollerslev, Todorov (2011), *JFE* 9(2), doi:10.1093/jjfinec/nbr010 |
-| 日内跳跃检验 | `tests/intraday_jump_test.hpp` | `intradayJumpTest(pData, volEstimator="RM", driftEstimator="none", alpha=0.95, alignBy, alignPeriod, marketOpen, marketClose, tz, n, ...)` | Lee & Mykland (2008), *JFE* 6(5), doi:10.1093/jjfinec/nbn002 |
-| Amihud 流动性 | `liquidity/amihud.hpp` | (无直接对照) | Amihud (2002), *JFM* 6(1), doi:10.2202/1538-0645.1152 |
+| 2 | 4.00 | 5.00 | 6.00 |
+| 3 | 24.07 | 33.63 | 43.74 |
+| 4 | 204.04 | 320.26 | 455.67 |
+
+其他 (p,k): 蒙特卡洛 `mukp(p,k,t=1e6)`, 100 rep 取均值 round 2 位
+
+#### 6.2.2 JO 跳跃检验 (`tests/jo_jump_test.hpp`)
+
+**R 对照**: `JOjumpTest(pData, power=4, alignBy, alignPeriod, alpha=0.975)`
+**文献**: Jiang & Oomen (2008), *Mathematical Finance* 18(3), doi:10.1111/j.1467-9965.2008.00343.x
+
+```cpp
+namespace cpphub::v1::hfecon {
+struct JOJumpTestResult { double ztest, criticalLower, criticalUpper, pvalue; };
+JOJumpTestResult jo_jump_test(
+    const std::vector<double>& pData,
+    int power = 4,
+    const std::string& alignBy = "seconds", int alignPeriod = 1,
+    double alpha = 0.975);
+} // namespace
+```
+
+**算法 (排幻觉 D10-D13)**:
+1. `R = simre(pData)` 简单收益率 (D10): `R[i] = P[i]/P[i-1] - 1`, R[0]=0
+2. `r = makeReturns(pData)` 对数收益率: `r[i] = log(P[i]) - log(P[i-1])`, r[0]=0
+3. `N = length(pData) - 1`, `bv = RBPVar(r)` = `(pi/2)*sum(|r[0:n-1]|*|r[1:n]|)`
+4. `rv = sum(r^2)`
+5. **SwV = 2 * sum(R - r)** (D11): 简单与对数收益率之差
+6. **mu1 = 2^3 * gamma(3.5)/gamma(0.5)** (D12): 6 阶矩 μ₆, 非 power 阶
+
+**power=4**: `q = |rollApplyProdWrapper(r,4)|`, `mu2 = 2^(3/4)*gamma(7/4)/gamma(0.5)` (1.5 阶), `av = mu1/9 * N^3 * (mu2)^(-4) / (N-5) * sum(q^(1.5))`, `JOtest = N*bv/sqrt(av)*(1-rv/SwV)`
+
+**power=6**: `q = |rollApplyProdWrapper(r,6)|`, `mu2 = 2^(1/2)*gamma(1)/gamma(0.5)` (1 阶), `av = mu1/9 * N^3 * (mu2)^(-6) / (N-7) * sum(q)`, `JOtest = N*bv/sqrt(av)*(1-rv/SwV)`
+
+**rollApplyProdWrapper C++** (D13, internals.cpp L207): `m = m - 1` 后窗口 m 个元素, `out[i] = prod(x[i:i+m-1])`, 输出长度 n-m+1
+
+#### 6.2.3 日内跳跃检验 (`tests/intraday_jump_test.hpp`)
+
+**R 对照**: `intradayJumpTest(pData, volEstimator="RM", driftEstimator="none", alpha=0.95, ...)`
+**文献**: Lee & Mykland (2008), *JFE* 6(5); Christensen, Oomen, Podolskij (2014)
+
+```cpp
+namespace cpphub::v1::hfecon {
+struct IntradayJumpTestResult {
+    std::vector<double> ztest, spotVol;
+    double criticalValue;
+    int n;
+};
+IntradayJumpTestResult intraday_jump_test(
+    const std::vector<double>& pData,
+    const std::vector<std::chrono::system_clock::time_point>& dt,
+    const std::string& rmType = "rBPCov",
+    int lookBackPeriod = 10,
+    double alpha = 0.95,
+    const std::string& alignBy = "minutes", int alignPeriod = 5,
+    const std::string& marketOpen = "09:30:00",
+    const std::string& marketClose = "16:00:00");
+} // namespace
+```
+
+**算法 (排幻觉 D14-D16)**:
+1. 聚合价格到 alignBy/alignPeriod 网格, 按日分组
+2. `RETURN = log(PRICE) - log(PRICE[t-1])` (按日)
+3. **spotVol RM 模式** (D14): 滚动窗口 `vol[j] = RM(returns[j-lookBack+1 : j])`, RM = rBPCov/rMinRVar/rMedRVar
+4. **vol 调整** (D15): `vol = sqrt(vol^2 / (lookBackPeriod-2))`
+5. drift = 0
+6. `test = (return - drift) / vol`
+7. **Lee-Mykland 临界值** (D16): `n = NROW(pData)` (原始观测数), `Cn = sqrt(2log(n)) - (log(pi)+log(log(n)))/(2*sqrt(2log(n)))`, `Sn = 1/sqrt(2log(n))`, `criticalValue = Cn + Sn*(-log(-log(1-alpha)))`
+
+> v1.4.3 仅 RM 模式. PARM 模式推迟 v1.4.4.
+
+#### 6.2.4 Rank 跳跃检验 (`tests/rank_jump_test.hpp`)
+
+**R 对照**: `rankJumpTest(marketPrice, stockPrices, alpha=c(5,3), coarseFreq=10, localWindow=30, rank=1, BoxCox=1, quantiles, nBoot=1000, ...)`
+**文献**: Bollerslev, Todorov (2011), *JFE* 9(2), doi:10.1093/jjfinec/nbr010
+
+```cpp
+namespace cpphub::v1::hfecon {
+struct RankJumpTestResult {
+    std::vector<double> criticalValues, testStatistic;
+    std::vector<int> jumpIndices;
+};
+RankJumpTestResult rank_jump_test(
+    const std::vector<double>& marketPrice,
+    const std::vector<std::chrono::system_clock::time_point>& marketDt,
+    const std::vector<std::vector<double>>& stockPrices,
+    const std::vector<std::vector<std::chrono::system_clock::time_point>>& stockDts,
+    std::vector<double> alpha = {5.0, 3.0},
+    int coarseFreq = 10, int localWindow = 30, int rank = 1,
+    std::vector<double> boxCox = {1.0},
+    std::vector<double> quantiles = {0.9, 0.95, 0.99},
+    int nBoot = 1000);
+} // namespace
+```
+
+**算法 (排幻觉 D17-D23)**:
+1. 聚合 + 对数收益率 (市场 + 个股)
+2. **jumpDetection** (D17): `bpv = (pi/2)*colSums(|r[0:n-1]|*|r[1:n]|)`, `rv = colSums(r^2)`, TODadjustments (polyOrder=2), `Un = alpha*sqrt(kronecker(pmin(bpv,rv), TODfit))*(1/nRets)^0.49`, jumpIndices = which(|r| > Un)
+3. **jumps 累积** (D18): `jumps = sum(stockReturns[jumpIndices+i])` for i in 0:(coarseFreq-1)
+4. **SVD 全分解** (D19): `svd(jumps, nu=nrow, nv=ncol)`, U2=U[:,rank+1:], V2=V[:,rank+1:], singularValues=d[rank+1:]^2
+5. **testStatistic** (D20): `sum(BoxCox__(singularValues, a))` for each BoxCox
+6. **bootstrap** (D21): nBoot 次, `dxc = pmax(pmin(ret, Un), -Un)` 截断, 每次随机左右窗口 + `kappaStar = runif(1)`, `zetaStar = sqrt(kappaStar)*dxcLeft + sqrt(coarseFreq-kappaStar)*dxcRight`, `tmp = t(U2)%*%zetaStar%*%V2`, `simTestStat = sum(tmp^2)`, criticalValues = quantile(simTestStat, quantiles)
+7. **BoxCox__** (D22): `lambda=0 → log(1+x)`, `lambda≠0 → ((1+x)^lambda-1)/lambda`
+8. **TODadjustments** (D23): `timeOfDayScatter = 1.249531 * rowMeans(|r_i*r_{i+1}*r_{i+2}|^(2/3))`, Vandermonde OLS, 归一化均值 1
+
+### 6.3 R 源码 vs 论文差异 (排幻觉清单, 2026-08-03 实测)
+
+| ID | 函数 | R 源码行为 | 论文/文档 | 影响 |
+|---|---|---|---|---|
+| D1 | getTradeDirection | tick rule + midpoint 混合, 首观测=buy | Lee-Ready 1991 纯 tick rule | 方向推断结果不同 |
+| D2 | getLiquidityMeasures | realizedSpread 用 lead shift mid[t+win] | 文档说 "t+300 秒" | 越界为 NaN |
+| D3 | depthImbalanceRatio | `(direction*OFRSIZ/BIDSIZ)^direction` | 文档公式不含 direction 在底数 | direction=-1 时取倒数 |
+| D4 | AJjumpTest | `alpha = alphaMultiplier*sqrt(RV)` 动态 | 论文 alpha 固定 | 阈值随波动率变化 |
+| D5 | AJjumpTest | `seq(1,N,h)` 整数步长抽样 | 论文连续窗口 | 幂变差求和点不同 |
+| D6 | AJjumpTest | `rse = r[|r|<cvalue]` 筛选 | 论文用全部收益率 | V 只用小收益率 |
+| D7 | calculateV | `Ap = (1/N)^(1-p/2)/mup*sum(rse^p)` | 论文系数不同 | 归一化不同 |
+| D8 | calculateNpk | 含 `fmupk(p,k)` 查表项 | 论文用解析公式 | (p,k) 非 (2-4,2-4) 时蒙特卡洛 |
+| D9 | fmupk | 硬编码表 (p=2,3,4 × k=2,3,4) | 论文无此表 | 必须用 R 查表值 |
+| D10 | JOjumpTest | R=simre 简单, r=makeReturns 对数 | 论文用同一收益率 | SwV=2*sum(R-r) |
+| D11 | JOjumpTest | `SwV = 2*sum(R-r)` | 论文 SwV 定义不同 | 必须 R-r |
+| D12 | JOjumpTest | `mu1 = 2^3*gamma(3.5)/gamma(0.5)` = μ₆ | 文档 "mu1" 易误解 | 6 阶矩, 非 power 阶 |
+| D13 | rollApplyProdWrapper | `m = m-1` 后窗口 m 元素 | R 文档 "m 个元素乘积" | C++ 移植需注意 m-1 |
+| D14 | intradayJumpTest | `vol = sqrt(vol^2/(lookBack-2))` | Lee-Mykland 原文无此调整 | RM 估计器需除以 (lookBack-2) |
+| D15 | intradayJumpTest | Cn 无 sqrt(2/pi) 常数 | Lee-Mykland Eq.12 有常数 | R 去除常数使 L~N(0,1) |
+| D16 | intradayJumpTest | `n = NROW(pData)` 原始观测数 | 文档说 "对齐后观测数" | 临界值用原始 n |
+| D17 | jumpDetection | `Un = alpha*sqrt(kronecker(pmin(bpv,rv),TODfit))*(1/nRets)^0.49` | 论文无 TOD 调整 | 日内模式修正 |
+| D18 | rankJumpTest | `jumps = sum(ret[jumpIdx+i])` i=0..coarseFreq-1 | 论文粗采样定义不同 | 累积窗口 |
+| D19 | rankJumpTest | `svd(jumps, nu=nrow, nv=ncol)` 全 SVD | 标准 SVD 即可 | 需全分解取 U2/V2 |
+| D20 | rankJumpTest | `testStat = sum(BoxCox__(d^2, a))` | 论文无 BoxCox | R 添加 BoxCox 变换 |
+| D21 | rankJumpTest | `dxc = pmax(pmin(ret, Un), -Un)` 截断 | 论文无截断 | bootstrap 用截断收益 |
+| D22 | BoxCox__ | `lambda=0 → log(1+x)` | 标准 BoxCox `log(x)` | R 用 1+x 避免 log(0) |
+| D23 | timeOfDayAdjustments | `1.249531*rowMeans(|r_i*r_{i+1}*r_{i+2}|^(2/3))` | 论文无此常数 | 1.249531 来源待验证 |
+
+### 6.4 测试矩阵
+
+| 文件 | 测试数 | 容差 | 关键场景 |
+|---|---|---|---|
+| test_spread_cleaner.cpp | 4 | 1e-12 | rmLargeSpread 每日中位数; rmNegativeSpread; spreadPrices 长宽转换; 空数据 |
+| test_liquidity_measures.cpp | 6 | 1e-10 | 23 种度量数值; getTradeDirection tick rule; midpoint 覆盖; 用户 DIRECTION; realizedSpread 越界; depthImbalanceRatio |
+| test_amihud.cpp | 2 | 1e-12 | 基本计算; 零成交额异常 |
+| test_aj_jump_test.cpp | 4 | 1e-10 | p=4,k=2 默认; p=2,k=3; fmupk 查表; calculateV 数值 |
+| test_jo_jump_test.cpp | 3 | 1e-10 | power=4 默认; power=6; rollApplyProdWrapper 窗口 |
+| test_intraday_jump_test.cpp | 3 | 1e-8 | RM 模式 rBPCov; Lee-Mykland 临界值; lookBackPeriod 敏感性 |
+| test_rank_jump_test.cpp | 3 | 1e-8 | jumpDetection TOD; SVD 分解; bootstrap 临界值 (固定种子) |
+| **合计** | **25** | | |
+
+### 6.5 v1.4.3 任务清单
+
+1. [ ] 实现 `liquidity/spread_cleaner.hpp` (rm_large_spread + rm_negative_spread + spread_prices)
+2. [ ] 实现 `liquidity/liquidity_measures.hpp` (get_trade_direction + get_liquidity_measures 23 种度量)
+3. [ ] 实现 `liquidity/amihud.hpp`
+4. [ ] 实现 `tests/aj_jump_test.hpp` (含 calculateV/calculateNpk/fmupk 查表)
+5. [ ] 实现 `tests/jo_jump_test.hpp` (含 roll_apply_prod_wrapper + simre + RBPVar)
+6. [ ] 实现 `tests/intraday_jump_test.hpp` (RM 模式 + Lee-Mykland 临界值)
+7. [ ] 实现 `tests/rank_jump_test.hpp` (含 jump_detection + SVD + bootstrap)
+8. [ ] 编写 7 个测试文件 (25 测试)
+9. [ ] tests/CMakeLists.txt 注册新测试目标
+10. [ ] 全量回归 (目标 1387/1387)
+11. [ ] A/B 站 GCC 跨平台验证
+12. [ ] 更新 DEVELOPMENT_LOG + README
+13. [ ] git commit + push
 
 ---
 
