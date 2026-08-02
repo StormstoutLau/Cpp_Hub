@@ -1674,3 +1674,83 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 3. audit checklist 的 "✅ 实测通过" 标注必须有可复现的命令证据, 否则视为幻觉
 
 ---
+
+## Phase 5: 高频计量经济学模块 (HFE) — v1.4.1 第二波
+
+> **范围**: Realized Kernel (BNS 2008 ECTA) + 噪声方差 ω² + 最优带宽 H*
+> **对标基准**: R `highfrequency` 1.0.3 `rKernelCov` (KK() + kernelEstimator() 源码实测)
+> **学术依据**: [BNS 2008] Econometrica 76(6), 1481-1536, doi:10.1111/j.1468-0262.2008.00837.x
+> **审计 checklist**: `docs/audit/AUDIT_CHECKLIST.md` Phase 5 C13-C19 + D9-D12 + G6-G8
+
+### v1.4.1 实施日志
+
+| 日期 | 模块 | 完成项 | 问题/决策 | 耗时 | 下一步 |
+|------|------|--------|-----------|------|--------|
+| 2026-08-02 | R 函数可用性验证 | `verify_v141_functions3.R` 确认 rKernelCov/listAvailableKernels 可用 | 12 核函数全部可用, rKernelCov 单资产模式工作正常 | 0.5h | spec 编写 |
+| 2026-08-02 | spec 编写 | `docs/phases/phase5/PHASE5_HFE_SPEC.md` §4.1-4.6 | 严格依据 BNS 2008 + R 1.0.3 源码, 排除幻觉 | 1h | R baseline 生成 |
+| 2026-08-02 | R baseline 生成 | `generate_v141_baselines.R` 输出 B1 (n=5) + B2 (GBM n=100 seed=42) | 17 case 硬编码到测试, 避免远程 R 依赖 | 1h | 核函数反推验证 |
+| 2026-08-02 | 核函数反推验证 | `reverse_kernels.R` 构造 r=[1,1,0,...,0] 反推核函数值 | 发现 spec 中 Second/Seventh/Eighth 公式与 R 不符 | 1h | 下载 R 包源码 |
+| 2026-08-02 | R 源码下载核对 | `realizedMeasures.cpp` L16-74 (KK()) + L77-111 (kernelEstimator()) | 确认 R 实现偏离 BNS 2008 论文 3 处 | 0.5h | spec 修正 |
+| 2026-08-02 | kernels.hpp 实现 | 12 种核函数 C++ 版本, 严格对标 R KK() 源码 | Second 核 k(1)=-1 (核函数为负, R 实现如此) | 1h | RealizedKernel 实现 |
+| 2026-08-02 | realized_kernel.hpp 实现 | RealizedKernel::estimate + estimate_from_prices | 权重偏移 (h-1)/H + 逐 lag DOF n/(n-h), 严格对标 R | 1.5h | 噪声方差 + 带宽 |
+| 2026-08-02 | noise_variance.hpp + bandwidth.hpp | BNS 2008 eq.40 + eq.51 | 非 R 对标 (R 无独立导出函数), 标注为 C++ 扩展工具 | 0.5h | 测试编写 |
+| 2026-08-02 | test_realized_kernel.cpp 编写 | 14 个测试: 11 核函数 + B1/B2 R baseline + 噪声稳健性 | 噪声稳健性测试设计缺陷 (见下文) | 1h | 编译验证 |
+| 2026-08-02 | 编译 + 测试 | MSVC Release 编译 0 error 0 warning, 14/14 测试通过 | 修复 Bartlett 核 ax (绝对值) 参数错误 | 0.5h | 全量回归 |
+| 2026-08-02 | 全量回归 | ctest -C Release -j 8, 1300/1300 通过 (204.39 sec) | 无退化, 比 v1.4.0 增 14 个测试 | 3.5min | 严格 review |
+| 2026-08-02 | 严格 review + audit 更新 | AUDIT_CHECKLIST.md 添加 C13-C19 + D9-D12 + G6-G8 | 修正 1 处测试设计缺陷, 排除 3 处 R 源码幻觉 | 1h | git commit |
+| 2026-08-02 | git commit v1.4.1 | commit ed1b6c5 (17 files, +1875/-26) | .gitignore 排除 hf_source/ (R 包 CRAN 版权) | 0.5h | 文档更新 + push |
+
+### v1.4.1 关键技术决策
+
+1. **核函数公式对标 R 源码而非 BNS 2008 论文**: R `KK()` 实现与 BNS 2008 Table 1 有 3 处差异 (Second/Seventh/Eighth), 决策严格对标 R 源码以保证 R baseline 数值一致 (容差 1e-12), spec §4.2 显式标注差异
+2. **权重偏移 (h-1)/H**: R `kernelEstimator()` 用 `w=KK((h-1)/H)` 而非论文 `h/H`, 导致 h=1 时 w=KK(0)=1 (所有核 k(0)=1); C++ 严格对标 R
+3. **逐 lag DOF 调整 n/(n-h)**: R 用逐 lag 调整而非论文整体 n/(n-H); C++ 严格对标 R
+4. **默认 kernelType=Rectangular**: 与 R 默认 `kernelType="rectangular"` 一致 (v1.4.0 spec 误写为 Bartlett, 已修正)
+5. **不自动选择 bandwidth**: R `rKernelCov` 接受用户提供 `kernelParam`, C++ 保持一致, `kernel_param` 为必填参数 (默认 1)
+6. **噪声方差与 bandwidth 选择作为 C++ 扩展工具**: BNS 2008 公式实现, 标注"非 R 对标", `RealizedKernel::estimate` 不调用它们
+7. **R baseline 硬编码策略**: 测试用 `constexpr Real B1_*/B2_*` 替代运行时 JSON 解析, 避免 A/B 站 R 环境依赖 (沿用 v1.4.0 D6 策略)
+
+### v1.4.1 R 源码幻觉排除 (3 处)
+
+**幻觉 1: Second 核函数公式**
+- spec 原写: `k(x) = 1 - x²` (BNS 2008 Table 1)
+- R 实测: `k(x) = 1 - 2x³` (realizedMeasures.cpp L30)
+- 后果: Second 核 k(1) = -1 (核函数为负, 数学上不合理但 R 实现如此)
+- 修正: spec §4.2 + kernels.hpp 同步更新
+
+**幻觉 2: Seventh/Eighth 核多项式系数**
+- spec 原写: BNS 2008 系数 (如 Seventh `1-21x⁵+45x⁶-30x⁷+5x⁸`)
+- R 实测: `1-21x⁵+35x⁶-15x⁷` (Seventh), `1-28x⁶+48x⁷-21x⁸` (Eighth)
+- 修正: spec §4.2 + kernels.hpp 同步更新
+
+**幻觉 3: 算法权重 + DOF 调整**
+- spec 原写: 权重 `w=KK(h/H)` (BNS 2008 §4), DOF 整体 `n/(n-H)`
+- R 实测: 权重 `w=KK((h-1)/H)` (半整数偏移), DOF 逐 lag `n/(n-h)`
+- 后果: h=1 时 R w=KK(0)=1 (所有核), 论文 w=KK(1/H)≠1
+- 修正: spec §4.5 + realized_kernel.hpp 同步更新
+
+### v1.4.1 严格 Review 发现 (2026-08-02)
+
+**Review 触发**: 用户要求 "启动v1.4.0开发 Tdd实现 严格review校验", 对 v1.4.1 第二波进行严格审计.
+
+**发现 1: C17 噪声稳健性测试设计缺陷**
+- 原测试: 使用纯 i.i.d. 噪声序列 `r = normal(0, sigma_noise)`
+- 问题: 纯噪声序列 γ₁ ≈ 0 (h>0 自协方差为零), RK ≈ RV, 无法体现 BNS 2008 噪声修正
+- 修复: 改为构造 MA(1) 收益率结构 `r_obs[i] = signal[i] + ε[i] - ε[i-1]`
+  - 理论: γ₁ = -σ²_ε < 0 (MA(1) 负自协方差), γ_h = 0 (h≥2)
+  - 验证: RK(Bartlett, H=5) < RV (利用负自协方差修正噪声偏差)
+- 性质: 测试设计缺陷 (未理解 BNS 2008 噪声模型), 非实现错误
+
+**Review 教训**:
+1. 噪声稳健性测试必须构造 MA(1) 结构 (BNS 2008 标准噪声模型), 不能用纯 i.i.d. 噪声
+2. R 源码是唯一真实源, BNS 2008 论文公式仅作参考, 实现必须对标 R `KK()` + `kernelEstimator()`
+3. 核函数公式幻觉通过 `reverse_kernels.R` 反推 + R 源码下载核对双重验证排除
+
+### v1.4.1 待办收尾
+
+- [ ] A 站 (scott-lau-NEX.local) GCC 编译 + ctest 跨平台验证
+- [ ] B 站 (scott-lau-GTR-Pro.local) GCC 编译 + ctest 跨平台验证
+- [ ] 三平台一致后, AUDIT_CHECKLIST E2/E3/E4 转为 ✅, v1.4.1 审计结论从 ✅ 主控站通过 → ✅ 正式通过
+- [ ] git push to origin/main
+
+---
