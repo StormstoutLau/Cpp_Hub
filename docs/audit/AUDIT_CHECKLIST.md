@@ -406,9 +406,9 @@
 | 编号 | 检查项 | 标准 | 结果 | 备注 |
 |------|--------|------|------|------|
 | E1 | MSVC 编译 | 0 error, 0 warning (Release, /O2 /arch:AVX2 /fp:precise) | ✅ | 实测: 2026-08-02 主控站 MSVC 19.x Release 编译通过 |
-| E2 | GCC A 站编译 | 0 error, 0 warning (Release, -O3 -march=x86-64-v3 -ffp-contract=off) | ☐ | 待 A 站 scott-lau-NEX.local 远程验证 (v1.4.0 收尾) |
-| E3 | GCC B 站编译 | 0 error, 0 warning (Release, 同 A 站) | ☐ | 待 B 站 scott-lau-GTR-Pro.local 远程验证 (v1.4.0 收尾) |
-| E4 | 三平台测试一致 | 同一 JSON 基准下三平台 HFE 测试结果 100% 一致 | ☐ | 待 A/B 站验证后填写 |
+| E2 | GCC A 站编译 | 0 error, 0 warning (Release, -O3 -march=x86-64-v3 -ffp-contract=off) | ✅ | 2026-08-02 实测: A 站 scott-lau-NEX.local (AMD 395 AI Max, Ubuntu 24.04 GCC 13.3.0) 编译成功. 修复 timegm GCC 链接错误 (extern 声明误入 namespace, commit cf7c1e0) |
+| E3 | GCC B 站编译 | 0 error, 0 warning (Release, 同 A 站) | ✅ | 2026-08-02 实测: B 站 scott-lau-GTR-Pro.local (AMD 395 AI Max, Ubuntu 24.04 GCC 13.3.0) 编译成功. 同 A 站修复 |
+| E4 | 三平台测试一致 | 同一 JSON 基准下三平台 HFE 测试结果 100% 一致 | ✅ | 2026-08-02 实测: 主控站 1300/1300 (229.17s) + A 站 1300/1300 (49.39s) + B 站 1300/1300 (46.38s), 三平台 100% 一致, 0 失败 0 跳过 |
 | E5 | A/B 站无需 R 环境 | A/B 站 ctest 不依赖 R, 仅读 JSON 基准 | ✅ | 设计: 测试通过硬编码常量引用 baseline, 无 R 运行时依赖 |
 
 ### F. 性能基准 (权重 10%)
@@ -447,20 +447,20 @@
 
 ---
 
-### Phase 5 跨平台验证数据 (待填)
+### Phase 5 跨平台验证数据 (2026-08-02 实测)
 
 | 平台 | 编译器 | 测试通过 | 失败 | 跳过 | 总耗时 |
 |------|--------|----------|------|------|--------|
-| 主控站 (Win10) | MSVC 19.x | 1300/1300 | 0 | 0 | 204.39 sec (2026-08-02, -j 8, 含 v1.4.1 14 个新测试) |
-| A 站 (Ubuntu NEX) | GCC 13.3.0 | TBD | TBD | TBD | TBD |
-| B 站 (Ubuntu GTR-Pro) | GCC 13.3.0 | TBD | TBD | TBD | TBD |
+| 主控站 (Win10) | MSVC 19.x | 1300/1300 | 0 | 0 | 229.17 sec (2026-08-02, -j 8, 含 v1.4.0+v1.4.1 共 32 个 HFE 测试) |
+| A 站 (Ubuntu NEX) | GCC 13.3.0 | 1300/1300 | 0 | 0 | 49.39 sec (2026-08-02, -j 8, AMD 395 AI Max) |
+| B 站 (Ubuntu GTR-Pro) | GCC 13.3.0 | 1300/1300 | 0 | 0 | 46.38 sec (2026-08-02, -j 8, AMD 395 AI Max) |
 
 ### Phase 5 波次交付追踪
 
 | 波次 | 版本 | 交付项 | 状态 | 测试增量 | 审计状态 |
 |------|------|--------|------|----------|----------|
-| 第一波 | v1.4.0 | TAQ + Realized Measures + BNS | 🟡 待 A/B 站验证 + commit | 1268 → 1286 | 🟡 条件通过 (严格 review 修正 2 处幻觉) |
-| 第二波 | v1.4.1 | 微结构噪声 + Realized Kernel | 🟡 待 A/B 站验证 + commit | 1286 → 1300 | ✅ 主控站通过 (严格 review 修正 1 处测试设计缺陷) |
+| 第一波 | v1.4.0 | TAQ + Realized Measures + BNS | ✅ 已交付 (三平台验证通过) | 1268 → 1286 | ✅ 正式通过 (严格 review 修正 2 处幻觉 + timegm GCC 修复) |
+| 第二波 | v1.4.1 | 微结构噪声 + Realized Kernel | ✅ 已交付 (三平台验证通过) | 1286 → 1300 | ✅ 正式通过 (严格 review 修正 1 处测试设计缺陷) |
 | 第三波 | v1.4.2 | HAR + HEAVY + RV 预测 | ☐ 未启动 | TBD | ☐ |
 | 第四波 | v1.4.3 | 流动性 + 多资产 + 高级跳跃检验 | ☐ 未启动 | TBD | ☐ |
 
@@ -483,8 +483,8 @@
 
 | 波次 | 审计日期 | Reviewer | 总分 (加权) | 结论 | 签名 |
 |------|----------|----------|-------------|------|------|
-| v1.4.0 | 2026-08-02 (严格 review) | Scott (self-review) | 88/100 (条件通过) | 🟡 条件通过 | 待 A/B 站跨平台验证 + git commit 后转 ✅ |
-| v1.4.1 | 2026-08-02 (严格 review) | Scott (self-review) | 92/100 (主控站通过) | ✅ 主控站通过 | 待 A/B 站跨平台验证 + git commit 后转正式 ✅ |
+| v1.4.0 | 2026-08-02 (严格 review + 跨平台验证) | Scott (self-review) | 92/100 | ✅ 正式通过 | 三平台 1300/1300 一致; timegm GCC 链接错误已修复 (commit cf7c1e0) |
+| v1.4.1 | 2026-08-02 (严格 review + 跨平台验证) | Scott (self-review) | 95/100 | ✅ 正式通过 | 三平台 1300/1300 一致 (MSVC 229s / GCC-A 49s / GCC-B 46s) |
 | v1.4.2 | TBD | TBD | TBD | ☐ 通过 / ☐ 条件通过 / ☐ 不通过 | |
 | v1.4.3 | TBD | TBD | TBD | ☐ 通过 / ☐ 条件通过 / ☐ 不通过 | |
 
@@ -506,6 +506,12 @@
   3. 算法权重偏移: spec 原写 `h/H`, R 实测 `(h-1)/H`; DOF 调整: spec 原写整体 `n/(n-H)`, R 实测逐 lag `n/(n-h)`
   - 全部通过 `reverse_kernels.R` 反推 + `realizedMeasures.cpp` 源码核对修正, spec §4.2/§4.5 已同步更新
 - 待办: E2/E3/E4 (A/B 站跨平台), H1-H3 (文档更新) — 本次会话收尾处理
+
+**v1.4.0 + v1.4.1 跨平台验证完成 (2026-08-02)**:
+- E2/E3/E4 全部转为 ✅: 三平台 1300/1300 一致 (MSVC 229s / GCC-A 49s / GCC-B 46s)
+- **timegm GCC 链接错误修复** (commit cf7c1e0): `taq_reader.hpp` 中 `extern time_t timegm(struct tm*)` 声明误入 namespace `cpphub::v1::hfecon`, 导致 GCC 链接器寻找 `cpphub::v1::hfecon::timegm` 而非全局 `::timegm` (glibc GNU 扩展). 修复: 删除 namespace 内 extern 声明, 文件顶部定义 `_GNU_SOURCE`, 改用 `::timegm(&tm)`. MSVC 用 `_mkgmtime` 不受影响
+- v1.4.0 审计结论: 🟡 条件通过 → ✅ 正式通过 (92/100)
+- v1.4.1 审计结论: ✅ 主控站通过 → ✅ 正式通过 (95/100)
 
 **v1.4.0 启动前置条件** (gate before development):
 1. ✅ R 4.6.1 + highfrequency 1.0.3 兼容性已实测通过 (2026-08-02)
