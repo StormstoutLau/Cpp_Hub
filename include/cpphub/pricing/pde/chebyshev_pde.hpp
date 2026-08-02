@@ -36,6 +36,20 @@ struct ChebyshevPDEConfig {
     // kink at S=K, then switch to theta-scheme (typically CN) for accuracy.
     // Set to 0 to disable. Default 4 is standard for BSM.
     Size n_rannacher_warmup = 4;
+
+    // --- Exponential spectral filter (Vandeven alternative) ---
+    // When enabled, after each time step the solution V is transformed to
+    // Chebyshev coefficient space via Clenshaw-Curtis DCT, each coefficient
+    // a_k is multiplied by sigma(k/N) = exp(-eta * (k/N)^(2p)), then
+    // transformed back. This suppresses Gibbs oscillations from the payoff
+    // kink at S=K without sacrificing too much accuracy near the kink.
+    //
+    // Reference: Kopecky (Numerical Analysis 2010), Pelckmans (arXiv:2305.15882).
+    // Recommended: eta=36, p=4 for double precision (verified from [Pel23]).
+    // Set use_filter=false to disable (default off to preserve existing behavior).
+    bool use_filter = false;
+    Real filter_eta = 36.0;
+    Size filter_p = 4;
 };
 
 class ChebyshevPDEEngine {
@@ -208,6 +222,24 @@ public:
             // Solve
             const LUFactor& lu = (step < n_warmup) ? lu_warm : lu_main;
             V = lu_solve(lu, b);
+
+            // Optional exponential spectral filter (post-step) to suppress
+            // residual Gibbs oscillations. Only applied after warmup phase
+            // (warmup already damps high frequencies via implicit Euler).
+            // After filtering, re-impose Dirichlet BCs since the filter is
+            // a global operation that perturbs boundary values.
+            if (config_.use_filter && step >= n_warmup) {
+                V = apply_exp_filter(V, N, config_.filter_eta, config_.filter_p);
+                Real disc_r = std::exp(-r * tau);
+                if (config_.is_call) {
+                    Real S_max = K * std::exp(y[0]);
+                    V[0]     = S_max - K * disc_r;
+                    V[n - 1] = 0.0;
+                } else {
+                    V[0]     = 0.0;
+                    V[n - 1] = K * disc_r;
+                }
+            }
         }
 
         // --- Interpolate at S0 (x = 0) via barycentric formula ---
@@ -379,6 +411,90 @@ private:
             den += t;
         }
         return num / den;
+    }
+
+public:
+    // --- Clenshaw-Curtis DCT (Discrete Chebyshev Transform) ---
+    // Forward: given nodal values f(x_j) at CGL nodes x_j = cos(pi*j/N),
+    //          returns Chebyshev coefficients a_k such that
+    //          f(x) ≈ sum_{k=0}^N a_k * T_k(x).
+    // a_k = (2/N) * (1/c_k) * sum_{j=0}^N (f(x_j)/c_j) * cos(pi*j*k/N)
+    // where c_0 = c_N = 2, c_1..c_{N-1} = 1.
+    //
+    // Complexity O(N^2). For N < 256 (typical for option pricing) this is
+    // negligible compared to the O(N^3) LU solve. For larger N an FFT-based
+    // implementation would be preferable.
+    //
+    // Reference: Trefethen (2013) "Approximation Theory and Approximation
+    // Practice", Chapter 3; Boyd (2001) §10.4.
+    static std::vector<Real> cheb_forward_dct(const std::vector<Real>& f, Size N) {
+        Size n = N + 1;
+        if (f.size() != n) {
+            throw std::invalid_argument("cheb_forward_dct: size mismatch");
+        }
+        const Real pi_val = pi();
+        const Real two_over_N = 2.0 / static_cast<Real>(N);
+
+        std::vector<Real> c(n, 1.0);
+        c[0] = 2.0;
+        c[n - 1] = 2.0;
+
+        std::vector<Real> a(n, 0.0);
+        for (Size k = 0; k < n; ++k) {
+            Real s = 0.0;
+            for (Size j = 0; j < n; ++j) {
+                s += f[j] * std::cos(pi_val * static_cast<Real>(j * k) /
+                                     static_cast<Real>(N)) / c[j];
+            }
+            a[k] = two_over_N * s / c[k];
+        }
+        return a;
+    }
+
+    // Inverse: given Chebyshev coefficients a_k, returns nodal values
+    //          f(x_j) = sum_{k=0}^N a_k * T_k(x_j) = sum_{k=0}^N a_k * cos(pi*j*k/N)
+    // This is the synthesis step; no endpoint weights needed.
+    static std::vector<Real> cheb_inverse_dct(const std::vector<Real>& a, Size N) {
+        Size n = N + 1;
+        if (a.size() != n) {
+            throw std::invalid_argument("cheb_inverse_dct: size mismatch");
+        }
+        const Real pi_val = pi();
+        std::vector<Real> f(n, 0.0);
+        for (Size j = 0; j < n; ++j) {
+            Real s = 0.0;
+            for (Size k = 0; k < n; ++k) {
+                s += a[k] * std::cos(pi_val * static_cast<Real>(j * k) /
+                                     static_cast<Real>(N));
+            }
+            f[j] = s;
+        }
+        return f;
+    }
+
+    // --- Exponential spectral filter ---
+    // sigma(theta) = exp(-eta * theta^(2p)),  theta = k/N in [0, 1]
+    // For theta=0, sigma=1 (preserve DC/mean). For theta=1, sigma=exp(-eta)
+    // which is ~2.3e-16 for eta=36 (full suppression of Nyquist mode).
+    //
+    // Verified from Pelckmans (2023) arXiv:2305.15882 with eta=36, p=4
+    // for double precision. For single precision use eta=18.
+    //
+    // Apply filter to nodal values f via: a -> sigma*a -> f_filtered.
+    static std::vector<Real> apply_exp_filter(const std::vector<Real>& f,
+                                               Size N,
+                                               Real eta,
+                                               Size p) {
+        if (eta <= 0.0 || p == 0) return f;  // no-op for degenerate params
+        auto a = cheb_forward_dct(f, N);
+        const Real two_p = static_cast<Real>(2 * p);
+        for (Size k = 0; k <= N; ++k) {
+            Real theta = static_cast<Real>(k) / static_cast<Real>(N);
+            if (theta <= 0.0) continue;  // sigma(0) = 1, a[0] unchanged
+            Real t = std::pow(theta, two_p);
+            a[k] *= std::exp(-eta * t);
+        }
+        return cheb_inverse_dct(a, N);
     }
 };
 
