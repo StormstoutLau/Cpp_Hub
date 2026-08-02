@@ -417,7 +417,7 @@
 | G1 | v1.4.0 测试数量 | spec §3.4 矩阵 15 + R baseline exact 3 = 18 个新测试, 总数 1268 → 1286 | ✅ | 实测: 18/18 HFE 测试通过 (ctest -N 确认 Total Tests: 1286, 2026-08-02 严格 review 修正). 原审计声称 15/15 + 1283/1283 为计数幻觉, 已修正 |
 | G2 | 测试矩阵覆盖 | TAQ reader 3 + RV/RVol/RQ 4 + BPV 2 + RSV 2 + BNS 3 + 多资产 1 = 15 (spec 矩阵) + 3 R baseline exact = 18 | ✅ | 实测: HFE_TaqReader(3) + HFE_RealizedMeasures(4) + HFE_BPV(2) + HFE_RSV(2) + HFE_BNSJumpTest(3) + HFE_MultiAsset(1) + HFE_RBaselineExact(3) = 18 |
 | G3 | 边界场景 | 常数序列 / 单观测 / 空输入 / 全零收益率 / 含 NaN | ✅ | 实测: ConstantPrices (全零), n<2 抛 invalid_argument (单观测), make_returns 空输入抛异常 |
-| G4 | 全量回归 | 1286 测试全绿, Phase 1-4 无回归 | ⚠️ | 实测: ctest -N 确认 Total Tests: 1286. HFE 18/18 通过 (test_hfe_realized_measures.exe 直跑). 全量 ctest -C Release 因耗时 (~14 min) 待 A/B 站验证批处理 |
+| G4 | 全量回归 | 1286 测试全绿, Phase 1-4 无回归 | ✅ | 实测: `ctest -C Release --parallel 8` 全量 1286/1286 通过, 总耗时 236.13 sec (2026-08-02). HFE_RBaselineExact.GBMCase3/JumpCase4/BNSCase5Case6 最后三测试均 Passed |
 | G5 | 集成测试 | HFE 模块与 core/ 集成, 无命名冲突, 无链接错误 | ✅ | 实测: MSVC 全量构建 0 error 0 warning, test_hfe_realized_measures.exe 链接成功 |
 
 ### H. 文档与可追溯性 (权重 5%)
@@ -437,7 +437,7 @@
 
 | 平台 | 编译器 | 测试通过 | 失败 | 跳过 | 总耗时 |
 |------|--------|----------|------|------|--------|
-| 主控站 (Win10) | MSVC 19.x | 18/18 HFE 通过 (Total 1286 注册) | 0 | 0 | HFE 直跑 2ms (2026-08-02) |
+| 主控站 (Win10) | MSVC 19.x | 1286/1286 | 0 | 0 | 236.13 sec (2026-08-02, --parallel 8) |
 | A 站 (Ubuntu NEX) | GCC 13.3.0 | TBD | TBD | TBD | TBD |
 | B 站 (Ubuntu GTR-Pro) | GCC 13.3.0 | TBD | TBD | TBD | TBD |
 
