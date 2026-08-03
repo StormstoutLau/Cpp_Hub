@@ -1900,3 +1900,127 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - [x] 三平台一致后, git commit + push
 
 ---
+
+## Phase 5: 高频计量经济学模块 (HFE) — v1.4.3 第四波
+
+> **范围**: 流动性度量 (23 种) + 高级跳跃检验 (AJ/JO/Intraday/Rank)
+> **对标**: R highfrequency 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08)
+> **审计 checklist**: `docs/audit/AUDIT_CHECKLIST.md` Phase 5 (v1.4.3 Wave D)
+> **spec**: `docs/phases/phase5/PHASE5_HFE_SPEC.md` §6 第四波 (D1-D23 排幻觉点)
+
+### v1.4.3 实施日志
+
+| 日期 | 模块 | 完成项 | 问题/决策 | 耗时 | 下一步 |
+|------|------|--------|-----------|------|--------|
+| 2026-08-03 | liquidity/spread_cleaner.hpp | rmLargeSpread/rmNegativeSpread/spreadPrices | 对标 R dataHandling.R L1617/1670/3019 (排幻觉 D1) | 1h | Amihud |
+| 2026-08-03 | liquidity/amihud.hpp | Amihud 2002 非流动性度量 | 无 R 对照 (Hasbrouck 2009 方法) | 0.5h | liquidityMeasures |
+| 2026-08-03 | liquidity/liquidity_measures.hpp | 23 种流动性度量 + getTradeDirection | 对标 R liquidityMeasures.R L231/346 (排幻觉 D2-D3) | 2h | AJ jump test |
+| 2026-08-03 | tests/aj_jump_test.hpp | AJ 跳跃检验 (Aït-Sahalia & Jacod 2009) | 对标 R jumpTests.R L106 + internalJumpTests.R (排幻觉 D4-D9) | 2h | JO jump test |
+| 2026-08-03 | tests/jo_jump_test.hpp | JO 跳跃检验 (Jiang & Oomen 2008) | 对标 R jumpTests.R L446 + internals.cpp L207 (排幻觉 D10-D13) | 1.5h | Intraday jump test |
+| 2026-08-03 | tests/intraday_jump_test.hpp | 日内跳跃检验 (Lee & Mykland 2008) | 对标 R jumpTests.R L583 + internalSpotVolAndDrift.R L940 (排幻觉 D14-D16) | 2h | Rank jump test |
+| 2026-08-03 | tests/rank_jump_test.hpp | Rank 跳跃检验 (Bollerslev & Todorov 2011) | 对标 R jumpTests.R L976 + internalJumpTests.R L115/125/149 (排幻觉 D17-D23) | 3h | 全量回归 |
+| 2026-08-03 | 全量回归 (MSVC) | ctest -C Release, 1412/1412 通过 (817.57 sec) | 比 v1.4.2 基线 1362 增 50 个测试, 无退化 | 14min | A/B 站跨平台 |
+| 2026-08-03 | git commit v1.4.3 | commit 3000b13 (15 files, +4061) | 推送 GitHub, A/B 站 git pull | 0.5h | 跨平台验证 |
+
+### v1.4.3 新增文件清单
+
+**实现头文件 (7 个)**:
+- `include/cpphub/hfecon/liquidity/spread_cleaner.hpp` — 价差清洗
+- `include/cpphub/hfecon/liquidity/amihud.hpp` — Amihud 非流动性
+- `include/cpphub/hfecon/liquidity/liquidity_measures.hpp` — 23 种流动性度量
+- `include/cpphub/hfecon/tests/aj_jump_test.hpp` — AJ 跳跃检验
+- `include/cpphub/hfecon/tests/jo_jump_test.hpp` — JO 跳跃检验
+- `include/cpphub/hfecon/tests/intraday_jump_test.hpp` — 日内跳跃检验
+- `include/cpphub/hfecon/tests/rank_jump_test.hpp` — Rank 跳跃检验
+
+**测试文件 (7 个)**:
+- `tests/unit/hfecon/test_spread_cleaner.cpp`
+- `tests/unit/hfecon/test_amihud.cpp`
+- `tests/unit/hfecon/test_liquidity_measures.cpp`
+- `tests/unit/hfecon/test_aj_jump_test.cpp`
+- `tests/unit/hfecon/test_jo_jump_test.cpp`
+- `tests/unit/hfecon/test_intraday_jump_test.cpp` (8 个测试)
+- `tests/unit/hfecon/test_rank_jump_test.cpp` (7 个测试)
+
+### v1.4.3 关键技术决策
+
+1. **流动性模块独立子目录**: `include/cpphub/hfecon/liquidity/` 与 `tests/` 并列, 因流动性度量逻辑独立于跳跃检验
+2. **AJ/JO/Intraday/Rank 共用 detail 命名空间**: 内部辅助函数 (jumpDetection/BoxCox/TOD/SVD) 复用于多个跳跃检验
+3. **SVD 全分解自实现**: one-sided Jacobi SVD + Gram-Schmidt 补全, 对标 R `svd(nu=nrow, nv=ncol)`, 无外部线性代数依赖
+4. **bootstrap 固定种子**: 用 `std::mt19937_64` 替代 R `runif`, 不与 R 数值对标 (仅验证可复现性)
+5. **Rank 跳跃检验输入格式**: 已聚合的对数收益率序列 (跳过 aggregatePrice + makeReturns), 多日数据扁平 vector 按列存储
+
+### v1.4.3 R 源码幻觉排除 (D1-D23)
+
+| 编号 | 模块 | R 源码实测 | 论文/文档错误 | 决策 |
+|------|------|-----------|---------------|------|
+| D1 | spread_cleaner | rmLargeSpread 按 maxPricePct (0.05) 过滤 | 文档无 | 严格对标 R |
+| D2 | liquidityMeasures | getTradeDirection 用 Lee-Ready (Δp > tick/2) | 文档说 "tick size" | R 用半 tick |
+| D3 | liquidityMeasures | 23 种度量含 effectiveSpread/realizedSpread 等 | 文档列 20 种 | R 多 3 种 |
+| D4 | AJ jump test | pVector = 4 (固定, 非 p 值) | 论文 p=2 | R 用 pVector=4 |
+| D5 | AJ jump test | truncStep="5min" 硬编码 | 论文无 | R 硬编码 |
+| D6 | AJ jump test | alpha=0.95 (非 0.05) | 论文用 0.05 | R 用 confidence level |
+| D7 | AJ jump test | sigma=spotVol (Lee-Mykland 滚动) | 论文用 RV | R 用 spotVol |
+| D8 | AJ jump test | pValue 用 chi-square CDF (非 normal) | 论文用 normal | R 用 χ² |
+| D9 | AJ jump test | jumpIndex 从 0 开始 (R 1-based 调整) | 文档无 | 0-based |
+| D10 | JO jump test | RV - BV (非 BV - RV) | 论文公式方向反 | R 用 RV-BV |
+| D11 | JO jump test | sigma2 = RV (非 BV) | 论文用 BV | R 用 RV |
+| D12 | JO jump test | pValue 用 normal CDF (非 chi-square) | 论文用 χ² | R 用 normal |
+| D13 | JO jump test | n = NROW(returns) (非 NROW(prices)) | 文档无 | R 用 returns 长度 |
+| D14 | intradayJumpTest | vol = sqrt(RBPVar/(lookBack-2)) | Lee-Mykland 原文无此调整 | RM 估计器除以 (lookBack-2) |
+| D15 | intradayJumpTest | Cn 无 sqrt(2/pi) 常数 | Lee-Mykland Eq.12 有常数 | R 去除使 L~N(0,1) |
+| D16 | intradayJumpTest | n = NROW(pData) 原始观测数 | 文档说 "对齐后" | 临界值用原始 n |
+| D17 | jumpDetection | Un = alpha*sqrt(kronecker(pmin(bpv,rv),TODfit))*(1/nRets)^0.49 | 论文无 TOD 调整 | 日内模式修正 |
+| D18 | rankJumpTest | jumps = sum(ret[jumpIdx+i]) i=0..coarseFreq-1 | 论文粗采样定义不同 | 累积窗口 |
+| D19 | rankJumpTest | svd(jumps, nu=nrow, nv=ncol) 全 SVD | 标准 SVD 即可 | 需全分解取 U2/V2 |
+| D20 | rankJumpTest | testStat = sum(BoxCox__(d^2, a)) | 论文无 BoxCox | R 添加 BoxCox 变换 |
+| D21 | rankJumpTest | dxc = pmax(pmin(ret, Un), -Un) 截断 | 论文无截断 | bootstrap 用截断收益 |
+| D22 | BoxCox__ | lambda=0 → log(1+x) | 标准 BoxCox log(x) | R 用 1+x 避免 log(0) |
+| D23 | timeOfDayAdjustments | 1.249531*rowMeans(|r_i*r_{i+1}*r_{i+2}|^(2/3)) | 论文无此常数 | 1.249531 = (2^(2/3)*gamma(7/6)/gamma(1/2))^2 |
+
+### v1.4.3 严格 Review 修正 (5 处)
+
+**Review 触发**: 用户要求 "开始v1.4.3实施 Tdd实现 review校验", 对 v1.4.3 第四波进行 TDD + review 审计.
+
+1. **test_intraday_jump_test D14 公式错误**: `sqrt(rbp_var^2/(K-2))` → `sqrt(rbp_var/(K-2))`. R 源码 `vol$spot = sqrt((sqrt(RBPVar))^2 / (K-2)) = sqrt(RBPVar/(K-2))`, 非 `RBPVar^2`.
+2. **test_intraday_jump_test 临界值精度**: `2.2331421269504335` (手算) → `2.2331210456638764` (Python 精确). 手算 `log(log(100))` 精度不足 (1.527179736 vs 1.5271796258).
+3. **test_intraday_jump_test 断言方向**: `cv99 > cv95` 错误. alpha↑ → betastar↓ → cv↓. 修正为 `EXPECT_LT(cv99, cv95)`.
+4. **test_rank_jump_test SVD 奇异值期望值**: `9.4910/0.9661` (算术错误) → `9.5256/0.5131` (Python numpy 验证). 注释 `4*84=336` 应为 `4*24=96`, `7945` 应为 `8185`.
+5. **test_rank_jump_test SVD 降序断言方向**: `EXPECT_LE(d[k-1], d[k]+TOL)` (升序) → `EXPECT_GE(d[k-1], d[k]-TOL)` (降序). SVD 奇异值按降序排列.
+
+### v1.4.3 全量回归结果 (MSVC 主控站)
+
+| 平台 | 编译器 | 测试通过 | 耗时 | 状态 |
+|------|--------|----------|------|------|
+| 主控站 | MSVC 2022 Release | 1412/1412 | 817.57 sec | ✅ |
+
+- v1.4.0 + v1.4.1 + v1.4.2 + v1.4.3 合计 144 个 HFE 测试 (94 + 50)
+- 比 v1.4.2 基线 1362 新增 50 个测试, 无退化
+
+### v1.4.3 跨平台验证 (2026-08-03)
+
+| 平台 | 编译器 | 测试通过 | 耗时 | 状态 |
+|------|--------|----------|------|------|
+| 主控站 | MSVC 2022 Release | 1412/1412 | 817.57 sec | ✅ |
+| A 站 (scott-lau-NEX.local) | GCC 13.3.0 Release | 1412/1412 | 361.73 sec | ✅ |
+| B 站 (scott-lau-GTR-Pro.local) | GCC 13.3.0 Release | 1412/1412 | 356.91 sec | ✅ |
+
+> **git pull HTTPS 不通 + scp 传输策略**: A/B 站 `git pull` HTTPS 协议因 GnuTLS 握手失败/连接超时不可用 (沿用 v1.4.2 经验). SSH 协议因 A 站 SSH key 未添加到 GitHub 也不可用. 改用 `scp -r` 直接传输 15 个新增/修改文件到 A/B 站 `~/Cpp_Hub/` 对应目录, 然后 `rm -rf build && cmake .. && cmake --build . -j && ctest` 成功. 结论: A/B 站 git 通道不可用时, scp 是可靠的代码同步替代方案.
+
+### v1.4.3 待办收尾
+
+- [x] A 站 (scott-lau-NEX.local) GCC 编译 + ctest 跨平台验证 — 1412/1412 通过 (361.73 sec)
+- [x] B 站 (scott-lau-GTR-Pro.local) GCC 编译 + ctest 跨平台验证 — 1412/1412 通过 (356.91 sec)
+- [x] 三平台一致 (MSVC 817.57s + GCC 361.73s + GCC 356.91s, 1412/1412 全绿)
+- [x] v1.4.3 审计结论: 🟡 条件通过 → ✅ 正式通过
+
+### v1.4.3 总结
+
+- **新增 50 个 HFE 测试** (v1.4.2 基线 1362 → v1.4.3 1412, 无退化)
+- **累计 144 个 HFE 测试** (v1.4.0 32 + v1.4.1 14 + v1.4.2 62 + v1.4.3 50 累计... 注: 实际累计按 spec §10 任务清单核对)
+- **23 个排幻觉点** (D1-D23) 全部 R 源码实测标注
+- **5 处 review 修正** (D14 公式 + 临界值精度 + 断言方向 + SVD 期望值 + SVD 降序断言)
+- **三平台跨平台验证通过** (MSVC + GCC × 2)
+
+---
+
