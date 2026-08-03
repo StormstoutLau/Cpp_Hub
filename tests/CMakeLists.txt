@@ -229,3 +229,30 @@ cpphub_add_test(test_har_model unit/hfecon/test_har_model.cpp)
 # v1.4.2 Phase 5 Wave C: HFE HEAVY 模型 (Shephard & Sheppard 2010)
 # 对标 R highfrequency 1.0.3 HEAVYmodel (calcRecVarEq + heavyLLH + NelderMead MLE)
 cpphub_add_test(test_heavy_model unit/hfecon/test_heavy_model.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE Spread Cleaner (rmLargeSpread/rmNegativeSpread/spreadPrices)
+# 对标 R highfrequency 1.0.3 dataHandling.R L1617/1670/3019
+cpphub_add_test(test_spread_cleaner unit/hfecon/test_spread_cleaner.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE Amihud Illiquidity (Amihud 2002, 无 R 对照)
+cpphub_add_test(test_amihud unit/hfecon/test_amihud.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE Liquidity Measures (23 种 + getTradeDirection)
+# 对标 R highfrequency 1.0.3 liquidityMeasures.R L231/346 (排幻觉 D1-D3)
+cpphub_add_test(test_liquidity_measures unit/hfecon/test_liquidity_measures.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE AJ Jump Test (Aït-Sahalia & Jacod 2009)
+# 对标 R highfrequency 1.0.3 jumpTests.R L106 + internalJumpTests.R (排幻觉 D4-D9)
+cpphub_add_test(test_aj_jump_test unit/hfecon/test_aj_jump_test.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE JO Jump Test (Jiang & Oomen 2008)
+# 对标 R highfrequency 1.0.3 jumpTests.R L446 + internalJumpTests.R + internals.cpp L207 (排幻觉 D10-D13)
+cpphub_add_test(test_jo_jump_test unit/hfecon/test_jo_jump_test.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE Intraday Jump Test (Lee & Mykland 2008)
+# 对标 R highfrequency 1.0.3 jumpTests.R L583 + internalSpotVolAndDrift.R L940 (排幻觉 D14-D16)
+cpphub_add_test(test_intraday_jump_test unit/hfecon/test_intraday_jump_test.cpp)
+
+# v1.4.3 Phase 5 Wave D: HFE Rank Jump Test (Bollerslev & Todorov 2011)
+# 对标 R highfrequency 1.0.3 jumpTests.R L976 + internalJumpTests.R L115/125/149 (排幻觉 D17-D23)
+cpphub_add_test(test_rank_jump_test unit/hfecon/test_rank_jump_test.cpp)
