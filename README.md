@@ -4,7 +4,7 @@
 >
 > 一个以头文件为主的 C++20 量化定价库：解析解 / 蒙特卡洛 / PDE / 树形 / AAD Greeks / VaR / SVI 波动率曲面，附带 Python 绑定与可选 CUDA MC 内核。
 >
-> v1.4.0 起新增高频计量经济学模块 (HFE), 对标 R `highfrequency` 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08), 提供 C++ 工程级 RV/BPV/RSV/BNS 跳跃检验实现. v1.4.1 新增 Realized Kernel (BNS 2008 ECTA) 微结构噪声稳健估计, 含 12 种核函数 + 噪声方差 + 最优带宽选择.
+> v1.4.0 起新增高频计量经济学模块 (HFE), 对标 R `highfrequency` 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08), 提供 C++ 工程级 RV/BPV/RSV/BNS 跳跃检验实现. v1.4.1 新增 Realized Kernel (BNS 2008 ECTA) 微结构噪声稳健估计, 含 12 种核函数 + 噪声方差 + 最优带宽选择. v1.4.2 新增多资产协方差估计 (5 方法: Hayashi-Yoshida / Two-Scale / Pre-averaged / Robust Two-Scale / Modulated) + HAR/HEAVY 波动率预测模型. v1.4.3 新增流动性度量 (23 种, Hasbrouck 2009) + 高级跳跃检验 (AJ/JO/Intraday/Rank, 含自实现 Jacobi SVD 全分解).
 
 ---
 
@@ -16,7 +16,9 @@
 | **Phase 4 LITE** | SSVI 跨期限 / Python 绑定 (nanobind) / GPU MC (CUDA, 主控站可选) | 320 / 320 ✅ |
 | **Phase 5 v1.4.0** | HFE: TAQ Reader / Realized Measures (RV/RVol/RQ/BPV/RSV) / BNS Jump Test | 18 / 18 ✅ (R baseline 对标, spec 矩阵 15 + R baseline exact 3) |
 | **Phase 5 v1.4.1** | HFE: Realized Kernel (BNS 2008) / 12 核函数 / 噪声方差 ω² / 最优带宽 H* | 14 / 14 ✅ (R baseline 对标, 11 核函数 + 3 R baseline) |
-| **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 1300 / 1300 位精确一致 ✅ (v1.4.0+v1.4.1 三平台验证通过) |
+| **Phase 5 v1.4.2** | HFE: 多资产 Cov (Hayashi-Yoshida/Two-Scale/Pre-averaged/Robust Two-Scale/Modulated) + HAR/HEAVY 预测模型 | 62 / 62 ✅ (R baseline 对标, Wave A 6 + Wave B 28 + Wave C 28) |
+| **Phase 5 v1.4.3** | HFE: 流动性度量 (23 种) + 高级跳跃检验 (AJ/JO/Intraday/Rank, Jacobi SVD) | 50 / 50 ✅ (R 源码排幻觉 D1-D23, 流动性 12 + 跳跃检验 38) |
+| **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 1412 / 1412 位精确一致 ✅ (v1.4.0-v1.4.3 三平台验证通过) |
 
 跨平台浮点确定性由 `-ffp-contract=off` (GCC) + `/fp:precise` (MSVC) 保证 IEEE-754 严格模式。
 
@@ -32,6 +34,8 @@
 - **Calibration**: LM / Nelder–Mead / DE optimizers
 - **High-frequency econometrics (v1.4.0+)**: TAQ CSV reader + time aggregation, Realized Variance / Volatility / Quarticity, Bipower Variation (jump-robust), Realized Semivariance (±), BNS Jump Test (BN-S 2006, with Truncated Power Quarticity), 多资产 Realized Covariance — 对标 R `highfrequency` 1.0.3, 容差 1e-12
 - **High-frequency econometrics (v1.4.1+)**: Realized Kernel (BNS 2008 ECTA) — 12 种核函数 (Rectangular/Bartlett/Second/Epanechnikov/Cubic/Fifth/Sixth/Seventh/Eighth/Parzen/TukeyHanning/ModifiedTukeyHanning), 噪声方差 ω²=RV/(2n) (H-L 2006), 最优带宽 H*=c·ξ^(4/5)·(ω²/IV)^(2/5)·n^(3/5) (BNS 2008 eq.51), 严格对标 R `rKernelCov` (KK() + kernelEstimator() 源码实测, 容差 1e-12)
+- **High-frequency econometrics (v1.4.2+)**: 多资产协方差估计 — Hayashi-Yoshida (非同步交易) / Two-Scale (微结构噪声) / Pre-averaged (噪声稳健) / Robust Two-Scale / Modulated Realized Cov, PSD 投影 (Jacobi 特征值分解); HAR (Corsi 2009) + HARJ/CHAR 波动率预测, HEAVY (Shephard & Sheppard 2010) MLE 估计 (Nelder-Mead + penalty) — 对标 R `rHYCov`/`rTSCov`/`rRTSCov`/`rMRCov`/`rAVGCov`/`HARmodel`/`HEAVYmodel`, 容差 1e-10
+- **High-frequency econometrics (v1.4.3+)**: 流动性度量 23 种 (Hasbrouck 2009, effectiveSpread/realizedSpread/priceImpact/depthImbalanceRatio 等) + Lee-Ready 交易方向推断; 高级跳跃检验 — AJ (Aït-Sahalia & Jacod 2009), JO (Jiang & Oomen 2008), Intraday (Lee & Mykland 2008, RM 模式), Rank (Bollerslev & Todorov 2011, 含自实现 one-sided Jacobi SVD 全分解 + bootstrap) — 对标 R `getLiquidityMeasures`/`AJjumpTest`/`JOjumpTest`/`intradayJumpTest`/`rankJumpTest`, 23 个排幻觉点 (D1-D23) R 源码实测标注
 - **Python bindings**: `import cpphub` via nanobind (BSM / Heston / MC / Greeks / VaR)
 - **GPU MC** (optional): CUDA Philox4x64-10 RNG, bit-exact match with CPU `cpphub::core::rng`
 
@@ -49,11 +53,11 @@ Cpp_Hub/
 │   ├── calibration/        # calibrator, objective, optimizer
 │   ├── hfecon/             # v1.4.0+ 高频计量经济学 (对标 R highfrequency 1.0.3)
 │   │   ├── data/           # TAQ reader (CSV, 时间聚合)
-│   │   ├── measures/       # RV / RVol / RQ / BPV / RSV / rCov + (v1.4.1) 12 核函数 + Realized Kernel
-│   │   ├── tests/          # BNS Jump Test (BN-S 2006, TPQ)
+│   │   ├── measures/       # RV / RVol / RQ / BPV / RSV / rCov + (v1.4.1) 12 核函数 + Realized Kernel + (v1.4.2) 5 多资产 Cov
+│   │   ├── tests/          # BNS Jump Test (BN-S 2006) + (v1.4.3) AJ/JO/Intraday/Rank 跳跃检验
 │   │   ├── noise/          # (v1.4.1) 噪声方差 ω² + 最优带宽 H* (BNS 2008)
-│   │   ├── models/         # (v1.4.2) HAR, HEAVY
-│   │   └── liquidity/      # (v1.4.3) 流动性度量
+│   │   ├── models/         # (v1.4.2) HAR / HARJ / CHAR + HEAVY (Nelder-Mead MLE)
+│   │   └── liquidity/      # (v1.4.3) spread_cleaner / amihud / 23 种流动性度量
 │   └── performance/gpu/    # gpu_mc (CUDA optional)
 ├── src/                    # Non-header sources (CUDA kernels + CPU stubs)
 ├── tests/                  # Unit + validation tests (GoogleTest)
@@ -119,6 +123,10 @@ Without CUDA, a CPU stub is compiled automatically and 15 GPU MC tests still run
 | HFE BNS Jump Test vs R `BNSjumpTest` | 1e-10 | ✅ (Z statistic + p-value, no-jump + jump 双向) |
 | HFE Realized Kernel vs R `rKernelCov` | 1e-12 | ✅ (BNS 2008, 12 核函数, 17 case B1/B2 baseline) |
 | HFE 核函数解析值 vs R `KK()` 源码 | 1e-15 | ✅ (12 核函数, R 源码 realizedMeasures.cpp L16-74) |
+| HFE 多资产 Cov (5 方法) vs R `rHYCov`/`rTSCov`/`rRTSCov`/`rMRCov`/`rAVGCov` | 1e-10 | ✅ (v1.4.2, Wave A/B, 34 case, PSD 投影 + refresh time) |
+| HFE HAR/HEAVY vs R `HARmodel`/`HEAVYmodel` | 1e-8 | ✅ (v1.4.2, Wave C, 28 case, OLS + Nelder-Mead MLE) |
+| HFE 流动性度量 vs R `getLiquidityMeasures` | 1e-10 | ✅ (v1.4.3, 23 种度量, Lee-Ready 方向推断, 排幻觉 D1-D3) |
+| HFE 高级跳跃检验 vs R `AJjumpTest`/`JOjumpTest`/`intradayJumpTest`/`rankJumpTest` | 1e-8 | ✅ (v1.4.3, AJ/JO/Intraday/Rank, 排幻觉 D4-D23, 自实现 Jacobi SVD) |
 
 ---
 

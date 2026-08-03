@@ -975,7 +975,7 @@ RankJumpTestResult rank_jump_test(
 | ITCH 5.0 解析错误 | 中 | 中 | v1.4.0 先实现 CSV, ITCH 推迟到 v1.4.1 |
 | R 与 C++ 数值精度差异 | 低 | 高 | 容差从 1e-8 开始, 稳定后收紧到 1e-10 |
 | HFE 与定价栈意外耦合 | 低 | 中 | 严格保持 `hfecon/` 独立, 只依赖 `core/` |
-| 性能未达 50 Mtick/s | 中 | 中 | v1.4.2 引入 SIMD/OpenMP 优化 |
+| 性能未达 50 Mtick/s | 中 | 中 | **推迟至 Phase 6 独立性能优化波次** (v1.4.2-v1.4.3 功能正确性已达标, SIMD/OpenMP 优化不阻塞 HFE 模块发布; 见 AUDIT_CHECKLIST F1/F2/F4/F5) |
 
 ---
 
