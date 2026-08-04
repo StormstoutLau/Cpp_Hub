@@ -263,3 +263,8 @@ cpphub_add_test(test_rank_jump_test unit/hfecon/test_rank_jump_test.cpp)
 add_executable(test_linalg_dynamic unit/econometrics/test_linalg_dynamic.cpp)
 target_link_libraries(test_linalg_dynamic PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_linalg_dynamic)
+
+# === Phase 6 v1.5 M1: econometrics/core 基础类型 (任务 1.2-1.5) ===
+add_executable(test_econometrics_core unit/econometrics/test_econometrics_core.cpp)
+target_link_libraries(test_econometrics_core PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_econometrics_core)
