@@ -26,7 +26,8 @@ enum class HacKernel {
 // @param u 参数, u = lag / (L+1), 其中 L 是最大滞后
 // @return 内核权重 K(u), 满足 K(0)=1, K(u)>=0 for |u|<=1, K(u)=0 for |u|>1
 // @throws std::invalid_argument 如果 kernel 无效
-Real kernel_weight(HacKernel kernel, Real u) {
+// 注: inline 避免 header-only 多编译单元链接错误 (ODR)
+inline Real kernel_weight(HacKernel kernel, Real u) {
     const Real au = std::fabs(u);
     switch (kernel) {
         case HacKernel::Bartlett:
@@ -52,7 +53,7 @@ Real kernel_weight(HacKernel kernel, Real u) {
 // @param max_lag 最大滞后 L
 // @return 权重向量 w[0..L], w[0]=1.0, w[l] = kernel_weight(kernel, l/(L+1))
 // 排幻觉点 E5: Bartlett w[l] = 1 - l/(L+1), 非 1 - l/L (R sandwich::kweights 实测)
-std::vector<Real> kernel_weights(HacKernel kernel, Size max_lag) {
+inline std::vector<Real> kernel_weights(HacKernel kernel, Size max_lag) {
     std::vector<Real> w(max_lag + 1);
     for (Size l = 0; l <= max_lag; ++l) {
         w[l] = kernel_weight(kernel, static_cast<Real>(l) / (max_lag + 1));
@@ -60,17 +61,28 @@ std::vector<Real> kernel_weights(HacKernel kernel, Size max_lag) {
     return w;
 }
 
-// 最优滞后选择 (Andrews 1991 自动带宽)
+// 最优滞后选择 (Andrews 1991 自动带宽 / NW 1987 经验法则)
 // @param n_obs 样本数 T
 // @param kernel 内核类型
-// @param ar1_coef AR(1) 系数 alpha(1) (可选, 默认 0)
-// @return 最优最大滞后 L = floor(1.1447 * (alpha(1) * T)^(1/3)) (Andrews 1991 for Bartlett)
-//        对于 QS 内核, 返回最优带宽 b* = 1.3221 * (alpha(2) * T)^(1/5) (Andrews 1991)
-// 排幻觉点 E4: 默认自动带宽基于 AR(1) 拟合的 Andrews (1991) 公式, 非 NW 1987 经验法则 floor(4*(T/100)^(2/9))
-Size select_max_lag(Size n_obs, HacKernel kernel, Real ar1_coef = 0.0) {
+// @param andrews_optimal 是否使用 Andrews (1991) 自动带宽 (true) 或 NW 1987 经验法则 (false, 默认)
+// @param ar1_coef AR(1) 系数 rho (用于 Andrews 自动带宽计算, 调用方应先拟合 AR(1) 再传入)
+// @return 当 andrews_optimal=true: L = floor(1.1447 * (alpha(1) * T)^(1/3)) (Bartlett, Andrews 1991)
+//         当 andrews_optimal=true 且 kernel=QS: b* = floor(1.3221 * (alpha(2) * T)^(1/5)) (Andrews 1991)
+//         当 andrews_optimal=false: floor(4 * (T/100)^(2/9)) (NW 1987 经验法则)
+// 排幻觉点 E4: spec 要求 andrews_optimal 参数显式控制, 默认 false (NW 经验法则)
+//              当 compute_hac_vcov 的 max_lag=0 时, 调用方应先拟合 AR(1) 再传 andrews_optimal=true
+//              非"ar1_coef=0 时 fallback 到 NW"的隐式行为 (与 R bwNeweyWest 等价的显式接口)
+inline Size select_max_lag(Size n_obs, HacKernel kernel,
+                           bool andrews_optimal = false,
+                           Real ar1_coef = 0.0) {
     const Real T = static_cast<Real>(n_obs);
+    if (!andrews_optimal) {
+        // NW 1987 经验法则: floor(4 * (T/100)^(2/9))
+        return static_cast<Size>(std::floor(4.0 * std::pow(T / 100.0, 2.0 / 9.0)));
+    }
+    // Andrews 1991 自动带宽
+    // 调用方应先拟合 AR(1) 得到 rho, 若 rho=0 (无自相关) 退化到 NW 经验法则
     if (ar1_coef == 0.0) {
-        // 退化 (Alpha=0), fallback 到 NW 经验法则
         return static_cast<Size>(std::floor(4.0 * std::pow(T / 100.0, 2.0 / 9.0)));
     }
     const Real rho = ar1_coef;
@@ -86,7 +98,7 @@ Size select_max_lag(Size n_obs, HacKernel kernel, Real ar1_coef = 0.0) {
 }
 
 // 内核名称字符串
-std::string to_string(HacKernel kernel) {
+inline std::string to_string(HacKernel kernel) {
     switch (kernel) {
         case HacKernel::Bartlett: return "Bartlett";
         case HacKernel::QuadraticSpectral: return "QuadraticSpectral";
