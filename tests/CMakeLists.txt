@@ -256,3 +256,10 @@ cpphub_add_test(test_intraday_jump_test unit/hfecon/test_intraday_jump_test.cpp)
 # v1.4.3 Phase 5 Wave D: HFE Rank Jump Test (Bollerslev & Todorov 2011)
 # 对标 R highfrequency 1.0.3 jumpTests.R L976 + internalJumpTests.R L115/125/149 (排幻觉 D17-D23)
 cpphub_add_test(test_rank_jump_test unit/hfecon/test_rank_jump_test.cpp)
+
+# === Phase 6 v1.5 M1: 经典参数计量模块 (ADR-013 双层 linalg) ===
+# test_linalg_dynamic: Eigen3 封装层 (MatrixXD/VectorXD/SVD/LLT/LU/QR)
+# 注: 此测试链接 cpphub_econometrics (含 Eigen3), 不污染 cpphub_core
+add_executable(test_linalg_dynamic unit/econometrics/test_linalg_dynamic.cpp)
+target_link_libraries(test_linalg_dynamic PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_linalg_dynamic)
