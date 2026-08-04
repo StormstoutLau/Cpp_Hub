@@ -273,3 +273,14 @@ gtest_discover_tests(test_econometrics_core)
 add_executable(test_hac_kernels unit/econometrics/test_hac_kernels.cpp)
 target_link_libraries(test_hac_kernels PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_hac_kernels)
+
+# === Phase 6 v1.5 M1: OLS + HC0-HC5 (任务 1.6-1.7, 排幻觉 E1/E2/E3) ===
+# test_ols_hc: OLSEstimator + compute_hc_vcov (手算 N=4,K=2 解析值, 容差 1e-12)
+add_executable(test_ols_hc unit/econometrics/test_ols_hc.cpp)
+target_link_libraries(test_ols_hc PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_ols_hc)
+
+# === Phase 6 v1.5 M1: Newey-West HAC 协方差 (任务 1.9, 排幻觉 E4/E5) ===
+add_executable(test_newey_west unit/econometrics/test_newey_west.cpp)
+target_link_libraries(test_newey_west PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_newey_west)
