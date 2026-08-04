@@ -268,3 +268,8 @@ gtest_discover_tests(test_linalg_dynamic)
 add_executable(test_econometrics_core unit/econometrics/test_econometrics_core.cpp)
 target_link_libraries(test_econometrics_core PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_econometrics_core)
+
+# === Phase 6 v1.5 M1: econometrics/inference HAC 内核 (任务 1.8, 排幻觉 E4/E5) ===
+add_executable(test_hac_kernels unit/econometrics/test_hac_kernels.cpp)
+target_link_libraries(test_hac_kernels PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_hac_kernels)
