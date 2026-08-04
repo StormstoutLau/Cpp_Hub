@@ -22,6 +22,8 @@
 | ADR-010 | GPU 后端可选编译 + 运行时回退 | Accepted | 2026-07-31 | Phase 4 LITE |
 | ADR-011 | 分布式计算: MPI Master-Worker + 确定性聚合 | Proposed | 2026-07-29 | Phase 4 |
 | ADR-012 | xlOil XLL 加载项 (异步 UDF + 缓存) | Proposed | 2026-07-29 | Phase 4 |
+| ADR-013 | 双层线性代数架构 (固定尺寸 + 动态尺寸) | Accepted | 2026-08-04 | Phase 6 |
+| ADR-014 | 标定 (Calibration) vs 估计 (Estimation) 的分离 | Accepted | 2026-07-29 | Phase 6 |
 
 ---
 
@@ -646,8 +648,8 @@ XLOIL_EXPORT int CPPHUB_CACHED_PRICE(double spot, double strike, ...) {
 
 ## ADR-013: 双层线性代数架构 (固定尺寸 + 动态尺寸)
 
-**状态**: Proposed (2026-07-29)
-**版本归属**: v1.1+ (计量模块引入时实施)
+**状态**: Accepted (2026-08-04, Phase 6 实施前提升)
+**版本归属**: v1.5 (Phase 6 经典参数计量模块引入时实施)
 
 ### 背景
 
