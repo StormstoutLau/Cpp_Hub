@@ -28,6 +28,27 @@ target_include_directories(cpphub_core INTERFACE
 )
 target_compile_features(cpphub_core INTERFACE cxx_std_20)
 
+# === Phase 6 v1.5: Eigen3 + 计量模块 (ADR-013) ===
+# Eigen3 3.4.0 header-only, MPL2.0 (非 MIT), 不编译 Eigen 自身
+# 锁定 3.4.0 (C++14 兼容稳定版; 5.0.1 已发布但 v1.5 不升级)
+set(EIGEN3_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/eigen)
+add_library(eigen3_interface INTERFACE)
+target_include_directories(eigen3_interface INTERFACE ${EIGEN3_INCLUDE_DIR})
+# 禁用 Eigen 对 Boost 等的可选依赖 (仅使用 MPL2.0 许可代码)
+target_compile_definitions(eigen3_interface INTERFACE EIGEN_MPL2_ONLY)
+
+# 计量模块 INTERFACE 库 (ADR-013: 双层 linalg, 与 cpphub_core 隔离)
+# cpphub_core 不链接 eigen3_interface, 定价模块保持 header-only 不受 Eigen3 污染
+add_library(cpphub_econometrics INTERFACE)
+target_link_libraries(cpphub_econometrics INTERFACE cpphub_core eigen3_interface)
+target_include_directories(cpphub_econometrics INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+# MSVC: 抑制 Eigen 内部警告 (C4505 未引用局部函数, C4714 强制 inline 警告)
+if(MSVC)
+    target_compile_options(cpphub_econometrics INTERFACE /wd4505 /wd4714)
+endif()
+
 # GoogleTest (FetchContent)
 include(FetchContent)
 FetchContent_Declare(
