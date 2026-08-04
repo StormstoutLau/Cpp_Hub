@@ -108,26 +108,40 @@ TEST(HacKernelsTest, Kernel_Weights_All_Kernels) {
 }
 
 // =============================================================================
-// select_max_lag (Andrews 1991 / NW fallback)
+// select_max_lag (NW 1987 经验法则 / Andrews 1991 自动带宽)
+// 排幻觉点 E4: andrews_optimal=false (默认) → NW, true → Andrews (需 ar1_coef)
 // =============================================================================
 
-TEST(HacKernelsTest, Select_Max_Lag_Bartlett_NW_Fallback) {
-    // 排幻觉点 E4: ar1_coef=0 → NW 经验法则 floor(4*(T/100)^(2/9))
-    EXPECT_EQ(select_max_lag(100, HacKernel::Bartlett, 0.0), 4u);
-    EXPECT_EQ(select_max_lag(400, HacKernel::Bartlett, 0.0), 5u);
+TEST(HacKernelsTest, Select_Max_Lag_Bartlett_NW_Default) {
+    // 排幻觉点 E4: andrews_optimal=false (默认) → NW 经验法则 floor(4*(T/100)^(2/9))
+    // T=100: floor(4*1) = 4
+    EXPECT_EQ(select_max_lag(100, HacKernel::Bartlett), 4u);
+    EXPECT_EQ(select_max_lag(100, HacKernel::Bartlett, false, 0.0), 4u);
+    // T=400: floor(4*(4)^(2/9)) = floor(4*1.3536) = floor(5.414) = 5
+    EXPECT_EQ(select_max_lag(400, HacKernel::Bartlett, false, 0.0), 5u);
 }
 
-TEST(HacKernelsTest, Select_Max_Lag_Bartlett_Andrews) {
-    // alpha(1)=4*0.25/(0.75)^2=1.7778, L*=floor(1.1447*177.78^(1/3))=floor(6.43)=6
-    const Size lag = select_max_lag(100, HacKernel::Bartlett, 0.5);
+TEST(HacKernelsTest, Select_Max_Lag_Bartlett_Andrews_Optimal) {
+    // 排幻觉点 E4: andrews_optimal=true, ar1_coef=0.5 → Andrews 1991 公式
+    // alpha(1) = 4*0.25/(0.75)^2 = 1.7778
+    // L* = floor(1.1447 * (1.7778 * 100)^(1/3)) = floor(1.1447 * 5.6202) = floor(6.4338) = 6
+    const Size lag = select_max_lag(100, HacKernel::Bartlett, true, 0.5);
     EXPECT_GE(lag, 5u);
     EXPECT_LE(lag, 7u);  // 容差 ±1
 }
 
+TEST(HacKernelsTest, Select_Max_Lag_Bartlett_Andrews_Zero_Rho_Fallback) {
+    // 排幻觉点 E4: andrews_optimal=true 但 ar1_coef=0 (无自相关) → 退化到 NW
+    EXPECT_EQ(select_max_lag(100, HacKernel::Bartlett, true, 0.0), 4u);
+}
+
 TEST(HacKernelsTest, Select_Max_Lag_QS_Andrews) {
     // QS 用 b* = 1.3221 * (alpha(2)*T)^(1/5)
-    const Size bw = select_max_lag(100, HacKernel::QuadraticSpectral, 0.5);
+    // alpha(2) = 4*0.25/(0.75)^4 = 1.0/0.3164 = 3.1605
+    // b* = floor(1.3221 * (3.1605 * 100)^(1/5)) = floor(1.3221 * 3.1698) = floor(4.191) = 4
+    const Size bw = select_max_lag(100, HacKernel::QuadraticSpectral, true, 0.5);
     EXPECT_GT(bw, 0u);
+    EXPECT_LE(bw, 6u);  // 容差 ±2
 }
 
 // =============================================================================
