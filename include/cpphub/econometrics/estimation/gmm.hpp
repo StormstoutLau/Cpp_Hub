@@ -37,6 +37,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cpphub/calibration/optimizer.hpp"  // NelderMead (CUE 数值优化)
 #include "cpphub/core/linalg_dynamic.hpp"
 #include "cpphub/core/types.hpp"
 #include "cpphub/econometrics/core/covariance_type.hpp"
@@ -297,33 +298,63 @@ inline GMMResult gmm_linear_iv(const MatrixXD& X, const VectorXD& y,
     }
 
     // ---- CUE: θ̂_CUE = argmin_θ ḡ(θ)' Ŝ(θ)⁻¹ ḡ(θ) ----
-    // 大样本下与两步 GMM 等价, 小样本下更稳健
-    // 实现: 用两步 GMM 结果作为起始值, 网格搜索 + BFGS 精化
-    // 注: 完整 CUE 需数值优化, 这里用两步 GMM 起始 + 一步精化 (近似)
+    // Hansen-Heaton-Yaron 1996, 大样本下与两步 GMM 等价, 小样本下更稳健
+    // 排幻觉点 E15: 完整 CUE 数值优化, 使用 Nelder-Mead simplex (无需梯度)
+    //   起始值: 两步 GMM 结果 (大样本下等价, 提供良好初始点)
+    //   目标函数: J(β) = N · ḡ(β)' Ŝ(β)⁻¹ ḡ(β), 严格按 HHY 1996 公式
+    //   Ŝ(β) 随 β 更新 (与两步 GMM 区别: 两步 GMM 的 Ŝ 在 β̂₁ 处固定)
     if (type == GMMType::CUE) {
-        converged = false;
-        // CUE 目标函数: J(β) = N · ḡ(β)' Ŝ(β)⁻¹ ḡ(β)
-        // ḡ(β) = (1/N) Z'(y - Xβ), Ŝ(β) = HAC(Z, y-Xβ)
-        auto cue_objective = [&](const Eigen::VectorXd& b) -> Real {
+        // CUE 目标函数 (NelderMead 接口: std::vector<Real> -> Real)
+        // 排幻觉点 E16: Ŝ 奇异时的完美拟合处理
+        //   当 β 使残差 ε≈0 时, Ŝ = Z' diag(ε²) Z → 零矩阵 (奇异)
+        //   此时 ḡ = Z'ε/N ≈ 0, J = 0 (矩条件精确满足)
+        //   不能返回 max() (否则优化器无法到达真值), 需返回 0
+        auto cue_objective = [&](const std::vector<Real>& params) -> Real {
+            Eigen::VectorXd b(k);
+            for (Size i = 0; i < k; ++i) b[i] = params[i];
             const Eigen::VectorXd r = y.eigen() - X.eigen() * b;
-            const Eigen::VectorXd g = Z.eigen().transpose() * r / static_cast<Real>(N);
+            const Eigen::VectorXd g =
+                Z.eigen().transpose() * r / static_cast<Real>(N);
             const Eigen::MatrixXd S = compute_S(r);
+            const Real s_det = S.determinant();
+            if (std::fabs(s_det) < 1e-30 || !S.allFinite()) {
+                // Ŝ 奇异: 若 ḡ ≈ 0 (完美拟合), J=0; 否则不可行
+                const Real g_norm = static_cast<Real>(g.norm());
+                if (g_norm < 1e-10) return 0.0;
+                return std::numeric_limits<Real>::max();
+            }
             const Eigen::MatrixXd Sinv = S.inverse();
-            if (!Sinv.allFinite()) return std::numeric_limits<Real>::max();
+            if (!Sinv.allFinite()) {
+                const Real g_norm = static_cast<Real>(g.norm());
+                if (g_norm < 1e-10) return 0.0;
+                return std::numeric_limits<Real>::max();
+            }
             return static_cast<Real>(N) * static_cast<Real>(g.dot(Sinv * g));
         };
 
         // 起始值: 两步 GMM 结果
-        Real best_obj = cue_objective(beta);
-        Eigen::VectorXd best_beta = beta;
+        std::vector<Real> x0(k);
+        for (Size i = 0; i < k; ++i) x0[i] = beta[i];
 
-        // 简化 CUE: 用两步 GMM 结果作为最终估计 (大样本等价)
-        // 完整 CUE 数值优化推迟到 v1.6+ (需 BFGS + 数值梯度)
-        // 注: 此处记录 CUE 类型, 但数值与两步 GMM 一致 (大样本等价)
-        (void)best_obj;
-        (void)best_beta;
-        converged = true;
-        n_iter = 2;
+        NelderMead::Config cue_cfg;
+        cue_cfg.max_iterations = 500;
+        cue_cfg.ftol = 1e-10;
+        cue_cfg.xtol = 1e-10;
+
+        const OptimizationResult cue_result =
+            NelderMead::minimize(cue_objective, x0, cue_cfg);
+
+        if (cue_result.converged && cue_result.x.size() == k &&
+            cue_result.x.size() == static_cast<Size>(beta.size())) {
+            for (Size i = 0; i < k; ++i) beta[i] = cue_result.x[i];
+            residuals = y.eigen() - X.eigen() * beta;
+            converged = true;
+            n_iter = cue_result.n_iterations;
+        } else {
+            // 回退: 保留两步 GMM 结果 (大样本等价)
+            converged = false;
+            n_iter = 2;
+        }
     }
 
     // ---- 最终协方差矩阵 + Hansen J 检验 ----
@@ -474,6 +505,9 @@ inline ArellanoBondResult arellano_bond(const PanelData& panel, Size max_lags = 
     std::vector<std::vector<Real>> X_rows;
     std::vector<std::vector<Real>> Z_rows;  // 每行长度 = q_total
     std::vector<Real> y_diff_vec;
+    // AR(1)/AR(2) 检验需要追踪每个差分观测的 (entity, t)
+    std::vector<Index> obs_entity;
+    std::vector<Size> obs_t;
 
     // 对每个 entity, 构造差分观测
     for (const auto& [eid, rows] : entity_rows) {
@@ -531,6 +565,8 @@ inline ArellanoBondResult arellano_bond(const PanelData& panel, Size max_lags = 
             X_rows.push_back(x_row);
             Z_rows.push_back(z_row);
             y_diff_vec.push_back(dy_t);
+            obs_entity.push_back(eid);
+            obs_t.push_back(t);
         }
     }
 
@@ -559,12 +595,65 @@ inline ArellanoBondResult arellano_bond(const PanelData& panel, Size max_lags = 
     result.n_periods = T;
     result.n_instruments = q_total;  // block-diagonal 工具变量总数 (排幻觉点 E11)
 
-    // AR(1)/AR(2) 检验: 差分残差的一阶和二阶序列相关
-    // 注: 完整实现需计算差分残差, 这里简化 (推迟到 v1.6+)
-    result.ar1_statistic = 0.0;
-    result.ar1_pvalue = 0.0;
-    result.ar2_statistic = 0.0;
-    result.ar2_pvalue = 0.0;
+    // AR(1)/AR(2) 检验: 差分残差的序列相关 (Arellano-Bond 1991, §3.2)
+    //
+    // 排幻觉点 E14: 严格按 Arellano-Bond 1991 原始论文
+    //   H0: 原误差 ε_{it} 无自相关
+    //   若 H0 成立: Δε_{it} 与 Δε_{i,t-1} 一阶负相关 (共享 ε_{t-1}),
+    //               Δε_{it} 与 Δε_{i,t-2} 不相关
+    //   统计量: m_j = [Σ_i Σ_t Δε̂_{it} · Δε̂_{i,t-j}] / sqrt(Σ_i Σ_t (Δε̂_{it})² · (Δε̂_{i,t-j})²)
+    //   m_j ~ N(0,1) 渐近分布
+    //   p 值: 双侧, p = erfc(|m_j| / √2)
+    //
+    // 差分残差: Δε̂ = y_eff - X_eff · β̂
+    // 注: 需要 T >= 4 计算 AR(1), T >= 5 计算 AR(2)
+    {
+        const Eigen::VectorXd diff_resid =
+            y_eff.eigen() - X_eff.eigen() * gmm.coefficients.eigen();
+
+        // 按 entity 分组, 构造 (t, Δε̂) 映射
+        std::unordered_map<Index, std::vector<std::pair<Size, Real>>> entity_resid;
+        for (Size i = 0; i < N_eff; ++i) {
+            entity_resid[obs_entity[i]].emplace_back(obs_t[i], diff_resid[i]);
+        }
+
+        // AR(1): 配对 (t, t-1)
+        Real ar1_num = 0.0, ar1_den = 0.0;
+        for (auto& [eid, resid_vec] : entity_resid) {
+            std::sort(resid_vec.begin(), resid_vec.end());
+            for (Size i = 1; i < resid_vec.size(); ++i) {
+                if (resid_vec[i].first == resid_vec[i - 1].first + 1) {
+                    const Real e_t  = resid_vec[i].second;
+                    const Real e_t1 = resid_vec[i - 1].second;
+                    ar1_num += e_t * e_t1;
+                    ar1_den += e_t * e_t * e_t1 * e_t1;
+                }
+            }
+        }
+        if (ar1_den > 0.0) {
+            result.ar1_statistic = ar1_num / std::sqrt(ar1_den);
+            result.ar1_pvalue =
+                std::erfc(std::fabs(result.ar1_statistic) / std::sqrt(2.0));
+        }
+
+        // AR(2): 配对 (t, t-2)
+        Real ar2_num = 0.0, ar2_den = 0.0;
+        for (auto& [eid, resid_vec] : entity_resid) {
+            for (Size i = 2; i < resid_vec.size(); ++i) {
+                if (resid_vec[i].first == resid_vec[i - 2].first + 2) {
+                    const Real e_t  = resid_vec[i].second;
+                    const Real e_t2 = resid_vec[i - 2].second;
+                    ar2_num += e_t * e_t2;
+                    ar2_den += e_t * e_t * e_t2 * e_t2;
+                }
+            }
+        }
+        if (ar2_den > 0.0) {
+            result.ar2_statistic = ar2_num / std::sqrt(ar2_den);
+            result.ar2_pvalue =
+                std::erfc(std::fabs(result.ar2_statistic) / std::sqrt(2.0));
+        }
+    }
 
     return result;
 }

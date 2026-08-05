@@ -390,3 +390,43 @@ gtest_discover_tests(test_gmm_cue_iterated)
 add_executable(test_arellano_bond unit/econometrics/test_arellano_bond.cpp)
 target_link_libraries(test_arellano_bond PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_arellano_bond)
+
+# === Phase 6 v1.5 M4: Bootstrap 基类 (任务 4.1) ===
+# test_bootstrap_base: percentileCI / bcaCI / randint / compute_stats
+add_executable(test_bootstrap_base unit/econometrics/test_bootstrap_base.cpp)
+target_link_libraries(test_bootstrap_base PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_bootstrap_base)
+
+# === Phase 6 v1.5 M4: 配对 Bootstrap (任务 4.2) ===
+# test_paired_bootstrap: Efron-Tibshirani 法学院 15 obs + 大样本均值/SE 收敛 + CI 覆盖率
+# 排幻觉点 H-006 (配对采样) / H-008 (B-1 分母) / H-009 (失败计数) / H-012 (返回 samples)
+add_executable(test_paired_bootstrap unit/econometrics/test_paired_bootstrap.cpp)
+target_link_libraries(test_paired_bootstrap PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_paired_bootstrap)
+
+# === Phase 6 v1.5 M4: Wild Bootstrap (任务 4.3) ===
+# test_wild_bootstrap: 三种权重分布 (Rademacher/Mammen/Webb6) + 大样本收敛 + 异方差稳健
+# 排幻觉点 E12 (R multiwayvcov 对照) / H-014 (固定 X) / H-015 (β̂ 固定) / H-016 (y*=fitted+v·ε) / H-017 (E[v]=0,Var[v]=1)
+add_executable(test_wild_bootstrap unit/econometrics/test_wild_bootstrap.cpp)
+target_link_libraries(test_wild_bootstrap PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_wild_bootstrap)
+
+# === Phase 6 v1.5 M4: Block Bootstrap (任务 4.4) ===
+# test_block_bootstrap: 三种块类型 (Stationary/Circular/NonOverlapping) + Politis-White 块长选择 + AR(1) ACF 验证
+# 排幻觉点 H-018 (时间序列专用) / H-019 (块长选择) / H-020 (几何分布) / H-021 (环形索引) / H-022 (块采样数)
+add_executable(test_block_bootstrap unit/econometrics/test_block_bootstrap.cpp)
+target_link_libraries(test_block_bootstrap PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_block_bootstrap)
+
+# === Phase 6 v1.5 M4: Cluster Bootstrap (任务 4.5) ===
+# test_cluster_bootstrap: PanelData/CrossSectionData + 显式 cluster_id + G<20 警告 + 不等大小聚类
+# 排幻觉点 H-023 (聚类级采样) / H-024 (整体保留) / H-025 (G<20 警告) / H-026 (N*≠N)
+add_executable(test_cluster_bootstrap unit/econometrics/test_cluster_bootstrap.cpp)
+target_link_libraries(test_cluster_bootstrap PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_cluster_bootstrap)
+
+# === Phase 6 v1.5 M4: 端到端集成测试 (任务 4.6) ===
+# test_integration_phase6: OLS→HC/HAC→Wald→Bootstrap / MLE→Sandwich→LR / GMM→J-test→Bootstrap
+add_executable(test_integration_phase6 unit/econometrics/test_integration_phase6.cpp)
+target_link_libraries(test_integration_phase6 PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_integration_phase6)
