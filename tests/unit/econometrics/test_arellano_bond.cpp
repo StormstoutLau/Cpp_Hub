@@ -358,6 +358,60 @@ TEST(ArellanoBond, PanelWithX_NInstruments) {
 }
 
 // =============================================================================
+// 测试 21: AR(1)/AR(2) 检验统计量有限且 p 值合法 (E14 验证)
+//   Arellano-Bond 1991 §3.2: 差分残差的序列相关检验
+//   Δε_{it} = ε_{it} - ε_{i,t-1} 具有 MA(1) 结构
+//   AR(1): Corr(Δε_{it}, Δε_{i,t-1}) ≠ 0 (构造性, 显著)
+//   AR(2): Corr(Δε_{it}, Δε_{i,t-2}) ≈ 0 (若原 ε 为白噪声, 不显著)
+// =============================================================================
+TEST(ArellanoBond, ARTests_StatisticsFinite) {
+    const auto panel = make_large_panel();  // N=50, T=8
+    const ArellanoBondResult result = arellano_bond(panel);
+
+    // AR(1) 统计量: 有限且非 NaN
+    EXPECT_TRUE(std::isfinite(result.ar1_statistic));
+    EXPECT_TRUE(std::isfinite(result.ar1_pvalue));
+    EXPECT_GE(result.ar1_pvalue, 0.0);
+    EXPECT_LE(result.ar1_pvalue, 1.0);
+
+    // AR(2) 统计量: 有限且非 NaN
+    // T=8 → 每个个体有 6 个差分观测 (t=3..8), AR(2) 配对 (t, t-2) 有 4 对/个体
+    EXPECT_TRUE(std::isfinite(result.ar2_statistic));
+    EXPECT_TRUE(std::isfinite(result.ar2_pvalue));
+    EXPECT_GE(result.ar2_pvalue, 0.0);
+    EXPECT_LE(result.ar2_pvalue, 1.0);
+}
+
+// =============================================================================
+// 测试 22: AR(1) 检验应显著 (差分构造的 MA(1) 结构)
+//   Δε_{it} = ε_{it} - ε_{i,t-1}, Δε_{i,t-1} = ε_{i,t-1} - ε_{i,t-2}
+//   两者共享 ε_{i,t-1}, 故 Corr(Δε_{it}, Δε_{i,t-1}) < 0 (负相关)
+//   大样本下 AR(1) p 值应 < 0.05 (显著拒绝无自相关假设)
+// =============================================================================
+TEST(ArellanoBond, AR1_Significant_ByConstruction) {
+    const auto panel = make_large_panel();  // N=50, T=8
+    const ArellanoBondResult result = arellano_bond(panel);
+
+    // AR(1) 应显著 (p < 0.05): 差分残差的 MA(1) 结构
+    // 注: 统计量应为负 (Δε_{it} 与 Δε_{i,t-1} 负相关)
+    EXPECT_LT(result.ar1_pvalue, 0.05);
+}
+
+// =============================================================================
+// 测试 23: 小面板 (T=4) AR(2) 无配对 → 统计量为 0
+//   T=4: 差分观测 t=3,4 (每个体 2 个), AR(2) 需 (t, t-2) 配对
+//   t=4 与 t=2: t=2 不是差分观测 (差分从 t=3 开始), 无配对
+// =============================================================================
+TEST(ArellanoBond, AR2_NoPairs_SmallPanel) {
+    const auto panel = make_simple_panel();  // N=2, T=4
+    const ArellanoBondResult result = arellano_bond(panel);
+
+    // T=4: AR(2) 无配对 (需 t 和 t-2 都是差分观测, 但差分从 t=3 开始)
+    // 统计量保持默认值 0.0
+    EXPECT_EQ(result.ar2_statistic, 0.0);
+}
+
+// =============================================================================
 // 测试 20: 大样本带外生变量 - α 和 β 收敛到真实值
 // =============================================================================
 TEST(ArellanoBond, LargePanelWithX_Converges) {

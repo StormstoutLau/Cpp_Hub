@@ -1,0 +1,38 @@
+{
+  "metadata": {
+    "generator": "generate_arellano_bond_baselines.R",
+    "r_version": "R version 4.6.1 (2026-06-24 ucrt)",
+    "plm_version": "2.6.7",
+    "data_source": "EmplUK",
+    "generated_at": "2026-08-05 20:09:53 CST",
+    "spec_reference": "docs/phases/phase6/PHASE6_ECONOMETRICS_SPEC.md",
+    "tolerance": 1e-08,
+    "note": "Arellano-Bond 1991 dynamic panel GMM baseline",
+    "hallucination_notes": {
+      "E11": "R plm::pgmm auto-generates IV matrix (lagged levels from lag 2); C++ must explicitly construct per Arellano-Bond 1991; diff transformation eliminates individual effects"
+    }
+  },
+  "data": {
+    "name": "EmplUK",
+    "source": "plm::EmplUK",
+    "n_obs": 1031,
+    "n_entities": 140,
+    "n_periods": 9,
+    "formula": "dynformula(log(emp) ~ log(wage) + log(capital), list(2,1,1))",
+    "transformation": "d",
+    "effect": "twoways",
+    "model": "twosteps",
+    "reference": "Arellano-Bond 1991"
+  },
+  "ab_coefficients": [0.52864597880069486, -0.062859270291142536, -0.40831230137259711, 0.18530950380341582, 0.28450202850998452, 0.038995942607834622, 0.0004779291431652663, -0.023566663355201481, -0.087436764002972039, -0.079076055951119412, -0.052280244628252565, -0.045897925528359529],
+  "ab_coef_names": ["lag(log(emp), 1:2)1", "lag(log(emp), 1:2)2", "lag(log(wage), 0:1)0", "lag(log(wage), 0:1)1", "lag(log(capital), 0:1)0", "lag(log(capital), 0:1)1", "1979", "1980", "1981", "1982", "1983", "1984"],
+  "ab_ar1_statistic": -1.8608382454684462,
+  "ab_ar1_pvalue": 0.062767022752235363,
+  "ab_ar2_statistic": -0.12611777293204102,
+  "ab_ar2_pvalue": 0.89963869903800808,
+  "ab_sargan_statistic": 33.943890447752203,
+  "ab_sargan_pvalue": 0.10911263904611533,
+  "ab_n_obs": 1031,
+  "ab_n_entities": 140,
+  "ab_n_periods": 9
+}

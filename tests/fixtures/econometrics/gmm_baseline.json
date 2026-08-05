@@ -1,0 +1,42 @@
+{
+  "metadata": {
+    "generator": "generate_gmm_baselines.R",
+    "r_version": "R version 4.6.1 (2026-06-24 ucrt)",
+    "sandwich_version": "3.1.3",
+    "gmm_package_available": true,
+    "implementation": "manual Hayashi §3.5 closed-form (no gmm package)",
+    "generated_at": "2026-08-05 20:09:52 CST",
+    "spec_reference": "docs/phases/phase6/PHASE6_ECONOMETRICS_SPEC.md",
+    "tolerance": 1e-08,
+    "note": "GMM baseline: Hansen 1982, Hayashi §3.5, synthetic CCAPM",
+    "hallucination_notes": {
+      "E10": "Manual Hayashi §3.5 implementation (moment matrix HAC); equivalent to R gmm::gmm tangent matrix for linear IV",
+      "E10a": "gmm package not required; closed-form Step1=2SLS, Step2=GMM/HAC, CUE via optim Nelder-Mead",
+      "E12": "Singular S_hat detection (perfect fit), returns J=0 if g_bar~0"
+    }
+  },
+  "data": {
+    "name": "Synthetic CCAPM",
+    "source": "set.seed(42), N=500 -> 499 after lag",
+    "n_raw": 500,
+    "n_obs": 499,
+    "n_moments": 3,
+    "n_params": 2,
+    "n_overid": 1,
+    "instruments": ["const", "dc_lag", "r_lag"],
+    "formula": "E[Z_i * (r_i - beta0 - beta1*dc_i)] = 0",
+    "reference": "Hansen-Singleton 1982"
+  },
+  "gmm_2sls_coefficients": [0.021005527303650778, 2.9248024620348385],
+  "gmm_twostep_coefficients": [0.018643285912971926, 3.044069412241412],
+  "gmm_cue_coefficients": [0.011146671364910602, 3.4310923767953323],
+  "gmm_iter_coefficients": [0.018354661629871493, 3.0570775290441907],
+  "gmm_cue_objective": 0.40226545047339479,
+  "gmm_j_statistic": 0.42072928262291903,
+  "gmm_j_pvalue": 0.51657337058155206,
+  "gmm_j_df": 1,
+  "gmm_n_obs": 499,
+  "gmm_n_moments": 3,
+  "gmm_iter_converged": true,
+  "gmm_cue_converged": true
+}
