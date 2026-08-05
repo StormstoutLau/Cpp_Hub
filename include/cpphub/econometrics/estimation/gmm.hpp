@@ -135,6 +135,28 @@ inline GMMResult gmm_linear_iv(const MatrixXD& X, const VectorXD& y,
     Eigen::LLT<Eigen::MatrixXd> llt_ZtZ(ZtZ);
     bool ztz_invertible = (llt_ZtZ.info() == Eigen::Success);
 
+    // 排幻觉点 E13: Z'Z 条件数检测 (block-diagonal 工具变量场景)
+    //   Arellano-Bond block-diagonal Z 矩阵的 Z'Z 即使非奇异也接近奇异,
+    //   2SLS 对 (Z'Z)⁻¹ 敏感, 条件数大时数值不稳定.
+    //   标准做法: 条件数 > 1e10 时回退到 W₁=I (Arellano-Bond 1991 一步 GMM).
+    //   条件数估计: cond(Z'Z) ≈ (max|R_ii| / min|R_ii|)², R 为 LLT 的 Cholesky 因子.
+    if (ztz_invertible) {
+        const Eigen::MatrixXd R = llt_ZtZ.matrixL().transpose();
+        Real r_min = std::numeric_limits<Real>::max();
+        Real r_max = std::numeric_limits<Real>::lowest();
+        for (Size i = 0; i < q; ++i) {
+            const Real d = std::fabs(R(i, i));
+            if (d < r_min) r_min = d;
+            if (d > r_max) r_max = d;
+        }
+        const Real cond_estimate = (r_min > 0.0)
+            ? (r_max / r_min) * (r_max / r_min)
+            : std::numeric_limits<Real>::infinity();
+        if (cond_estimate > 1e10) {
+            ztz_invertible = false;  // 条件数过大, 回退到 W₁=I
+        }
+    }
+
     if (ztz_invertible) {
         const Eigen::MatrixXd ZtZ_inv = llt_ZtZ.solve(Eigen::MatrixXd::Identity(q, q));
         // A = X'Z (Z'Z)⁻¹ Z'X  (k×k)
