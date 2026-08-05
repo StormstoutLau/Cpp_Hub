@@ -18,7 +18,8 @@
 | 项目名称 | Cpp_Hub |
 | 审计阶段 | Phase 6 v1.5 M3 (经典参数计量模块 - GMM/Arellano-Bond) |
 | 提交版本 | `a21d584` fix(v1.5 M3): Arellano-Bond IV construction - x as standard IV |
-| 修复版本 | `pending` fix(v1.5 M3): q_x 计算与 standard IV 实现一致化 (消除全 0 列) |
+| 修复版本 1 | `45796e4` fix(v1.5 M3): q_x 计算与 standard IV 实现一致化 (消除全 0 列) |
+| 修复版本 2 | `970514f` fix(v1.5 M3): Z'Z 条件数检测 - 病态时回退到 W=I (E13) |
 | 验收方法 | TDD 实现 + 三平台跨平台验证 + 排幻觉逐点核查 |
 | 前置条件 | v1.5 M2 已通过 (1644/1644 三平台通过) |
 | 后置条件 | M3 验收通过, v1.5 经典参数计量模块 (M1+M2+M3) 全部完成 |
@@ -29,9 +30,11 @@
 
 | 平台 | 编译器 | 测试总数 | 通过数 | 失败数 | 耗时 | 状态 |
 |------|--------|---------|--------|--------|------|------|
-| 主控站 (Windows 10) | MSVC 19.43 | 1699 | 1699 | 0 | 839.30 sec | ✅ 通过 |
-| A 工作站 (Ubuntu 24.04) | GCC 13.3.0 | 1699 | 1699 | 0 | 40.26 sec | ✅ 通过 |
-| B 工作站 (Ubuntu 6.17) | GCC 13.3.0 | 1699 | 1699 | 0 | 37.62 sec | ✅ 通过 |
+| 主控站 (Windows 10) | MSVC 19.43 | 1699 | 1699 | 0 | 243.90 sec | ✅ 通过 |
+| A 工作站 (Ubuntu 24.04) | GCC 13.3.0 | 1717 | 1717 | 0 | 39.55 sec | ✅ 通过 |
+| B 工作站 (Ubuntu 6.17) | GCC 13.3.0 | 1717 | 1717 | 0 | 37.26 sec | ✅ 通过 |
+
+**注**: A/B 站测试数 1717 比主控站 1699 多 18 个, 因 A/B 站 build 目录包含之前 M2 验证遗留的额外测试目标, 不影响 M3 验证结论。
 
 **M3 新增测试**: 55 个 (相对 M2 的 1644 个)
 - GMM 两步估计: 15 个 (`test_gmm_two_step.cpp`)
@@ -124,6 +127,17 @@
 
 **结论**: ✅ 完全拟合时不抛异常, 数学正确 (J=0, 无不确定性)
 
+### E13: Z'Z 病态时 Step 1 权重选择 (commit 970514f)
+
+**幻觉风险**: Arellano-Bond block-diagonal 工具变量矩阵的 Z'Z 即使非奇异也接近奇异 (条件数大)。若直接用 2SLS (W₁=(Z'Z)⁻¹), 数值不稳定。Arellano-Bond 1991 原始论文的 Step 1 标准权重是 W₁=I (单位矩阵), 而非 2SLS。
+
+**验证方法**:
+- 实现: LLT 分解后估计条件数 `cond(Z'Z) ≈ (max|R_ii|/min|R_ii|)²`, 条件数 > 1e10 时回退到 W₁=I
+- 测试: `ArellanoBond.PanelWithX_CoefficientsReasonable` 三平台均通过 (α≈0.4, β≈0.6)
+- 跨平台一致性: 修复前 A 站 GCC 失败 (α=0.866), 修复后三平台一致通过
+
+**结论**: ✅ 条件数检测确保 block-diagonal 工具变量场景下数值稳定, 符合 Arellano-Bond 1991 标准做法
+
 ---
 
 ## 5. 修复的幻觉问题记录
@@ -158,7 +172,7 @@
 
 **修复**: `gmm_linear_iv` 的 Step 1 检测 Z'Z 奇异时自动回退到 W₁=I (β̂₁ = (X'Z Z'X)⁻¹X'Z Z'y), 这是 Arellano-Bond 1991 标准的一步 GMM 加权方式。
 
-### 5.4 q_x 计算与 standard IV 实现不一致 (待提交)
+### 5.4 q_x 计算与 standard IV 实现不一致 (commit 45796e4)
 
 **幻觉描述**: 在 5.2 修复将 Δx 改为 standard IV (所有观测在同一列, kₓ 列) 后, q_x 的计算公式未同步更新, 仍为 `q_x = k_x * (T-2)` (block-diagonal 数量)。代码注释声明 "standard IV, 所有观测在同一列", 但 q_x 计算用的是 block-diagonal 数量, 二者矛盾。
 
@@ -172,6 +186,21 @@
 **修复**: 将 `const Size q_x = k_x * (T - 2);` 改为 `const Size q_x = k_x;`, 使 q_total 与实际填值一致。修复后 Z 矩阵无全 0 列, Z'Z 在合理样本量下非奇异, Step 1 走 2SLS 路径 (更高效估计)。
 
 **验证**: 主控站 MSVC 全量 1699/1699 测试通过, M3 的 54 个测试全部通过, 无回归。
+
+### 5.5 Z'Z 病态导致 2SLS 数值不稳定 (commit 970514f)
+
+**幻觉描述**: 修复 5.4 后, Z 矩阵无全 0 列, Z'Z 在 LLT 检测下非奇异, Step 1 走 2SLS 路径。但 Arellano-Bond block-diagonal 工具变量矩阵的 Z'Z 即使非奇异也接近奇异 (条件数大), 2SLS 对 (Z'Z)⁻¹ 敏感, 导致数值不稳定。
+
+**后果**:
+- A 站 GCC 下 `ArellanoBond.PanelWithX_CoefficientsReasonable` 测试失败: α=0.866 (期望 0.4±0.3), β=0.035 (期望 0.6±0.3)
+- 主控站 MSVC 通过 (浮点运算顺序不同, 刚好落在容差内), 但 A 站 GCC 超出容差
+- 跨平台不一致: 修复 5.4 暴露了潜在的条件数问题
+
+**修复**: 在 `gmm_linear_iv` 的 Step 1 添加 Z'Z 条件数检测 (排幻觉点 E13)。LLT 分解后, 通过 Cholesky 因子 R 的对角元素估计条件数 `cond(Z'Z) ≈ (max|R_ii|/min|R_ii|)²`, 条件数 > 1e10 时回退到 W₁=I (Arellano-Bond 1991 标准一步 GMM 加权)。
+
+**数学依据**: Arellano-Bond 1991 原始论文的 Step 1 标准权重是 W₁=I (单位矩阵), 而非 2SLS 的 W₁=(Z'Z)⁻¹。block-diagonal 工具变量矩阵的 Z'Z 通常接近奇异, 用 W₁=I 更稳健。
+
+**验证**: 三平台全量测试通过 (主控站 1699/1699, A 站 1717/1717, B 站 1717/1717), `ArellanoBond.PanelWithX_CoefficientsReasonable` 在三平台均通过。
 
 ---
 
@@ -238,9 +267,9 @@
 
 **M3 验收通过**。
 
-- ✅ 三平台 1699/1699 测试全部通过 (MSVC + GCC × 2)
-- ✅ 排幻觉点 E10/E11/E12 全部验证
-- ✅ 4 个实现幻觉已修复并记录 (工具变量矩阵构造 × 2 + Z'Z 奇异处理 × 1 + q_x 计算一致化 × 1)
+- ✅ 三平台测试全部通过 (主控站 1699/1699, A 站 1717/1717, B 站 1717/1717)
+- ✅ 排幻觉点 E10/E11/E12/E13 全部验证
+- ✅ 5 个实现幻觉已修复并记录 (工具变量矩阵构造 × 2 + Z'Z 奇异处理 × 1 + q_x 计算一致化 × 1 + Z'Z 病态条件数检测 × 1)
 - ✅ 55 个 M3 新增测试覆盖正常/边界/异常情况
 - ⚠️ AR(1)/AR(2) 检验简化实现, 完整实现推迟到 v1.6+
 
@@ -257,4 +286,5 @@
 |--------|------|
 | `46f9dd2` | feat(v1.5 M3): GMM (TwoStep/Iterated/CUE) + Arellano-Bond - 1699/1699 MSVC pass |
 | `a21d584` | fix(v1.5 M3): Arellano-Bond IV construction - x as standard IV, increase sample size |
-| `pending` | fix(v1.5 M3): q_x 计算与 standard IV 实现一致化 (消除 Z 矩阵全 0 列) |
+| `45796e4` | fix(v1.5 M3): q_x 计算与 standard IV 实现一致化 (消除 Z 矩阵全 0 列); docs: M3 acceptance report |
+| `970514f` | fix(v1.5 M3): Z'Z 条件数检测 - 病态时回退到 W=I (E13) |
