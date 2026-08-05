@@ -369,3 +369,24 @@ gtest_discover_tests(test_mle_probit_nb)
 add_executable(test_integration_m2 unit/econometrics/test_integration_m2.cpp)
 target_link_libraries(test_integration_m2 PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_integration_m2)
+
+# === Phase 6 v1.5 M3: GMM 两步估计测试 (任务 3.1) ===
+# test_gmm_two_step: 恰好识别=2SLS / 过度识别 J检验 / 弱工具变量检测 / df=q-k
+# 排幻觉点 E10 (Ŝ 用 moment matrix HAC, 非 tangent) / H2 (J-test df=q-k)
+add_executable(test_gmm_two_step unit/econometrics/test_gmm_two_step.cpp)
+target_link_libraries(test_gmm_two_step PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_gmm_two_step)
+
+# === Phase 6 v1.5 M3: 迭代 GMM + CUE 测试 (任务 3.2) ===
+# test_gmm_cue_iterated: 迭代收敛性 / CUE 大样本等价 / 恰好识别一致性 / 完全拟合边界
+# 排幻觉点 E12 (Ŝ 奇异处理, 完全拟合不抛异常)
+add_executable(test_gmm_cue_iterated unit/econometrics/test_gmm_cue_iterated.cpp)
+target_link_libraries(test_gmm_cue_iterated PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_gmm_cue_iterated)
+
+# === Phase 6 v1.5 M3: Arellano-Bond 动态面板 GMM (任务 3.3) ===
+# test_arellano_bond: 差分观测数=N*(T-2) / 工具变量数随T增长 / 大样本α,β收敛
+# 排幻觉点 E11 (工具变量严格按 Arellano-Bond 1991: y_{i,t-2},...,y_{i,1} 作为 Δy_{it} 工具变量)
+add_executable(test_arellano_bond unit/econometrics/test_arellano_bond.cpp)
+target_link_libraries(test_arellano_bond PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_arellano_bond)
