@@ -23,6 +23,7 @@
 #include "cpphub/econometrics/core/data_types.hpp"
 #include "cpphub/econometrics/core/estimation_result.hpp"
 #include "cpphub/econometrics/core/estimator_base.hpp"
+#include "cpphub/econometrics/core/special_functions.hpp"
 #include "cpphub/econometrics/inference/hc_standard_errors.hpp"
 
 namespace cpphub {
@@ -34,64 +35,11 @@ using linalg::dynamic::MatrixXD;
 using linalg::dynamic::VectorXD;
 
 // =============================================================================
-// detail: t 分布 p 值所需的正则化不完全贝塔函数 I_x(a,b)
-//   算法: 连分式 (Numerical Recipes betai/betacf), 不依赖外部统计库
+// detail: t 分布双侧 p 值
+//   依赖 special_functions.hpp 中的 kTwoPi / betacf / beta_i (共享定义点)
 //   t 双侧 p 值: p = I_x(df/2, 1/2), x = df/(df + t²)
 // =============================================================================
 namespace detail {
-
-constexpr Real kTwoPi = 6.2831853071795864769252867665590057683943387987502;
-
-// 连分式展开 (Lentz 方法), 用于 I_x(a,b)
-inline Real betacf(Real a, Real b, Real x) {
-    const int MAXIT = 300;
-    const Real EPS = 3e-16;
-    const Real FPMIN = 1e-300;
-    const Real qab = a + b;
-    const Real qap = a + 1.0;
-    const Real qam = a - 1.0;
-    Real c = 1.0;
-    Real d = 1.0 - qab * x / qap;
-    if (std::abs(d) < FPMIN) d = FPMIN;
-    d = 1.0 / d;
-    Real h = d;
-    for (int m = 1; m <= MAXIT; ++m) {
-        const Real mf = static_cast<Real>(m);
-        const int m2 = 2 * m;
-        // 偶步
-        Real aa = mf * (b - mf) * x / ((qam + static_cast<Real>(m2)) * (a + static_cast<Real>(m2)));
-        d = 1.0 + aa * d;
-        if (std::abs(d) < FPMIN) d = FPMIN;
-        c = 1.0 + aa / c;
-        if (std::abs(c) < FPMIN) c = FPMIN;
-        d = 1.0 / d;
-        h *= d * c;
-        // 奇步
-        aa = -(a + mf) * (qab + mf) * x / ((a + static_cast<Real>(m2)) * (qap + static_cast<Real>(m2)));
-        d = 1.0 + aa * d;
-        if (std::abs(d) < FPMIN) d = FPMIN;
-        c = 1.0 + aa / c;
-        if (std::abs(c) < FPMIN) c = FPMIN;
-        d = 1.0 / d;
-        const Real del = d * c;
-        h *= del;
-        if (std::abs(del - 1.0) < EPS) break;
-    }
-    return h;
-}
-
-// 正则化不完全贝塔 I_x(a,b) = B_x(a,b)/B(a,b)
-inline Real beta_i(Real a, Real b, Real x) {
-    if (x <= 0.0) return 0.0;
-    if (x >= 1.0) return 1.0;
-    const Real lbeta = std::lgamma(a + b) - std::lgamma(a) - std::lgamma(b);
-    const Real bt = std::exp(lbeta + a * std::log(x) + b * std::log(1.0 - x));
-    // 选择收敛更快的方向
-    if (x < (a + 1.0) / (a + b + 2.0)) {
-        return bt * betacf(a, b, x) / a;
-    }
-    return 1.0 - bt * betacf(b, a, 1.0 - x) / b;
-}
 
 /// @brief t 分布双侧 p 值: P(|T| > |t|)
 /// @param t 观测 t 统计量

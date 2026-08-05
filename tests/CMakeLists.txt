@@ -315,3 +315,57 @@ gtest_discover_tests(test_cluster_se_integration)
 add_executable(test_integration_m1 unit/econometrics/test_integration_m1.cpp)
 target_link_libraries(test_integration_m1 PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_integration_m1)
+
+# === Phase 6 v1.5 M2: 信息准则 (任务 2.4, AIC/BIC/HQ/AICc) ===
+# test_diagnostics: 手算解析值 + statsmodels 对照 (容差 1e-10)
+add_executable(test_diagnostics unit/econometrics/test_diagnostics.cpp)
+target_link_libraries(test_diagnostics PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_diagnostics)
+
+# === Phase 6 v1.5 M2: 假设检验 (任务 2.3, Wald/LR/LM/J-test) ===
+# test_hypothesis_tests: 手算解析值 + χ²/F 分布临界值对照 (容差 1e-6)
+# 排幻觉点 E9 (Wald F/χ² 双模式) / H1 (LM=N·R²_aux) / H2 (J-test df=q-k)
+add_executable(test_hypothesis_tests unit/econometrics/test_hypothesis_tests.cpp)
+target_link_libraries(test_hypothesis_tests PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_hypothesis_tests)
+
+# === Phase 6 v1.5 M2: MLE Gaussian (任务 2.1-2.2, 排幻觉点 G1-G5) ===
+# test_mle_gaussian: 手算 N=4,K=2 数据集 + OLS 闭式解对齐 + 三种协方差公式验证
+# 排幻觉点 G3 (Hessian V = σ²·(X'X)^{-1}, 非 (X'X)^{-1})
+# 排幻觉点 G4 (Sandwich V = HC0 White 1980, meat 用 raw residual 无 1/σ²)
+add_executable(test_mle_gaussian unit/econometrics/test_mle_gaussian.cpp)
+target_link_libraries(test_mle_gaussian PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_mle_gaussian)
+
+# === Phase 6 v1.5 M2: MLE Logistic (任务 2.1-2.2, 排幻觉点 E7/E8/L1-L3) ===
+# test_mle_logistic: link/mean 互逆 + Newton-Raphson 一步手算 + 对称数据 MLE 解析解
+# 排幻觉点 E7 (R glm IRLS vs C++ Newton-Raphson, canonical link 等价)
+# 排幻觉点 E8 (GLM bread = (X'WX)^{-1}, meat = X' diag(ε²) X)
+add_executable(test_mle_logistic unit/econometrics/test_mle_logistic.cpp)
+target_link_libraries(test_mle_logistic PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_mle_logistic)
+
+# === Phase 6 v1.5 M2: MLE Poisson (任务 2.1-2.2, 排幻觉点 P1-P5) ===
+# test_mle_poisson: link/mean 互逆 + IRLS weight = μ + 含截距 K=2 手算解析解
+# 排幻觉点 P2 (canonical log link: w = μ, V(μ) = μ)
+# 排幻觉点 P3 (ℓ_i = y·η - μ - log(y!), 用 lgamma(y+1) 计算 log(y!))
+add_executable(test_mle_poisson unit/econometrics/test_mle_poisson.cpp)
+target_link_libraries(test_mle_poisson PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_mle_poisson)
+
+# === Phase 6 v1.5 M2: MLE Probit/NegativeBinomial (任务 2.1-2.2, 排幻觉点 PB1-PB4, NB1-NB3) ===
+# test_mle_probit_nb: Probit link 互逆 + IRLS weight = 2/π (μ=0.5) + 与 Logistic 系数关系 (√3/π)
+# 排幻觉点 PB4 (β_probit ≈ β_logistic × √3/π, 因 logistic σ=π/√3 比正态宽)
+# 排幻觉点 NB1 (w = μ/(1+αμ), α 增大 w 减小)
+# 排幻觉点 NB2 (α→0 时 w→μ, 退化为 Poisson)
+add_executable(test_mle_probit_nb unit/econometrics/test_mle_probit_nb.cpp)
+target_link_libraries(test_mle_probit_nb PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_mle_probit_nb)
+
+# === Phase 6 v1.5 M2: 端到端集成测试 (任务 2.5, 工厂 + Wald/LR + AIC/BIC) ===
+# test_integration_m2: EconData → 工厂创建估计器 → 估计 → Wald/LR 检验 → AIC/BIC 模型选择
+# 排幻觉点 F1 (工厂全新实例) / F2 (未注册抛异常) / F3 (unique_ptr 转移所有权) / F4 (Meyers Singleton)
+# 排幻觉点 E7 (Newton-Raphson ≡ IRLS) / E8 (Sandwich bread/meat) / E9 (Wald χ²+F) / G3 (Gaussian σ² 因子)
+add_executable(test_integration_m2 unit/econometrics/test_integration_m2.cpp)
+target_link_libraries(test_integration_m2 PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_integration_m2)
