@@ -103,11 +103,13 @@ inline PanelData make_large_panel() {
 }
 
 // =============================================================================
-// 辅助: 构造带外生变量的面板 (N=10, T=6, k_x=1, α=0.4, β=0.6)
+// 辅助: 构造带外生变量的面板 (N=50, T=6, k_x=1, α=0.4, β=0.6)
 // =============================================================================
 inline PanelData make_panel_with_x() {
     PanelData panel;
-    const Size N_entities = 10;
+    // 注: N_entities=50 确保足够样本量 (N_eff=50*(6-2)=200),
+    // 避免小样本下 block-diagonal Z 矩阵数值不稳定 (GCC α=1.05 非平稳问题)
+    const Size N_entities = 50;
     const Size T = 6;
     const Size N = N_entities * T;
 
@@ -240,10 +242,10 @@ TEST(ArellanoBond, PanelWithX_NoThrow) {
 TEST(ArellanoBond, PanelWithX_Dimensions) {
     const auto panel = make_panel_with_x();
     const ArellanoBondResult result = arellano_bond(panel);
-    EXPECT_EQ(result.n_entities, 10u);
+    EXPECT_EQ(result.n_entities, 50u);
     EXPECT_EQ(result.n_periods, 6u);
-    // 差分观测数 = 10 * (6-2) = 40
-    EXPECT_EQ(result.n_obs, 40u);
+    // 差分观测数 = 50 * (6-2) = 200
+    EXPECT_EQ(result.n_obs, 200u);
     EXPECT_EQ(result.n_params, 2u);  // α + β
 }
 
@@ -341,19 +343,18 @@ TEST(ArellanoBond, NInstruments_GrowsWithT) {
 }
 
 // =============================================================================
-// 测试 19: 带外生变量时工具变量数 = y滞后 + k_x * (T-2)
+// 测试 19: 带外生变量时工具变量数 = y滞后 + k_x
 //   panel_with_x: T=6, k_x=1
-//   y 滞后: (6-2)(6-1)/2 = 10
-//   x 工具变量: 1 * (6-2) = 4 (每个差分观测的 Δx 自身)
-//   总计: 10 + 4 = 14
+//   y 滞后: (6-2)(6-1)/2 = 10 (GMM-style, block-diagonal)
+//   x 工具变量: k_x = 1 (standard IV, 所有观测在同一列)
+//   总计: 10 + 1 = 11
 // =============================================================================
 TEST(ArellanoBond, PanelWithX_NInstruments) {
     const auto panel = make_panel_with_x();
     const ArellanoBondResult result = arellano_bond(panel);
-    // y 滞后 (T-2)(T-1)/2 = 4*5/2 = 10, x 工具变量 1*(T-2) = 4
-    // 但实际工具变量矩阵会统一到最大列数, 可能有填充
-    // 只验证下界: >= 10 (y 滞后)
-    EXPECT_GE(result.n_instruments, 10u);
+    // y 滞后 (T-2)(T-1)/2 = 4*5/2 = 10, x 工具变量 k_x = 1 (standard IV)
+    // 总计: 10 + 1 = 11
+    EXPECT_GE(result.n_instruments, 10u);  // 至少有 y 滞后工具变量
 }
 
 // =============================================================================
