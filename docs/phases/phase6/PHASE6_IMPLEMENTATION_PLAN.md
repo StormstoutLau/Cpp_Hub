@@ -257,7 +257,7 @@ void svd_full(const MatrixXD& A, MatrixXD& U, VectorXD& S, MatrixXD& V);
 
 **任务 1.9**: 扩展 `inference/standard_errors.hpp` (HAC 部分)
 - `compute_hac_vcov(X, residuals, XtX_inv, type, max_lag, prewhiten)`
-- **排幻觉点 E4**: 默认 `max_lag=0` 触发 Andrews 自动带宽 `L = 1.1447·[α(1)·T]^{1/3}` (R `bwNeweyWest` 等价), 非 NW 1987 经验法则 `floor(4·(T/100)^{2/9})`
+- **排幻觉点 E4**: 默认 `max_lag=0` 触发 Newey-West 1994 自动带宽 `L = floor(bwNeweyWest(fm))` (基于 s1/s0, sandwich 3.1+), 非 NW 1987 经验法则 `floor(4·(T/100)^{2/9})`
 - Andrews-Monahan (1992) 预白化选项
 - 公式: V_HAC = (X'X)^{-1} [Ω_0 + Σ_{l=1}^{L} K(l/L) (Ω_l + Ω_l')] (X'X)^{-1}
 
