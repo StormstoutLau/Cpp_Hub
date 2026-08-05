@@ -439,13 +439,14 @@ inline ArellanoBondResult arellano_bond(const PanelData& panel, Size max_lags = 
     // 排幻觉点 E11: 工具变量矩阵严格按 Arellano-Bond 1991 原始论文构造
     //   不同 t 的工具变量集合不同 (t=3 用 y_{i,1}; t=4 用 y_{i,1},y_{i,2}; ...),
     //   需构造 block-diagonal 风格的 Z 矩阵:
-    //   - y 滞后工具变量总数: 1+2+...+(T-2) = (T-2)(T-1)/2
-    //   - x 工具变量总数: k_x * (T-2) (每个差分观测的 Δx 自身作为工具变量)
-    //   - q_total = (T-2)(T-1)/2 + k_x*(T-2)
-    //   每个观测在其对应的工具变量列上填值, 其他列为 0 (数学等价于 block-diagonal)
+    //   - y 滞后工具变量总数: 1+2+...+(T-2) = (T-2)(T-1)/2  (GMM-style, block-diagonal)
+    //   - x 工具变量总数: k_x  (standard IV, 所有观测的 Δx 在同一列, 严格外生时 Δx 自身作为工具变量)
+    //   - q_total = (T-2)(T-1)/2 + k_x
+    //   y 滞后部分: 每个观测在其对应的工具变量列上填值, 其他列为 0 (block-diagonal)
+    //   x 部分: 所有观测的 Δx 在同一列 (standard IV, 非 block-diagonal)
     //   非 R plm::pgmm 的 GMM-style 变体, 非统一长度 0 填充的简化版本
     const Size q_y_lags = (T - 2) * (T - 1) / 2;
-    const Size q_x = k_x * (T - 2);
+    const Size q_x = k_x;  // standard IV: k_x 列 (非 k_x*(T-2))
     const Size q_total = q_y_lags + q_x;
 
     std::vector<std::vector<Real>> X_rows;
