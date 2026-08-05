@@ -981,14 +981,14 @@ private:
 | E1 | OLS | R `lm()` 默认含截距, X 矩阵首列为 1 | `lm.fit` 源码 | 显式构造截距列, 用户控制 |
 | E2 | HC1 | R `sandwich::vcovHC` HC1 = N/(N-K) · HC0, 非经典 n/(n-k) | `vcovHC` L120-130 | 明确小样本调整公式 |
 | E3 | HC2/HC3 | R 实测 leverage h_i = x_i'(X'X)^{-1}x_i (对角元素) | `vcovHC` L150-180 | 计算 projection matrix 对角 |
-| E4 | Newey-West | R `sandwich::NeweyWest` 默认调用 `bwNeweyWest()` 自动带宽 (基于 AR(1) 拟合的 Andrews 1991 公式 `L = 1.1447·[α(1)·T]^{1/3}`), **非** Newey-West 1987 论文经验法则 `floor(4·(T/100)^{2/9})`. 用户若需 NW 经验法则须显式 `lag = floor(4*(N/100)^(2/9))` | `NeweyWest.R` `bwNeweyWest` | C++ 默认实现 Andrews 自动带宽, 显式参数可选 NW 经验法则 |
+| E4 | Newey-West | R `sandwich::NeweyWest` 默认 `lag = floor(bwNeweyWest(fm))` (sandwich 3.1+, Newey-West 1994 自动带宽, 基于 s1/s0 比值), **非** Newey-West 1987 论文经验法则 `floor(4·(T/100)^{2/9})`. 旧经验法则仅用于 `bwNeweyWest` 内部计算 sigma 的最大滞后 m. 用户若需 NW 经验法则须显式 `lag = floor(4*(N/100)^(2/9))`. 注: Longley 数据严重共线性, `prewhite=TRUE` (默认) 会导致 VAR(1) 预白化失败, 测试时用 `prewhite=FALSE` | `NeweyWest.R` `bwNeweyWest` | C++ 默认实现 NW 1994 自动带宽, 显式参数可选 NW 1987 经验法则 |
 | E5 | HAC Bartlett | R `sandwich::kweights` w[l] = 1 - l/(L+1), 非 1 - l/L | `kweights` L20-40 | 实测 R 源码后标注 |
-| E6 | Cluster | R `sandwich::vcovCL` 小样本调整 G/(G-1)·(N-1)/(N-K) | `vcovCL` L80-100 | 明确小样本调整 |
+| E6 | Cluster | R `sandwich::vcovCL` HC1 默认 `cadjust=TRUE`, 小样本调整 = G/(G-1)·(N-1)/(N-K), 其中 G 为聚类数. `cadjust=FALSE` 时仅 (N-1)/(N-K). 注: `Grunfeld$firm` 是 data.frame, `length(unique())` 返回行数而非聚类数, 必须用 `as.numeric()` 转换后计算 (Grunfeld 实际 G=10) | `vcovCL` `meatCL` L80-120 | 明确 cadjust 两层调整: G/(G-1) 和 (N-1)/(N-K) |
 | E7 | MLE Logistic | R `glm` 默认用 IRLS, 非通用 BFGS | `glm.fit` 源码 | IRLS 与 BFGS 数值对比 |
-| E8 | QMLE Sandwich | R `sandwich::sandwich` bread = (X'WX)^{-1}, meat = X' diag(ε²) X | `sandwich` L30-60 | 明确 GLM bread 公式 |
+| E8 | QMLE Sandwich | R `sandwich::sandwich`: bread = (X'WX)^{-1}·n (含 n 因子, sandwich 约定 bread = -H^{-1}·n); meat = crossprod(estfun)/n (OPG 形式, estfun = score contributions, 非Pearson残差外积); sandwich = bread·meat·bread/n. 注: estfun.glm = working_res · working_weights · X / dispersion (logit link: working_res=(y-mu)·mu·(1-mu), working_w=mu·(1-mu)) | `sandwich` `estfun.glm` `meat.default` L30-80 | 明确 bread 含 n 因子, meat 用 estfun (OPG), 非 X'diag(eps²)X |
 | E9 | Wald | R `lmtest::waldtest` 默认 F 检验 (小样本), 非渐近 χ² | `waldtest` 源码 | 提供两种统计量 |
-| E10 | GMM Ŝ | R `gmm::gmm` Ŝ 用 tangent matrix, 非 moment matrix HAC | `gmm` L200-250 | Hayashi 教材公式 vs R 实现 |
-| E11 | Arellano-Bond | R `plm::pgmm` 工具变量矩阵构造 (GMM-style instruments) | `pgmm` 源码 | 严格按 Arellano-Bond 1991 |
+| E10 | GMM Ŝ | R `gmm::gmm` Ŝ 用 tangent matrix, 非 moment matrix HAC. 注: gmm 1.6-4+ `type` 参数大小写敏感 (`"twoStep"`/`"onestep"`/`"cue"`, 非 `"twostep"`); C++ 按 Hayashi 教材用 moment matrix HAC | `gmm` L200-250 | Hayashi 教材公式 vs R 实现; 注意 type 参数大小写 |
+| E11 | Arellano-Bond | R `plm::pgmm` 工具变量矩阵构造 (GMM-style instruments). 注: plm 2.6+ 弃用 `dynformula()`, 改用 multi-part formula: `y ~ lag(y,1:2) + lag(x1,0:1) + lag(x2,0:1) \| lag(y,2:99)` (左侧被解释变量, 中间解释变量含滞后, 右侧 \| 后为 GMM 工具变量); AR(1)/AR(2) 检验在 plm 2.6+ 为 `summary(fm)$m1`/`$m2` (htest 对象), Sargan 为 `$sargan` (htest) | `pgmm` 源码 | 严格按 Arellano-Bond 1991; 注意 plm 2.6+ formula API 变化 |
 | E12 | Wild Bootstrap | R `multiwayvcov::cluster.boot(boot_type='wild')` 默认 `wild_type='rademacher'` (±1 等概率), Mammen 通过 `wild_type='mammen'` 显式指定 (v=(1±√5)/2, 概率 (5±√5)/10), 另有 `wild_type='norm'` (标准正态). 注意: `multiwayvcov` 包**无** `cluster.wild` 函数, wild bootstrap 通过 `cluster.boot` + `boot_type='wild'` 实现; 默认 Rademacher 遵循 Cameron-Gelbach-Miller 2008 (非 Davidson-Flachaire 2008) | `cluster.boot` 源码 (multiwayvcov 1.2.3) | 三种分布都实现, 默认 Rademacher (CGM 2008) |
 
 ### 7.4 测试矩阵设计原则

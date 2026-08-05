@@ -4,7 +4,7 @@
 
 # ---- Build artifacts ----
 build/
-build_*/
+build*/
 out/
 cmake-build-*/
 *.o
