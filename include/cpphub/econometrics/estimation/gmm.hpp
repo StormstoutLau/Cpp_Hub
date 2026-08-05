@@ -499,7 +499,8 @@ inline ArellanoBondResult arellano_bond(const PanelData& panel, Size max_lags = 
                 z_row[y_offset + s] = panel.y(sorted_rows[s]);
             }
             // 添加外生变量的差分作为工具变量 (Δx_{it} 自身, 若外生)
-            const Size x_offset = q_y_lags + (t - 2) * k_x;
+            // standard IV: 所有 t 的 Δx 在同一列 (非 block-diagonal)
+            const Size x_offset = q_y_lags;
             for (Size j = 0; j < k_x; ++j) {
                 z_row[x_offset + j] = x_row[1 + j];
             }
