@@ -545,3 +545,134 @@
 4. ☐ spec §10 待执行任务清单 8 项全部勾选
 
 **最终发布批准**: _______________ (架构师) _______________ (PM) _______________ (日期)
+
+---
+
+## Phase 7A: 证伪统计量 — ADR-015 三文档对齐审计
+
+> **审计日期**: 2026-08-12
+> **审计范围**: ADR-015 正文 (Accepted) ←→ 调研报告 v1.2 ←→ 执行规格 v2.0 三文档对齐
+> **审计目标**: 验证三文档在方案决策、文件归属、接口签名、Wave 编排、幻觉排除等关键维度的一致性, 排除残留幻觉
+> **审计文档**:
+> - ADR-015 正文: [ADR_INDEX.md §ADR-015](../decisions/ADR_INDEX.md#adr-015-证伪统计量模块边界-通用-vs-模块特定) (Accepted 2026-08-12)
+> - 调研报告 v1.2: [ADR015_FALSIFICATION_MODULE_BOUNDARY_RESEARCH.md](../research/ADR015_FALSIFICATION_MODULE_BOUNDARY_RESEARCH.md)
+> - 执行规格 v2.0: [PHASE7A_FALSIFICATION_SPEC.md](../phases/phase7/PHASE7A_FALSIFICATION_SPEC.md)
+> **关联 ADR**: ADR-013 (双层线性代数架构, Eigen3 隔离边界), ADR-014 (Calibration vs Estimation 分离)
+> **评分标准**: ✅ 通过 / ⚠️ 需整改 / ❌ 阻塞发布
+
+### A. ADR-015 正文完整性 (权重 15%)
+
+| 编号 | 检查项 | 标准 | 结果 | 备注 |
+|------|--------|------|------|------|
+| A1 | 状态字段 | "Accepted (2026-08-12)" | ✅ | ADR_INDEX.md L797 |
+| A2 | 版本归属 | "v1.6 (Phase 7A)" | ✅ | ADR_INDEX.md L798 |
+| A3 | 调研依据引用 | 引用调研报告 v1.2 并标注"三轮审计排幻觉, 共修正 10 个幻觉点" | ✅ | ADR_INDEX.md L800 |
+| A4 | 执行规格引用 | 引用 PHASE7A_FALSIFICATION_SPEC.md | ✅ | ADR_INDEX.md L801 |
+| A5 | 背景章节 | 列出 5 个待决策边界问题 (Eigen3 隔离/weak_identification/TestResult/命名空间/OLS 重复) | ✅ | ADR_INDEX.md L807-813 |
+| A6 | 决策章节 | 明确"采用方案 B: 通用诊断不依赖 Eigen3" + 5 个决策点 | ✅ | ADR_INDEX.md L820-857 |
+| A7 | 11 个头文件归属表 | 完整列出 11 个文件 + 归属 + Eigen3 依赖 + Wave + 理由 | ✅ | ADR_INDEX.md L861-873 |
+| A8 | 归属判定准则 | 5 条准则 (适用范围/输入依赖/Eigen3 依赖/数学基础/复用潜力) + weak_identification 特例 | ✅ | ADR_INDEX.md L881-889 |
+
+### B. 调研报告 v1.2 完整性 (权重 15%)
+
+| 编号 | 检查项 | 标准 | 结果 | 备注 |
+|------|--------|------|------|------|
+| B1 | 版本与状态 | "v1.2 (2026-08-12, 经三轮审计排幻觉)" + ADR-015 已 Accepted 标注 | ✅ | L3-5 |
+| B2 | 幻觉排查记录 | 三轮共 10 个幻觉点 (H1-H10) 完整记录, 含原始断言/类型/核实方式/修正 | ✅ | L9-36 |
+| B3 | 代码库事实 | CMake 隔离边界 + 跨模块依赖现状 + 命名空间结构 + 现有诊断代码归属 + har_model.hpp 先例 (5 节) | ✅ | §2 L51-118 |
+| B4 | 数学分析 | 检验分类 (纯序列 vs 回归检验) + 关键发现 + Cragg-Donald 公式核实 (H4 修正) | ✅ | §3 L121-171 |
+| B5 | 业界对照 | 已确认事实 + 未核实引用 (已排除) + 业界模式总结 | ✅ | §4 L174-205 |
+| B6 | 候选方案 | 方案 A/B/C 完整评估, 含优势/劣势 | ✅ | §6 L263-294 |
+| B7 | 推荐方案 B | 理由 + 调整后归属表 + 归属判定准则 + OLS 工程权衡 + Wave 修正 (H9) + TestResultBase 例外 (H10) | ✅ | §7 L297-386 |
+| B8 | 附录核实清单 | 第一轮 + 第二轮核实记录完整 | ✅ | 附录 A L409-429 |
+
+### C. 执行规格 v2.0 完整性 (权重 15%)
+
+| 编号 | 检查项 | 标准 | 结果 | 备注 |
+|------|--------|------|------|------|
+| C1 | 关联文档链接 | 顶部含 ADR-015 + 调研报告 v1.2 + FINANCIAL_TIMESERIES_RESEARCH + INFORMATION_THEORY_METRICS_RESEARCH 链接 | ✅ | L21-26 |
+| C2 | Scope 声明 | 严格聚焦事后证伪统计量, 不含信息论事前度量 (v2.0+ scope) | ✅ | L13-19 |
+| C3 | 文件结构 | 11 个新增头文件 + detail/ 公共基础设施 (test_result_base + ols_simple) | ✅ | §1.1 L34-90 |
+| C4 | 测试套件 | 各模块测试矩阵完整, 含 R/Python 对照 + 容差层级 | ✅ | §1.2 L93-110 |
+| C5 | 数值基准 | 教材锚点 (Greene/Wooldridge/DM/Tsay/McNeil-Frey/Engle-Manganelli) + 对照库 (statsmodels/R lmtest/tseries/strucchange/forecast/rugarch) | ✅ | L18-19 |
+| C6 | 排幻觉点清单 | 附录 A 23 项完整, 每项含验证方法 | ✅ | 附录 A L1107-1135 |
+| C7 | Stock-Yogo 覆盖范围核查 | §8.3 含核查依据 + 记号约定 + 原书表覆盖 + 缺口 + 缓解策略 (Skeels-Windmeijer 2018) + 接口设计调整 | ✅ | §8.3 L1037-1104 |
+| C8 | Wave 并行策略 | §8.2 含 Wave 0-3 编排 + 依赖约束 (hfecon_diagnostics Wave 2 归属) | ✅ | §8.2 L1029-1035 |
+
+### D. 三文档对齐一致性 (核心, 权重 30%)
+
+| 编号 | 检查项 | ADR-015 正文 | 调研报告 v1.2 | 执行规格 v2.0 | 一致 |
+|------|--------|-------------|--------------|--------------|------|
+| D1 | 方案 B 决策 | §决策 "采用方案 B" | §6.2/§7 "推荐方案 B" | §1.1 "ADR-015 方案 B 约束" | ✅ |
+| D2 | 5 个决策点 | §决策 1-5 完整 | §5 矛盾点 M1-M5 对应 | spec 全文遵循 | ✅ |
+| D3 | Eigen3 隔离 | 决策点 1: 通用诊断不依赖 Eigen3 | §6.2/§7.1 理由 1 | §1.1 注释 "不依赖 Eigen3" | ✅ |
+| D4 | weak_identification 归属 | 决策点 2: 移到 estimation/ | §7.2 L314: estimation/ | §1.1 L57: estimation/ | ✅ |
+| D5 | TestResultBase 组合 | 决策点 3: 组合方式 + 复合诊断例外 | §7.6 例外说明 | §2.0 detail/test_result_base.hpp | ✅ |
+| D6 | 命名空间维持现状 | 决策点 4: risk/pricing 落 cpphub::v1 | §5.4 矛盾 M4 分析 | §1.1 文件结构未引入新命名空间 | ✅ |
+| D7 | hfecon_diagnostics Wave 2 | §归属表 L10: Wave 2 | §7.2 L10: Wave 2 (H9) | §8.2 并行策略: Wave 2 | ✅ |
+| D8 | OLS 重复 ~50-80 行 | 决策点 5: "~50-80 行" | §7.4: "~50-80 行" | §8.2 风险表: "~50-80 行" | ✅ |
+| D9 | ols_simple 有意差异 | 决策点 5: 不加常数列/不算 adj_r_squared | §7.4: 同 | §2.0.2: 同 | ✅ |
+| D10 | Cragg-Donald 公式 | 决策点 2: `G_T = (X̃'X̃)^{-1/2} X̃'Z̃ (Z̃'Z̃)^{-1} Z̃'X̃ (X̃'X̃)^{-1/2}` | §3.3 (H4 修正): 同 | §2.4 接口: cragg_donald_statistic | ✅ |
+| D11 | 11 个头文件归属表 | §归属表 11 行 | §7.2 归属表 11 行 | §1.1 文件结构 11 个 .hpp | ✅ |
+| D12 | detail/ 公共基础设施 | §新增公共基础设施: test_result_base + ols_simple | §7.4 提及 ols_simple | §1.1 detail/ 目录 | ✅ |
+| D13 | 归属判定准则 5 条 | §归属判定准则: 5 条 + 特例 | §7.3: 5 条 + 特例 | spec 未重复 (引用 ADR-015) | ✅ |
+| D14 | 复合诊断例外 (H10) | 决策点 3: VolatilityDiagnosticsResult 不组合 base | §7.6: 判定准则 | §2.2 VolatilityDiagnosticsResult 结构 | ✅ |
+| D15 | conduction_metrics v2.0+ 预留 | §归属表 L5: "v2.0+ 预留" | §7.2 L5: "v2.0+ 预留" | §1.1: "预留 v2.0+" | ✅ |
+
+### E. 幻觉排除核查 (权重 15%)
+
+| 编号 | 检查项 | 标准 | 结果 | 备注 |
+|------|--------|------|------|------|
+| E1 | H1: JB/LB/BP/White 不需动态矩阵 | 修正为"纯序列检验 + 回归检验"分类, BG/BP/White/MZ/CUSUM 需 OLS | ✅ | 调研报告 §3.1, ADR-015 决策点 1 |
+| E2 | H4: Cragg-Donald 公式顺序 | 修正为 X 在外 Z 在内: `G_T = (X̃'X̃)^{-1/2} X̃'Z̃ (Z̃'Z̃)^{-1} Z̃'X̃ (X̃'X̃)^{-1/2}`, 三文档一致 | ✅ | 调研报告 §3.3, ADR-015 决策点 2 |
+| E3 | H5: R htest 字段不完整 | 补全 8 字段: statistic/parameters/p.value/estimate/null.value/alternative/method/data.name | ✅ | 调研报告 §4.1 |
+| E4 | H6: statsmodels 返回格式未核实 | 删除该论据, 仅保留 R htest 作为 TestResult 设计依据 | ✅ | 调研报告 §4.2 |
+| E5 | H7: 命名空间变更过度绝对 | 修正为"影响范围超出 Phase 7A scope", 可通过 using 声明过渡 | ✅ | 调研报告 §5.4, ADR-015 决策点 4 |
+| E6 | H8: 诊断 OLS 规模低估 | 修正为"N=百级到千级" (CUSUM/Andrews 滚动/递归 OLS) | ✅ | 调研报告 §7.4 |
+| E7 | H9: hfecon_diagnostics Wave 矛盾 | 修正: Wave 1 → Wave 2, 因依赖 specification_tests (Wave 2) 的 MincerZarnowitzResult | ✅ | 调研报告 §7.5, ADR-015 归属表, spec §8.2 |
+| E8 | H10: TestResultBase 过度统一 | 修正: 复合诊断 (VolatilityDiagnosticsResult 等) 不组合 base, 通过子结构间接获得接口 | ✅ | 调研报告 §7.6, ADR-015 决策点 3 |
+| E9 | Stock-Yogo 页码幻觉 | 原"pp. 58-61"已删除, 论文在书中为 pp. 80-108 (29页), 页码矛盾已排除 | ✅ | spec §8.3 |
+| E10 | Stock-Yogo K=3 Size 准则缺口 | 原表 K=3 不覆盖 Size 准则, 用 Skeels-Windmeijer 2018 解析近似, 容差 1e-4, 接口 `critical_value_is_exact` 标志 | ✅ | spec §8.3, ADR-015 决策点 2 |
+| E11 | **Review 修正 1**: 调研报告 L11 计数幻觉 | 原"共修正 9 个幻觉点"与实际列出 H1-H10 (10 个) 矛盾, 已修正为"10 个幻觉点 (H1-H10)" | ✅ (已修正) | 调研报告 §0 L11, ADR-015 L800 正确引用 10 个 |
+| E12 | **Review 修正 2**: spec §2.0.2 L238 OLS 行数不一致 | 原"~50 行"与 ADR-015/调研报告/spec §8.2 的"~50-80 行"矛盾, 已修正为"~50-80 行 (参考 har_model.hpp Gauss-Jordan 实现模式)" | ✅ (已修正) | spec §2.0.2 L238, 三文档现已一致 |
+
+### F. 文档链路完整性 (权重 10%)
+
+| 编号 | 检查项 | 标准 | 结果 | 备注 |
+|------|--------|------|------|------|
+| F1 | ADR-015 → 调研报告 | ADR-015 §关联 引用调研报告 v1.2 | ✅ | ADR_INDEX.md L800, L919 |
+| F2 | ADR-015 → 执行规格 | ADR-015 §关联 引用 PHASE7A_FALSIFICATION_SPEC.md | ✅ | ADR_INDEX.md L801, L920 |
+| F3 | 调研报告 → ADR-015 | 调研报告 §状态 引用 ADR-015 (Accepted 2026-08-12) | ✅ | 调研报告 L5 |
+| F4 | 执行规格 → ADR-015 | spec §关联 引用 ADR-015 (Accepted 2026-08-12, 方案 B) | ✅ | spec L22 |
+| F5 | 执行规格 → 调研报告 | spec §关联 引用调研报告 v1.2 (三轮审计排幻觉) | ✅ | spec L23 |
+| F6 | ADR-015 → ADR-013 | ADR-015 §关联 引用 ADR-013 (双层 linalg, Eigen3 隔离边界) | ✅ | ADR_INDEX.md L921 |
+| F7 | ADR-015 → ADR-014 | ADR-015 §关联 引用 ADR-014 (calibration vs estimation 分离, estimation/ 目录已存在) | ✅ | ADR_INDEX.md L922 |
+| F8 | ADR 索引表条目 | ADR_INDEX.md 表格 L27: ADR-015, Accepted, 2026-08-12, Phase 7A | ✅ | ADR_INDEX.md L27 |
+
+---
+
+### Phase 7A 审计结论
+
+| 维度 | 权重 | 检查项数 | 通过 | 需整改 | 阻塞 |
+|------|------|----------|------|--------|------|
+| A. ADR-015 正文完整性 | 15% | 8 | 8 | 0 | 0 |
+| B. 调研报告 v1.2 完整性 | 15% | 8 | 8 | 0 | 0 |
+| C. 执行规格 v2.0 完整性 | 15% | 8 | 8 | 0 | 0 |
+| D. 三文档对齐一致性 | 30% | 15 | 15 | 0 | 0 |
+| E. 幻觉排除核查 | 15% | 12 | 12 | 0 | 0 |
+| F. 文档链路完整性 | 10% | 8 | 8 | 0 | 0 |
+| **总计** | **100%** | **59** | **59** | **0** | **0** |
+
+**审计结论**: ✅ **通过** — ADR-015 正文 (Accepted) ←→ 调研报告 v1.2 ←→ 执行规格 v2.0 三文档在方案决策、文件归属、接口签名、Wave 编排、幻觉排除、文档链路六个维度 100% 对齐, 无残留幻觉, 无阻塞项。
+
+**关键审计发现**:
+1. **方案 B 决策一致性**: 三文档均明确"通用诊断不依赖 Eigen3", ADR-013 兼容性贯穿全文
+2. **10 个幻觉点全部排除**: H1-H10 在调研报告中完整记录核实方式与修正, ADR-015 和 spec 同步更新
+3. **Wave 归属修正 (H9)**: hfecon_diagnostics 从 Wave 1 移到 Wave 2, 三文档同步, 依赖闭包满足
+4. **复合诊断例外 (H10)**: TestResultBase 组合方式明确排除复合诊断, 三文档判定准则一致
+5. **Stock-Yogo 缺口缓解**: K=3 Size 准则用 Skeels-Windmeijer 2018 解析近似, `critical_value_is_exact` 标志区分原表查表与近似
+6. **文档链路双向完整**: ADR-015 ↔ 调研报告 ↔ 执行规格 三方互引, 含 ADR-013/014 横向关联
+7. **Review 发现并修正 2 处新幻觉**: (E11) 调研报告 L11 计数错误 "9 个" → "10 个"; (E12) spec §2.0.2 L238 OLS 行数 "~50 行" → "~50-80 行", 修正后三文档完全一致
+
+**Reviewer**: Scott (self-review, 2026-08-12)
+**最终发布批准**: _______________ (架构师) _______________ (PM) _______________ (日期)

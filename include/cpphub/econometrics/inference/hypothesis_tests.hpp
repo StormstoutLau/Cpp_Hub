@@ -38,143 +38,14 @@ using linalg::dynamic::MatrixXD;
 using linalg::dynamic::VectorXD;
 
 // =============================================================================
-// detail: 不完全 Gamma 函数 (Numerical Recipes gammp/gammq)
-//   用于 χ² 分布 p 值计算: P(χ² > x) = gammq(df/2, x/2)
-//
-// 注: gammln 改用 std::lgamma (C++标准, 精度更高), 替代 Lanczos 近似
-//   原 Lanczos 近似对小参数 (如 0.5) 有 1e-4 级误差, std::lgamma 达机器精度
+// detail: 假设检验辅助函数
+//   chi2_sf/gammp/gammq/gser/gcf/gammln/chi2_cdf/chi2_ppf_approx/f_sf/beta_i
+//   已移至 core/special_functions.hpp (Phase 7A: 供 ADR-015 方案 B 头文件复用, 不引入 Eigen3)
 // =============================================================================
 namespace detail {
 
-constexpr Real kGammaEuler = 0.57721566490153286060651209008240243104215933593992;
-
-/// @brief 对数 Gamma 函数 (委托 std::lgamma, C++标准保证精度)
-inline Real gammln(Real xx) {
-    return std::lgamma(xx);
-}
-
-// 不完全 Gamma 函数 P(a,x) = γ(a,x)/Γ(a) (级数展开, 适用于 x < a+1)
-inline Real gser(Real a, Real x) {
-    const Real EPS = 3e-16;
-    const int ITMAX = 300;
-    if (x <= 0.0) return 0.0;
-    Real gln = gammln(a);
-    Real ap = a;
-    Real sum = 1.0 / a;
-    Real del = sum;
-    for (int n = 0; n < ITMAX; ++n) {
-        ap += 1.0;
-        del *= x / ap;
-        sum += del;
-        if (std::abs(del) < std::abs(sum) * EPS) break;
-    }
-    return sum * std::exp(-x + a * std::log(x) - gln);
-}
-
-// 不完全 Gamma 函数 Q(a,x) = 1 - P(a,x) (连分式展开, 适用于 x >= a+1)
-inline Real gcf(Real a, Real x) {
-    const Real EPS = 3e-16;
-    const Real FPMIN = 1e-300;
-    const int ITMAX = 300;
-    Real gln = gammln(a);
-    Real b = x + 1.0 - a;
-    Real c = 1.0 / FPMIN;
-    Real d = 1.0 / b;
-    Real h = d;
-    for (int i = 1; i <= ITMAX; ++i) {
-        const Real an = -static_cast<Real>(i) * (static_cast<Real>(i) - a);
-        b += 2.0;
-        d = an * d + b;
-        if (std::abs(d) < FPMIN) d = FPMIN;
-        c = b + an / c;
-        if (std::abs(c) < FPMIN) c = FPMIN;
-        d = 1.0 / d;
-        const Real del = d * c;
-        h *= del;
-        if (std::abs(del - 1.0) < EPS) break;
-    }
-    return std::exp(-x + a * std::log(x) - gln) * h;
-}
-
-/// @brief 不完全 Gamma 函数 P(a,x) = γ(a,x)/Γ(a)
-inline Real gammp(Real a, Real x) {
-    if (x < 0.0 || a <= 0.0) {
-        throw std::domain_error("gammp: invalid arguments (x<0 or a<=0)");
-    }
-    if (x < a + 1.0) {
-        return gser(a, x);
-    }
-    return 1.0 - gcf(a, x);
-}
-
-/// @brief 不完全 Gamma 函数 Q(a,x) = 1 - P(a,x) (上尾)
-inline Real gammq(Real a, Real x) {
-    if (x < 0.0 || a <= 0.0) {
-        throw std::domain_error("gammq: invalid arguments (x<0 or a<=0)");
-    }
-    if (x < a + 1.0) {
-        return 1.0 - gser(a, x);
-    }
-    return gcf(a, x);
-}
-
-/// @brief χ² 分布上尾概率 P(χ²_df > x)
-///   通用形式: gammq(df/2, x/2)
-///   df=1 精确形式: P(χ²(1) > x) = erfc(√(x/2))  (因 χ²(1) = Z², P(|Z|>√x) = erfc(√x/√2))
-///   df=2 精确形式: P(χ²(2) > x) = exp(-x/2)     (因 χ²(2) 是均值 2 的指数分布)
-///
-/// 排幻觉点: df=1/2 使用 std::erfc/std::exp (机器精度), 避免 gammq 级数/连分式
-///   在极端尾部 (如 x=14, p≈1.8e-4) 的精度损失. SciPy 同样对 df∈{1,2} 特殊处理.
-inline Real chi2_sf(Real df, Real x) {
-    if (df <= 0.0) return std::numeric_limits<Real>::quiet_NaN();
-    if (x <= 0.0) return 1.0;
-    // df=1 精确: χ²(1) = Z², P(χ²(1)>x) = erfc(√(x/2))
-    if (df == 1.0) {
-        return std::erfc(std::sqrt(0.5 * x));
-    }
-    // df=2 精确: χ²(2) ~ Exp(1/2), P(χ²(2)>x) = exp(-x/2)
-    if (df == 2.0) {
-        return std::exp(-0.5 * x);
-    }
-    return gammq(0.5 * df, 0.5 * x);
-}
-
-/// @brief χ² 分布下尾概率 P(χ²_df ≤ x) = 1 - chi2_sf(df, x)
-inline Real chi2_cdf(Real df, Real x) {
-    if (df <= 0.0) return std::numeric_limits<Real>::quiet_NaN();
-    if (x <= 0.0) return 0.0;
-    return 1.0 - chi2_sf(df, x);
-}
-
-/// @brief χ² 分布分位函数 (临界值, Wilson-Hilferty 近似)
-///   仅用于临界值显示, 不用于精确推断
-inline Real chi2_ppf_approx(Real df, Real p) {
-    // Wilson-Hilferty 1931: χ²_p ≈ df·(1 - 2/(9df) + z_p·√(2/(9df)))³
-    // z_p 为标准正态分位数
-    // 简化: 用查表 + 线性插值 (p ∈ {0.95, 0.99})
-    (void)p;
-    // 对 p=0.95 和 p=0.99 用 Wilson-Hilferty
-    // z_0.95 = 1.6449, z_0.99 = 2.3263
-    const Real z = (p > 0.975) ? 2.3263 : 1.6449;
-    const Real t = 1.0 - 2.0 / (9.0 * df) + z * std::sqrt(2.0 / (9.0 * df));
-    return df * t * t * t;
-}
-
-// betacf / beta_i 已移至 core/special_functions.hpp (共享定义点, 消除跨头文件重复)
-
-/// @brief F 分布上尾概率 P(F_{df1,df2} > f)
-///   F CDF: P(F ≤ f) = I_{x'}(df1/2, df2/2), x' = df1·f / (df1·f + df2)
-///   F SF  = 1 - CDF = I_{1-x'}(df2/2, df1/2) = I_x(df2/2, df1/2)
-///   其中 x = df2 / (df2 + df1·f) = 1 - x'
-///
-/// 排幻觉点: 参数顺序为 (df2/2, df1/2), 不是 (df1/2, df2/2)
-///   I_x(a,b) ≠ I_x(b,a) — 正则化不完全贝塔函数参数不对称
-inline Real f_sf(Real df1, Real df2, Real f) {
-    if (df1 <= 0.0 || df2 <= 0.0) return std::numeric_limits<Real>::quiet_NaN();
-    if (f <= 0.0) return 1.0;
-    const Real x = df2 / (df2 + df1 * f);
-    return beta_i(0.5 * df2, 0.5 * df1, x);  // 排幻觉: (df2/2, df1/2) 非对称
-}
+// betacf / beta_i / gammln / gser / gcf / gammp / gammq / chi2_sf / chi2_cdf
+// / chi2_ppf_approx / f_sf 均定义在 core/special_functions.hpp
 
 }  // namespace detail
 

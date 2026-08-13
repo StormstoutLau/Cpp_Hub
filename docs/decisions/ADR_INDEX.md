@@ -24,6 +24,7 @@
 | ADR-012 | xlOil XLL 加载项 (异步 UDF + 缓存) | Proposed | 2026-07-29 | Phase 4 |
 | ADR-013 | 双层线性代数架构 (固定尺寸 + 动态尺寸) | Accepted | 2026-08-04 | Phase 6 |
 | ADR-014 | 标定 (Calibration) vs 估计 (Estimation) 的分离 | Accepted | 2026-07-29 | Phase 6 |
+| ADR-015 | 证伪统计量模块边界 (通用 vs 模块特定) | Accepted | 2026-08-12 | Phase 7A |
 
 ---
 
@@ -788,3 +789,134 @@ cpphub/econometrics/estimation/  # 统计估计 (推断, 拟合历史) - v1.2+
 - 统计估计模块依赖 linalg_dynamic.hpp (ADR-013), 需要先引入 Eigen3
 - 用户 Research OS 的"因子失效诊断"方向依赖此模块 (GARCH MLE + Newey-West + Bootstrap)
 - 详见 [PHASE3_SPEC §5](../phases/phase3/PHASE3_SPEC.md) 和 [ECONOMETRICS_LANDSCAPE.md §11](../research/ECONOMETRICS_LANDSCAPE.md)
+
+---
+
+## ADR-015: 证伪统计量模块边界 (通用 vs 模块特定)
+
+**状态**: Accepted (2026-08-12)
+**版本归属**: v1.6 (Phase 7A)
+**关联 Phase**: 7A
+**调研依据**: [ADR015_FALSIFICATION_MODULE_BOUNDARY_RESEARCH.md](../research/ADR015_FALSIFICATION_MODULE_BOUNDARY_RESEARCH.md) v1.2 (经三轮审计排幻觉, 共修正 10 个幻觉点)
+**执行规格**: [PHASE7A_FALSIFICATION_SPEC.md](../phases/phase7/PHASE7A_FALSIFICATION_SPEC.md)
+
+### 背景
+
+Phase 7A 规划为 v1.0-v1.5 全部已实现模块 (risk/pricing/hfecon/econometrics) 系统性补齐证伪统计量, 共 11 个新增头文件 + 172 个测试用例。
+
+11 个头文件采用"5 通用 + 6 模块特定"混合归属, 引出 5 个待决策的边界问题:
+
+1. **Eigen3 隔离边界**: 通用诊断放 `econometrics/inference/` (链接 `cpphub_econometrics`, 含 Eigen3), hfecon/risk/pricing 调用时需链接 `cpphub_econometrics`, 违反 ADR-013 (cpphub_core 不污染 Eigen3)
+2. **weak_identification 归属**: spec 标注"GMM 专用", 但物理位置在"通用" inference/ 目录
+3. **TestResult 通用基类**: 是否引入统一结果结构, 参考 R `htest` S3 类
+4. **命名空间不对称**: risk/pricing 无子命名空间 (`cpphub::v1`), econometrics/hfecon 有 (`cpphub::v1::econometrics`/`cpphub::v1::hfecon`)
+5. **OLS 重复实现**: 通用诊断的辅助回归若不依赖 Eigen3, 需用 std::vector 重新实现 OLS, 与 `econometrics/estimation/ols.hpp` (Eigen3) 存在重复
+
+**代码库事实** (全部已验证, 详见调研报告 §2):
+- CMake `cpphub_core` 不链接 Eigen3 (CMakeLists.txt L41), `cpphub_econometrics` 链接 `eigen3_interface` (L43)
+- hfecon/risk/pricing 当前零依赖 econometrics (Grep 验证)
+- `har_model.hpp::ols_estimate` (L186-307) 已证明 std::vector + Gauss-Jordan OLS 可行, 不依赖 Eigen3
+
+### 决策
+
+采用 **方案 B: 通用诊断不依赖 Eigen3**, 5 个决策点如下:
+
+#### 决策点 1: 方案选择 — B (通用诊断不依赖 Eigen3)
+
+通用诊断头文件 (`econometrics/inference/` 下) **仅依赖 `core/`**, 不 `#include "cpphub/core/linalg_dynamic.hpp"`, 接口参数不用 `linalg::dynamic::MatrixXD`:
+- 纯序列检验 (JB/LB/Box-Pierce/DM): 直接用 `vector<Real>` 实现
+- 回归检验 (BG/BP/White/MZ/CUSUM/Andrews): 用 `detail/ols_simple.hpp` 实现辅助回归 (std::vector + Gauss-Jordan)
+
+#### 决策点 2: weak_identification 移到 estimation/
+
+`weak_identification.hpp` 从 `inference/` 移到 `estimation/`, 因 Cragg-Donald 浓度矩阵 `G_T = (X̃'X̃)^{-1/2} X̃'Z̃ (Z̃'Z̃)^{-1} Z̃'X̃ (X̃'X̃)^{-1/2}` 需矩阵特征值分解 (Eigen3 SVD), GMM/IV 专用。`estimation/` 已链接 `cpphub_econometrics` (含 Eigen3)。
+
+#### 决策点 3: TestResultBase 组合方式 (含复合诊断例外)
+
+引入 `struct TestResultBase { Real statistic; Real p_value; std::string method_name; bool reject_null; }`, 各 Result 结构体通过**组合**方式复用。依据: R `htest` S3 类有统一字段结构 (statistic/parameters/p.value/estimate/null.value/alternative/method/data.name)。
+
+**复合诊断例外**: 复合诊断结构 (如 `VolatilityDiagnosticsResult`/`HARDiagnosticsResult`/`HEAVYDiagnosticsResult`) 聚合多个子检验, 不对应单一 htest, **不组合 `TestResultBase`**, 而是通过子结构 (如 `LjungBoxResult.base`) 间接获得统一接口。
+
+**判定准则**:
+- 单一检验统计量 (JB/LB/BG/BP/White/IM/MZ/DM/CD/CUSUM) → 组合 `TestResultBase`
+- 聚合多个子检验的复合诊断 (VolatilityDiagnostics/HARDiagnostics/HEAVYDiagnostics) → 无 base 字段
+
+#### 决策点 4: 命名空间维持现状 (Phase 7A scope)
+
+risk/pricing 维持现有命名空间 `cpphub::v1` (无子命名空间), 新增诊断头文件 (risk_diagnostics/greeks_consistency/pricing_diagnostics) 落在 `cpphub::v1`。
+
+**理由**: 新增子命名空间的影响范围涉及 risk/ 和 pricing/ 下所有现有头文件, 超出 Phase 7A scope (Phase 7A 是"新增证伪统计量", 不应触发现有代码的大规模命名空间调整)。可通过 `using` 声明过渡, 应在独立 ADR 中决策。
+
+#### 决策点 5: OLS 重复实现可接受
+
+通用诊断用 `detail/ols_simple.hpp` (std::vector + Gauss-Jordan) 实现辅助回归, ~50-80 行重复代码, 换取 Eigen3 隔离。
+
+**ols_simple 与 ols_estimate 的有意差异**:
+- `ols_simple` **不自动添加常数列**: 由调用方决定 (BG/BP/White 辅助回归设计矩阵各不相同)
+- `ols_simple` **不计算 adj_r_squared / llh**: 诊断辅助回归仅需 R² 用于 LM 统计量
+- `ols_estimate` 的"先例"含义: 指 Gauss-Jordan + partial pivoting 的**实现模式**先例, 非 API 完全复刻
+
+### 11 个头文件归属
+
+| # | 文件 | 归属 | 依赖 Eigen3 | Wave | 理由 |
+|---|------|------|------------|------|------|
+| 1 | residual_diagnostics.hpp | econometrics/inference/ | 否 | 1 | JB/LB/BG/BP/White, 用 std::vector OLS |
+| 2 | volatility_diagnostics.hpp | econometrics/inference/ | 否 | 1 | 标准化残差检验, 仅需 vector<Real> |
+| 3 | specification_tests.hpp | econometrics/inference/ | 否 | 2 | IM/MZ/DM, MZ 用 std::vector OLS |
+| 4 | structural_break.hpp | econometrics/inference/ | 否 | 3 | CUSUM/Andrews, 用 std::vector OLS |
+| 5 | conduction_metrics.hpp | econometrics/inference/ | 否 | - | v2.0+ 预留 |
+| 6 | **weak_identification.hpp** | **econometrics/estimation/** | **是** | 2 | Cragg-Donald 需特征值分解, GMM 专用 |
+| 7 | risk_diagnostics.hpp | risk/var/ | 否 | 1 | DQ/Berkowitz/ES 后验 |
+| 8 | greeks_consistency.hpp | risk/greeks/ | 否 | 3 | Greeks 跨方法一致性 |
+| 9 | pricing_diagnostics.hpp | pricing/ | 否 | 3 | IV 拟合优度 |
+| 10 | hfecon_diagnostics.hpp | hfecon/models/ | 否 | **2** | HAR 残差, 跨 Wave 依赖: Wave 1 (residual/volatility) + Wave 2 (specification_tests MZ) |
+| 11 | jump_test_diagnostics.hpp | hfecon/tests/ | 否 | 3 | 跳跃检验多重修正 |
+
+**新增公共基础设施** (`econometrics/inference/detail/`):
+- `test_result_base.hpp`: TestResultBase 通用结果基结构
+- `ols_simple.hpp`: 轻量级 OLS (std::vector + Gauss-Jordan, 不依赖 Eigen3)
+
+### 归属判定准则
+
+| 准则 | 通用层 (econometrics/inference/) | 模块特定 (各自模块下) |
+|------|--------------------------------|---------------------|
+| 1. 适用范围 | >=2 个模块会调用 | 仅 1 个模块使用 |
+| 2. 输入依赖 | 只需残差/矩阵等通用量 | 需模块特定对象 |
+| 3. Eigen3 依赖 | **不依赖 linalg_dynamic** (用 std::vector) | 可依赖 |
+| 4. 数学基础 | 经典统计文献 | 领域文献 |
+| 5. 复用潜力 | 未来新模块会复用 | 不太可能跨模块复用 |
+
+**特例**: weak_identification 虽满足准则 1 (GMM + 未来 LIML), 但不满足准则 3 (需 Eigen3), 移到 estimation/。
+
+### 理由
+
+1. **ADR-013 兼容**: 通用诊断不引入 Eigen3, hfecon/risk/pricing 调用时无需链接 cpphub_econometrics
+2. **数学可行**: 除 Cragg-Donald 外, 所有通用诊断可用 std::vector 实现 (调研报告 §3.1 已分析)
+3. **工程先例**: `har_model.hpp::ols_estimate` (L186-307) 已证明 std::vector OLS 可行
+4. **业界对照**: 类似 R `sandwich` 包的"模块化构建块"设计, 通用工具不依赖具体模型; R `htest` S3 类提供统一结果结构
+5. **依赖方向清晰**: hfecon→通用诊断 是单向, 无循环风险
+6. **Wave 归属修正**: hfecon_diagnostics 横跨 Wave 1 (residual/volatility) 和 Wave 2 (specification_tests), 归入 Wave 2 以满足依赖闭包
+
+### 替代方案评估
+
+| 方案 | 优势 | 劣势 | 结论 |
+|---|---|---|---|
+| A. 维持现状 (5 通用 + 6 模块特定, weak_identification 在 inference/) | 无迁移成本 | M1 (Eigen3 隔离) 未解决, 违反 ADR-013 | ❌ 拒绝 |
+| **B. 通用诊断不依赖 Eigen3** (本方案) | ADR-013 兼容, 依赖方向清晰 | OLS 重复实现 ~50-80 行 | ✅ 采纳 |
+| C. 新建 diagnostics/ 顶层目录 | 通用诊断独立于 econometrics | 引入新顶层目录, 破坏现有架构简洁性 | ❌ 拒绝 |
+
+### 后果
+
+- **新增依赖**: hfecon→econometrics (首次引入, hfecon_diagnostics 调用通用 volatility_diagnostics/specification_tests)
+- **OLS 重复**: `detail/ols_simple.hpp` (std::vector) 与 `estimation/ols.hpp` (Eigen3) 存在 ~50-80 行重复, 工程上可接受
+- **命名空间不对称**: risk/pricing 诊断头文件落在 `cpphub::v1`, econometrics/hfecon 诊断在各自子命名空间, 未来需独立 ADR 统一
+- **Wave 2 扩展**: hfecon_diagnostics 从 Wave 1 移到 Wave 2, 因依赖 specification_tests 的 MincerZarnowitzResult
+- **TestResultBase 例外**: 复合诊断 (VolatilityDiagnosticsResult 等) 不组合 base 字段, 通过子结构间接获得统一接口
+- **v2.0+ 预留**: `conduction_metrics.hpp` 为信息论事前度量预留空文件 (见 INFORMATION_THEORY_METRICS_RESEARCH.md)
+
+### 关联
+
+- **调研报告**: [ADR015_FALSIFICATION_MODULE_BOUNDARY_RESEARCH.md](../research/ADR015_FALSIFICATION_MODULE_BOUNDARY_RESEARCH.md) v1.2
+- **执行规格**: [PHASE7A_FALSIFICATION_SPEC.md](../phases/phase7/PHASE7A_FALSIFICATION_SPEC.md)
+- **前置 ADR**: [ADR-013](#adr-013-双层线性代数架构-固定尺寸--动态尺寸) (双层 linalg, Eigen3 隔离边界)
+- **关联 ADR**: [ADR-014](#adr-014-标定-calibration-vs-估计-estimation-的分离) (calibration vs estimation 分离, estimation/ 目录已存在)

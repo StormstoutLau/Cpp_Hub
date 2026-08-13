@@ -430,3 +430,91 @@ gtest_discover_tests(test_cluster_bootstrap)
 add_executable(test_integration_phase6 unit/econometrics/test_integration_phase6.cpp)
 target_link_libraries(test_integration_phase6 PRIVATE cpphub_econometrics GTest::gtest_main)
 gtest_discover_tests(test_integration_phase6)
+
+# === Phase 7A Wave 0: detail/ 公共基础设施 (ADR-015 方案 B) ===
+# test_phase7a_detail: TestResultBase 聚合初始化 + ols_simple vs ols_estimate 对齐
+# 仅依赖 core/ (不依赖 Eigen3), 链接 cpphub_core
+# 排幻觉点: ols_simple 不自动加常数列 / 不算 adj_r_squared/llh
+add_executable(test_phase7a_detail unit/econometrics/test_phase7a_detail.cpp)
+target_link_libraries(test_phase7a_detail PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_phase7a_detail)
+
+# === Phase 7A Wave 1: residual_diagnostics (ADR-015 方案 B) ===
+# test_residual_diagnostics: JB/LB/BG/BP/White (25 用例, 解析手算硬编码基准)
+# 仅依赖 core/ (不依赖 Eigen3), 链接 cpphub_core
+# 排幻觉点: H1(σ有偏)/H2(峰度非超额)/H3(LB加权)/H4(lag自动)/H5(BG含X)/H6(BP Koenker)/H7(White N>q)
+add_executable(test_residual_diagnostics unit/econometrics/test_residual_diagnostics.cpp)
+target_link_libraries(test_residual_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_residual_diagnostics)
+
+# === Phase 7A Wave 1: volatility_diagnostics (ADR-015 方案 B) ===
+# test_volatility_diagnostics: 标准化残差+z²LB (15 用例, 复用 residual_diagnostics)
+# 仅依赖 core/ (不依赖 Eigen3), 链接 cpphub_core
+# 排幻觉点: H8(z_t² LB 是关键, 非仅 z_t)
+add_executable(test_volatility_diagnostics unit/econometrics/test_volatility_diagnostics.cpp)
+target_link_libraries(test_volatility_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_volatility_diagnostics)
+
+# === Phase 7A Wave 1: risk_diagnostics (ADR-015 决策点 4) ===
+# test_risk_diagnostics: DQ/Berkowitz/MC收敛/ES后验 (20 用例)
+# 仅依赖 core/ + econometrics/ (不依赖 Eigen3), 链接 cpphub_core
+# 排幻觉点: H16(DQ含VaR)/H17(Berkowitz模型CDF)/H18(MC批次均值)/H19(ES条件超越)
+add_executable(test_risk_diagnostics unit/econometrics/test_risk_diagnostics.cpp)
+target_link_libraries(test_risk_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_risk_diagnostics)
+
+# === Phase 7A Wave 2: specification_tests (ADR-015 方案 B) ===
+# 信息矩阵/MZ/DM (通用, 仅依赖 core/)
+# 排幻觉点: H9(IM对QMLE均值方程)/H10(MZ R²)/H11(HLN修正1/N, t分布)
+add_executable(test_specification_tests unit/econometrics/test_specification_tests.cpp)
+target_link_libraries(test_specification_tests PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_specification_tests)
+
+# === Phase 7A Wave 2b: weak_identification (ADR-015 决策点 2, 依赖 Eigen3) ===
+# Cragg-Donald 弱识别统计量 + Stock-Yogo 临界值查表 (12 用例)
+# 排幻觉点: H12(CD是F矩阵推广)/H13(K=3 Size准则用 Skeels-Windmeijer 2018 近似)
+add_executable(test_weak_identification unit/econometrics/test_weak_identification.cpp)
+target_link_libraries(test_weak_identification PRIVATE cpphub_econometrics GTest::gtest_main)
+gtest_discover_tests(test_weak_identification)
+
+# === Phase 7A Wave 2c: hfecon_diagnostics (ADR-015, 无 Eigen3 依赖) ===
+# HAR 残差 LB/JB + MZ 回归 + HEAVY 标准化残差 + 交叉诊断 (15 用例)
+# 排幻觉点: H8(z_t² LB 关键)/H10(MZ R² 预测精度)
+add_executable(test_hfecon_diagnostics unit/econometrics/test_hfecon_diagnostics.cpp)
+target_link_libraries(test_hfecon_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_hfecon_diagnostics)
+
+# === Phase 7A Wave 3a: jump_test_diagnostics (ADR-015, 无 Eigen3 依赖) ===
+# Bonferroni/BH 多重检验修正 + 跳跃检验联合诊断 (10 用例)
+# 排幻觉点: H23(BH 控制 FDR, 非 FWER)
+add_executable(test_jump_test_diagnostics unit/econometrics/test_jump_test_diagnostics.cpp)
+target_link_libraries(test_jump_test_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_jump_test_diagnostics)
+
+# === Phase 7A Wave 3b: structural_break (ADR-015, 无 Eigen3 依赖) ===
+# CUSUM 递归残差 + Andrews 未知断点 (15 用例)
+# 排幻觉点: H14(递归残差)/H15(Hansen 1997 非标准分布)
+add_executable(test_structural_break unit/econometrics/test_structural_break.cpp)
+target_link_libraries(test_structural_break PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_structural_break)
+
+# === Phase 7A Wave 3c: pricing_diagnostics (ADR-015, 无 Eigen3 依赖) ===
+# IV 拟合优度 + 价格残差诊断 (16 用例)
+# 排幻觉点: H22(权重用 Bid-Ask 宽度, 非简单方差)
+add_executable(test_pricing_diagnostics unit/econometrics/test_pricing_diagnostics.cpp)
+target_link_libraries(test_pricing_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_pricing_diagnostics)
+
+# === Phase 7A Wave 3d: greeks_consistency (ADR-015, 无 Eigen3 依赖) ===
+# Greeks 跨方法一致性: Analytic vs Numerical vs AAD vs Pathwise vs LR (15 用例)
+# 排幻觉点: H20(Pathwise/LR 用置信区间比较)/H21(Gamma FD 用 dS=1e-4)
+add_executable(test_greeks_consistency unit/econometrics/test_greeks_consistency.cpp)
+target_link_libraries(test_greeks_consistency PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_greeks_consistency)
+
+# === Phase 7A 端到端集成测试 (ADR-015, 无 Eigen3 依赖) ===
+# test_integration_phase7a: 10 用例覆盖全模块诊断流程协同工作
+# 计量/高频/风险/定价 全链路验证, 排幻觉点 H1-H23 综合覆盖
+add_executable(test_integration_phase7a unit/econometrics/test_integration_phase7a.cpp)
+target_link_libraries(test_integration_phase7a PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_integration_phase7a)
