@@ -30,6 +30,12 @@ struct PDEEngineConfig {
     Size rannacher_warmup = 4;
     // 边界条件类型 (默认 Dirichlet 保持向后兼容)
     BoundaryType boundary = BoundaryType::Dirichlet;
+    // RISK-006: PSOR 松弛因子配置
+    // psor_omega > 0.0: 用户指定固定值 (默认 1.5 保持向后兼容)
+    // psor_omega == 0.0: 自适应估计 (Gershgorin 上界 + Young 公式)
+    Real psor_omega = 1.5;
+    Size psor_max_iter = 2000;
+    Real psor_tol = 1e-8;
 };
 
 class PDEEngine {
@@ -79,9 +85,10 @@ public:
             V[i] = payoff(grid.s(i));
         }
 
-        Real omega = 1.5;
-        Real tol = 1e-8;
-        Size max_iter = 2000;
+        // RISK-006: 用户指定 omega 或自适应估计
+        Real tol = config_.psor_tol;
+        Size max_iter = config_.psor_max_iter;
+        last_total_iter_count_ = 0;
 
         for (Size step = 0; step < n_steps; ++step) {
             Real tau = static_cast<Real>(step + 1) * dt;
@@ -93,6 +100,11 @@ public:
 
             std::vector<Real> a, b, c, d;
             build_matrix(grid, params, dt, a, b, c);
+
+            // RISK-006: 每步根据当前矩阵估计最优 omega (自适应模式)
+            Real omega = (config_.psor_omega > 0.0)
+                           ? config_.psor_omega
+                           : estimate_optimal_omega(a, b, c);
 
             d.assign(n, 0.0);
             if (config_.scheme == FDMSchemeType::ImplicitEuler) {
@@ -110,7 +122,7 @@ public:
 
             V_new = V;
             set_boundary(V_new, tau, grid, payoff, r, q, K, sigma, true);
-            psor_solve(V_new, payoff_vals, a, b, c, d, omega, tol, max_iter);
+            last_total_iter_count_ += psor_solve(V_new, payoff_vals, a, b, c, d, omega, tol, max_iter);
             finalize_boundary(V_new);
             V = V_new;
         }
@@ -218,8 +230,33 @@ public:
     std::string name() const { return "PDEEngine"; }
     const PDEEngineConfig& config() const { return config_; }
 
+    // RISK-006: Gershgorin 上界估计 Jacobi 谱半径, Young 公式计算最优 ω
+    // 纯函数, 暴露为 public static 便于测试
+    // ρ(B) ≤ max_i (|a_i/b_i| + |c_i/b_i|)
+    // ω* = 2/(1+√(1-ρ²)), 裁剪到 [1.0, 1.95]
+    static Real estimate_optimal_omega(const std::vector<Real>& a,
+                                          const std::vector<Real>& b,
+                                          const std::vector<Real>& c) {
+        Size n = b.size();
+        Real rho_upper = 0.0;
+        for (Size i = 1; i < n - 1; ++i) {
+            if (std::abs(b[i]) < 1e-15) continue;
+            Real ratio = (std::abs(a[i]) + std::abs(c[i])) / std::abs(b[i]);
+            rho_upper = std::max(rho_upper, ratio);
+        }
+        // 裁剪到 [0, 0.999] 避免 sqrt 负数
+        rho_upper = std::min(rho_upper, 0.999);
+        Real omega_opt = 2.0 / (1.0 + std::sqrt(1.0 - rho_upper * rho_upper));
+        // 裁剪到安全范围 [1.0, 1.95]
+        return std::max(1.0, std::min(omega_opt, 1.95));
+    }
+
+    // RISK-006: 返回上次 price_american 调用中 PSOR 累计迭代次数 (用于性能测试)
+    Size last_total_iterations() const { return last_total_iter_count_; }
+
 private:
     PDEEngineConfig config_;
+    mutable Size last_total_iter_count_ = 0;  // RISK-006: PSOR 累计迭代次数
 
     Real price_either(const PayOff& payoff, Real S0, Real K, Real T,
                        Real r, Real q, Real sigma, bool american) const {
@@ -276,7 +313,8 @@ private:
         V[n - 1] = 2.0 * V[n - 2] - V[n - 3];
     }
 
-    void psor_solve(std::vector<Real>& V, const std::vector<Real>& payoff,
+    // RISK-006: 返回实际迭代次数 (用于性能对比)
+    Size psor_solve(std::vector<Real>& V, const std::vector<Real>& payoff,
                      const std::vector<Real>& a, const std::vector<Real>& b,
                      const std::vector<Real>& c, const std::vector<Real>& d,
                      Real omega, Real tol, Size max_iter) const {
@@ -289,8 +327,9 @@ private:
                 V[i] = std::max(payoff[i], old_val + omega * (y - old_val));
                 max_diff = std::max(max_diff, std::abs(V[i] - old_val));
             }
-            if (max_diff < tol) break;
+            if (max_diff < tol) return iter + 1;
         }
+        return max_iter;
     }
 
     void build_matrix(const FDMGrid& grid, const PDEParams& params, Real dt,

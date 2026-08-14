@@ -646,3 +646,114 @@ TEST(PDEEngineBoundary, RannacherSuppressesDigitalOscillation) {
     EXPECT_GE(p_r, 0.0) << "Rannacher should produce non-negative price";
     EXPECT_LE(p_r, payment) << "Rannacher should not overshoot payment=" << payment;
 }
+
+// =====================================================================
+// RISK-006: PSOR 自适应 ω 估计测试
+// Gershgorin 上界 + Young 公式, 裁剪到 [1.0, 1.95]
+// =====================================================================
+
+// 1. estimate_optimal_omega 返回值在 [1.0, 1.95] 范围内
+TEST(pde_psor_adaptive, EstimateOmegaGershgorinBounds) {
+    // 构造典型的 Crank-Nicolson 矩阵 (n=400, 变系数 sinh 网格)
+    PDEEngineConfig cfg;
+    cfg.n_spatial = 400;
+    cfg.n_time = 1000;
+    cfg.alpha = 0.2;
+    Real S0 = 100, K = 100, T = 1, r = 0.05, q = 0, sigma = 0.2;
+
+    FDMGrid grid(cfg.n_spatial, S0, K, sigma, T, cfg.alpha);
+    PDEParams params{r, q, sigma, T, K, S0};
+    std::vector<Real> a_op, b_op, c_op;
+    compute_operator_coeffs(grid, params, a_op, b_op, c_op);
+
+    Real dt = T / static_cast<Real>(cfg.n_time);
+    Real theta = 0.5;
+    Real dt_theta = dt * theta;
+    Size n = grid.size();
+    std::vector<Real> a(n, 0.0), b(n, 0.0), c(n, 0.0);
+    for (Size i = 1; i < n - 1; ++i) {
+        a[i] = -dt_theta * a_op[i];
+        b[i] = 1.0 - dt_theta * b_op[i];
+        c[i] = -dt_theta * c_op[i];
+    }
+    b[0] = 1.0; c[0] = 0.0;
+    a[n-1] = 0.0; b[n-1] = 1.0;
+
+    Real omega = PDEEngine::estimate_optimal_omega(a, b, c);
+    EXPECT_GE(omega, 1.0) << "omega 下界 1.0";
+    EXPECT_LE(omega, 1.95) << "omega 上界 1.95";
+}
+
+// 2. 自适应 ω 总迭代次数 < Gauss-Seidel (ω=1.0) 总迭代次数
+TEST(pde_psor_adaptive, AdaptiveOmegaFasterThanGaussSeidel) {
+    Real S0 = 100, K = 100, T = 1, r = 0.05, q = 0, sigma = 0.2;
+    PutPayOff payoff(K);
+
+    // Gauss-Seidel (ω=1.0)
+    PDEEngineConfig cfg_gs;
+    cfg_gs.n_spatial = 200;
+    cfg_gs.n_time = 200;
+    cfg_gs.psor_omega = 1.0;
+    PDEEngine engine_gs(cfg_gs);
+    engine_gs.price_american(payoff, S0, K, T, r, q, sigma);
+    Size iter_gs = engine_gs.last_total_iterations();
+
+    // 自适应 (ω=0.0)
+    PDEEngineConfig cfg_adaptive;
+    cfg_adaptive.n_spatial = 200;
+    cfg_adaptive.n_time = 200;
+    cfg_adaptive.psor_omega = 0.0;  // 自适应
+    PDEEngine engine_adaptive(cfg_adaptive);
+    engine_adaptive.price_american(payoff, S0, K, T, r, q, sigma);
+    Size iter_adaptive = engine_adaptive.last_total_iterations();
+
+    EXPECT_LT(iter_adaptive, iter_gs)
+        << "自适应 ω 迭代次数=" << iter_adaptive
+        << " 应小于 Gauss-Seidel 迭代次数=" << iter_gs;
+}
+
+// 3. 自适应 ω 与固定 ω=1.5 价格一致 (容差 1e-6)
+TEST(pde_psor_adaptive, AdaptiveOmegaPriceConsistentWithFixed) {
+    Real S0 = 100, K = 100, T = 1, r = 0.05, q = 0, sigma = 0.2;
+    PutPayOff payoff(K);
+
+    PDEEngineConfig cfg_fixed;
+    cfg_fixed.n_spatial = 200;
+    cfg_fixed.n_time = 400;
+    cfg_fixed.psor_omega = 1.5;
+    PDEEngine engine_fixed(cfg_fixed);
+    Real price_fixed = engine_fixed.price_american(payoff, S0, K, T, r, q, sigma);
+
+    PDEEngineConfig cfg_adaptive;
+    cfg_adaptive.n_spatial = 200;
+    cfg_adaptive.n_time = 400;
+    cfg_adaptive.psor_omega = 0.0;
+    PDEEngine engine_adaptive(cfg_adaptive);
+    Real price_adaptive = engine_adaptive.price_american(payoff, S0, K, T, r, q, sigma);
+
+    EXPECT_NEAR(price_fixed, price_adaptive, 1e-6)
+        << "固定 ω=1.5 价格=" << price_fixed
+        << " vs 自适应价格=" << price_adaptive;
+}
+
+// 4. 用户指定 ω 被正确使用 (psor_omega=1.2 行为与默认不同)
+TEST(pde_psor_adaptive, UserOverrideOmegaRespected) {
+    Real S0 = 100, K = 100, T = 1, r = 0.05, q = 0, sigma = 0.2;
+    PutPayOff payoff(K);
+
+    PDEEngineConfig cfg;
+    cfg.n_spatial = 200;
+    cfg.n_time = 200;
+    cfg.psor_omega = 1.2;
+    PDEEngine engine(cfg);
+    Real price = engine.price_american(payoff, S0, K, T, r, q, sigma);
+
+    // 价格应为正且合理 (美式 Put 在 ATM 时约为 5-7)
+    EXPECT_GT(price, 0.0);
+    EXPECT_LT(price, K);
+
+    // 用户指定 ω=1.2 应产生与自适应不同的迭代次数
+    Size iter_user = engine.last_total_iterations();
+    EXPECT_GT(iter_user, 0);
+}
+

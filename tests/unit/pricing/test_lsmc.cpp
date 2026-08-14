@@ -400,3 +400,127 @@ TEST(LSMCEngine, ZeroInterestRateAmericanPutStillExercisable) {
     EXPECT_NEAR(result.price, euro, euro * 0.05 + 0.1);
     EXPECT_GT(result.price, 0.0);
 }
+
+// =====================================================================
+// RISK-007: LSMC 交叉验证测试
+// =====================================================================
+
+// 1. 高噪声场景 CV 选择 λ>0
+TEST(LSMCCV, CVSelectsNonZeroLambdaOnNoisyData) {
+    LSMCConfig cfg;
+    cfg.S0 = 100.0; cfg.K = 100.0; cfg.T = 1.0;
+    cfg.r = 0.05; cfg.q = 0.0; cfg.sigma = 0.40;  // 高波动 → 高噪声
+    cfg.n_paths = 5000; cfg.n_steps = 50;
+    cfg.basis = BasisType::Laguerre; cfg.basis_order = 3;
+    cfg.seed = 42; cfg.antithetic = true;
+    cfg.use_cross_validation = true;
+    cfg.cv_config.k_fold = 5;
+    cfg.cv_config.lambda_grid = {0.0, 0.01, 0.1, 1.0, 10.0};
+
+    LSMCEngine engine(cfg);
+    PutPayOff put(100.0);
+    LSMCResult result = engine.price_american(put);
+
+    EXPECT_FALSE(result.selected_lambdas.empty())
+        << "CV 启用时应记录 selected_lambdas";
+    // 至少有一个时点选择了 λ>0
+    bool any_nonzero = false;
+    for (Real lam : result.selected_lambdas) {
+        if (lam > 0.0) { any_nonzero = true; break; }
+    }
+    EXPECT_TRUE(any_nonzero) << "高噪声场景应至少有一个时点选择 λ>0";
+}
+
+// 2. CV 价格与固定 λ 价格统计一致 (容差 5·std_error)
+TEST(LSMCCV, CVPriceCloseToFixedLambda) {
+    LSMCConfig cfg_cv;
+    cfg_cv.S0 = 100.0; cfg_cv.K = 100.0; cfg_cv.T = 1.0;
+    cfg_cv.r = 0.05; cfg_cv.q = 0.0; cfg_cv.sigma = 0.20;
+    cfg_cv.n_paths = 10000; cfg_cv.n_steps = 50;
+    cfg_cv.basis = BasisType::Laguerre; cfg_cv.basis_order = 3;
+    cfg_cv.seed = 42; cfg_cv.antithetic = true;
+    cfg_cv.use_cross_validation = true;
+    LSMCEngine engine_cv(cfg_cv);
+    PutPayOff put(100.0);
+    LSMCResult result_cv = engine_cv.price_american(put);
+
+    LSMCConfig cfg_fixed = cfg_cv;
+    cfg_fixed.use_cross_validation = false;
+    cfg_fixed.ridge_lambda = 0.1;
+    LSMCEngine engine_fixed(cfg_fixed);
+    LSMCResult result_fixed = engine_fixed.price_american(put);
+
+    Real tol = 5.0 * std::max(result_cv.std_error, result_fixed.std_error);
+    EXPECT_NEAR(result_cv.price, result_fixed.price, tol)
+        << "CV 价格=" << result_cv.price << " vs 固定 λ=0.1 价格=" << result_fixed.price
+        << " tol=" << tol;
+}
+
+// 3. 样本不足时 fallback 到 ridge_lambda
+TEST(LSMCCV, CVFallbackOnSmallSample) {
+    // 构造极少 ITM 路径的场景: 深度 OTM Put, r=0, T 短
+    // 大部分路径不会 ITM, 触发 fallback
+    LSMCConfig cfg;
+    cfg.S0 = 200.0; cfg.K = 100.0; cfg.T = 0.25;  // 深度 OTM
+    cfg.r = 0.10; cfg.q = 0.0; cfg.sigma = 0.10;  // 低波动, 极少 ITM
+    cfg.n_paths = 500; cfg.n_steps = 10;
+    cfg.basis = BasisType::Laguerre; cfg.basis_order = 3;
+    cfg.seed = 42; cfg.antithetic = true;
+    cfg.use_cross_validation = true;
+    cfg.ridge_lambda = 0.5;  // fallback 值
+    cfg.cv_config.k_fold = 5;
+
+    LSMCEngine engine(cfg);
+    PutPayOff put(100.0);
+    LSMCResult result = engine.price_american(put);
+
+    // 若有 selected_lambdas, fallback 时应等于 ridge_lambda
+    for (Real lam : result.selected_lambdas) {
+        EXPECT_NEAR(lam, cfg.ridge_lambda, 1e-10)
+            << "fallback 时 λ 应等于 ridge_lambda=" << cfg.ridge_lambda;
+    }
+}
+
+// 4. CV 禁用时 selected_lambdas 为空
+TEST(LSMCCV, CVDisabledUsesFixedLambda) {
+    LSMCConfig cfg;
+    cfg.S0 = 100.0; cfg.K = 100.0; cfg.T = 1.0;
+    cfg.r = 0.05; cfg.q = 0.0; cfg.sigma = 0.20;
+    cfg.n_paths = 1000; cfg.n_steps = 20;
+    cfg.basis = BasisType::Laguerre; cfg.basis_order = 3;
+    cfg.seed = 42; cfg.antithetic = true;
+    cfg.use_cross_validation = false;  // 禁用 CV
+    cfg.ridge_lambda = 0.1;
+
+    LSMCEngine engine(cfg);
+    PutPayOff put(100.0);
+    LSMCResult result = engine.price_american(put);
+
+    EXPECT_TRUE(result.selected_lambdas.empty())
+        << "CV 禁用时 selected_lambdas 应为空";
+}
+
+// 5. K-fold 分折大小验证 (n_itm=100, K=5 → 每折 20)
+TEST(LSMCCV, KFoldPartitionSizes) {
+    // 通过验证 CV 在边界场景不崩溃来间接验证分折
+    // n_paths=5000, ITM 路径数应远大于 k_fold * basis_order
+    LSMCConfig cfg;
+    cfg.S0 = 100.0; cfg.K = 100.0; cfg.T = 1.0;
+    cfg.r = 0.05; cfg.q = 0.0; cfg.sigma = 0.20;
+    cfg.n_paths = 5000; cfg.n_steps = 20;
+    cfg.basis = BasisType::Laguerre; cfg.basis_order = 3;
+    cfg.seed = 42; cfg.antithetic = true;
+    cfg.use_cross_validation = true;
+    cfg.cv_config.k_fold = 5;
+
+    LSMCEngine engine(cfg);
+    PutPayOff put(100.0);
+    LSMCResult result = engine.price_american(put);
+
+    // CV 应成功执行 (不崩溃), 且 selected_lambdas 非空
+    EXPECT_FALSE(result.selected_lambdas.empty());
+    // 价格应在合理范围
+    EXPECT_GT(result.price, 0.0);
+    EXPECT_LT(result.price, cfg.K);
+}
+

@@ -25,6 +25,8 @@
 | ADR-013 | 双层线性代数架构 (固定尺寸 + 动态尺寸) | Accepted | 2026-08-04 | Phase 6 |
 | ADR-014 | 标定 (Calibration) vs 估计 (Estimation) 的分离 | Accepted | 2026-07-29 | Phase 6 |
 | ADR-015 | 证伪统计量模块边界 (通用 vs 模块特定) | Accepted | 2026-08-12 | Phase 7A |
+| ADR-016 | 金融时间序列实施边界 (18 项) | Accepted | 2026-08-15 | Phase 7B |
+| ADR-017 | 时序模块命名空间 (`cpphub::v1::timeseries`) | Accepted | 2026-08-15 | Phase 7B |
 
 ---
 
@@ -920,3 +922,140 @@ risk/pricing 维持现有命名空间 `cpphub::v1` (无子命名空间), 新增�
 - **执行规格**: [PHASE7A_FALSIFICATION_SPEC.md](../phases/phase7/PHASE7A_FALSIFICATION_SPEC.md)
 - **前置 ADR**: [ADR-013](#adr-013-双层线性代数架构-固定尺寸--动态尺寸) (双层 linalg, Eigen3 隔离边界)
 - **关联 ADR**: [ADR-014](#adr-014-标定-calibration-vs-估计-estimation-的分离) (calibration vs estimation 分离, estimation/ 目录已存在)
+
+---
+
+## ADR-016: 金融时间序列实施边界 (18 项)
+
+**状态**: Accepted
+**日期**: 2026-08-15
+**版本归属**: v1.6 (Phase 7B M1/M2)
+**关联 Phase**: 7B
+**完整文档**: [ADR-016_FINANCIAL_TIMESERIES_BOUNDARY.md](ADR-016_FINANCIAL_TIMESERIES_BOUNDARY.md)
+**调研依据**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §13-14
+
+### 背景
+
+v1.6 GARCH 族与单位根检验实施中存在 18 个边界决策点 (GARCH 7 项 + 单位根 11 项), 需在实施前明确方案。
+
+**决策原则**: (1) 优先与 `arch`/`rugarch`/`urca` 开源库对齐; (2) 理论正确性优先于实现便利; (3) 预留扩展接口 (v1.7 多元 GARCH / 协整)。
+
+### 决策
+
+#### GARCH 族边界决策 (7 项)
+
+| # | 决策点 | 决策 | 依据 |
+|---|--------|------|------|
+| G-ADR1 | 方差初始值策略 | **backcast** (EWMA λ=0.94) | `arch` 默认, 小样本稳健 (G1) |
+| G-ADR2 | 参数约束方法 | **SLSQP** | 支持不等式约束; `arch` 用 SLSQP (G15/G22); v1.5 optimizer 需扩展 |
+| G-ADR3 | QMLE 协方差估计 | **sandwich** H⁻¹SH⁻¹ | Bollerslev-Wooldridge 1992; 非正态下 H⁻¹ 低估 SE (G9) |
+| G-ADR4 | 标准化残差 JB 检验临界值 | **Bootstrap** | 小样本下 hₜ 有估计误差, 渐近临界值过度拒绝; 复用 v1.5 Bootstrap (G11) |
+| G-ADR5 | t 分布自由度估计 | **联合 QMLE** | Bollerslev 1987; 两步法效率低且偏差大 (G14) |
+| G-ADR6 | 优化器起始点策略 | **多起始** | GARCH 似然非凸, 多起始避免局部最优 (G16) |
+| G-ADR7 | GARCH-M 参数化 | **c·σₜ** | `arch` 默认 ('vol' 标准差形式); Engle-Lilien-Robbins 1987 原始参数化 (G18) |
+
+#### 单位根检验边界决策 (11 项)
+
+| # | 决策点 | 决策 | 依据 |
+|---|--------|------|------|
+| U-ADR1 | ADF lag 选择规则 | **Schwert** floor(12(T/100)^0.25) | `arch` 默认; Schwert 1989 (U1) |
+| U-ADR2 | ADF 方程形式选择 | **自动** (趋势检验后选择) | `arch` 默认自动; 减少用户误选 (U2) |
+| U-ADR3 | 临界值来源 | **MacKinnon 2010** response surface | `arch` 已用 2010; 4 系数, 精度最高 (U3/U13) |
+| U-ADR4 | DF-GLS demean 临界值 | **arch 独立系数表** | ERS 原表仅含 trend; demean 需 `arch` 扩展 (U7) |
+| U-ADR5 | DF-GLS c̄值 | **ERS 固定值** c̄₁=-7.0, c̄₂=-13.5 | ERS 1996; detrending 回归必须含 c̄ (U8) |
+| U-ADR6 | KPSS H0 方向标注 | **平稳性** (H₀=平稳) | KPSS 1992; API 必须明确标注, 避免与 ADF 混淆 (U12) |
+| U-ADR7 | KPSS 长期方差带宽 | **Andrews 自动** | KPSS 1992; `arch` 默认 (U11) |
+| U-ADR8 | PP 检验带宽 | **NW automatic** | Phillips-Perron 1988; `arch` 默认; PP 用 Bartlett 核 (U5/U6) |
+| U-ADR9 | 基准对照软件 | **Python arch** | `arch` 用 MacKinnon 2010 (最新); `urca` 可能用旧版 |
+| U-ADR10 | 方差比检验变体 | **全部** (Z₁/Z₂ + Chow-Denning + Chen-Deo + debiased) | 覆盖所有变体; 多重检验复用 Phase 7A (U14-U17) |
+| U-ADR11 | 结构断点检验 | **推迟 v1.7** (Zivot-Andrews) | v1.6 scope 已满; Phase 7A 已有 CUSUM/Andrews 通用框架 (U18) |
+
+### 后果
+
+- **C1 优化器扩展** (前置): v1.5 `optimizer.hpp` 需扩展 SLSQP (G-ADR2)
+- **C2 Estimator 接口**: 已支持 `TimeSeriesData`, MLE/OLS 派生类 visit 逻辑需补齐
+- **C4 命名空间**: 时序模型统一落 `cpphub::v1::timeseries` (见 ADR-017)
+- **C6 数据载体**: `EconData` 已含 `TimeSeriesData`, 仅缺 `MultivariateTSData` (阶段 5 前置)
+- **测试基准**: Python `arch` + R `rugarch`, 容差 1e-10 至 1e-12
+- **幻觉点核查**: 60 个幻觉点 (G1-G23, U1-U22) 实施时逐点核查
+
+### 关联
+
+- **完整文档**: [ADR-016_FINANCIAL_TIMESERIES_BOUNDARY.md](ADR-016_FINANCIAL_TIMESERIES_BOUNDARY.md)
+- **调研报告**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §13-14
+- **前置 ADR**: [ADR-013](#adr-013-双层线性代数架构-固定尺寸--动态尺寸), [ADR-014](#adr-014-标定-calibration-vs-估计-estimation-的分离)
+- **关联 ADR**: [ADR-017](#adr-017-时序模块命名空间-cpphubv1timeseries) (时序模块命名空间, 约束 C4)
+
+---
+
+## ADR-017: 时序模块命名空间 (`cpphub::v1::timeseries`)
+
+**状态**: Accepted
+**日期**: 2026-08-15
+**版本归属**: v1.6 (Phase 7B)
+**关联 Phase**: 7B
+**完整文档**: [ADR-017_TIMESERIES_NAMESPACE.md](ADR-017_TIMESERIES_NAMESPACE.md)
+**调研依据**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §22 (约束 C4)
+**前置 ADR**: [ADR-015](#adr-015-证伪统计量模块边界-通用-vs-模块特定) (命名空间不对称问题, 决策点 4)
+
+### 背景
+
+Cpp_Hub v1.0-v1.5 命名空间不对称: risk/pricing 落 `cpphub::v1` (无子命名空间), econometrics/hfecon 落子命名空间。Phase 7B 新增金融时间序列模块 (GARCH/单位根/ARIMA/MIDAS/VAR/DCC/因果检验) 需明确命名空间归属。
+
+### 决策
+
+**时序模型统一落 `cpphub::v1::timeseries` 子命名空间**, 与 `econometrics`/`hfecon` 平级。
+
+```cpp
+namespace cpphub {
+inline namespace v1 {
+namespace timeseries {
+
+namespace garch { class GarchModel; /* ... */ }           // v1.6 M1
+namespace unit_root { class ADFTest; /* ... */ }          // v1.6 M2
+namespace arima { class ARIMAModel; /* ... */ }           // v1.6 M3
+namespace midas { class MIDASModel; /* ... */ }           // v1.6 M4
+namespace var { class VARModel; /* ... */ }               // v1.7
+namespace multivariate_vol { class DCCModel; /* ... */ }  // v1.7
+namespace causality { class GrangerTest; /* ... */ }      // v1.7+
+
+}  // namespace timeseries
+}  // namespace v1
+}  // namespace cpphub
+```
+
+**物理目录**: `include/cpphub/timeseries/{garch,unit_root,arima,midas,var,multivariate_vol,causality}/`
+
+### 理由
+
+1. **与 econometrics/hfecon 平级**: 时序模块作为独立方法论体系, 应享有同等待遇
+2. **方法论独立性**: 金融时间序列与横截面计量有本质差异 (波动率是研究对象、时间维度是核心、动态系统建模、信息论度量)
+3. **避免顶层污染**: 防止 `cpphub::v1` 符号爆炸 (GARCH 7+ 类 + 单位根 6+ 类 + VAR 5+ 类 + 因果 10+ 类), 避免 `VARModel` 与 risk 的 `VaR` 混淆
+4. **渐进式引入**: 不影响现有 risk/pricing/econometrics/hfecon 代码, 现有时序功能 (har_model/volatility_diagnostics) 保持原位
+5. **为 v1.7+ 预留空间**: VAR/DCC/协整/长记忆/非线性/MS-AR 等未来扩展有清晰归属
+
+### 替代方案评估
+
+| 方案 | 优点 | 缺点 | 结论 |
+|------|------|------|------|
+| A. 落 `cpphub::v1` (如 risk/pricing) | 与 risk/pricing 一致 | 顶层符号爆炸, 与 VaR 混淆 | ❌ 拒绝 |
+| **B. 落 `cpphub::v1::timeseries`** | 与 econometrics/hfecon 平级 | 新增子命名空间 | ✅ 采纳 |
+| C. 落 `cpphub::v1::econometrics::timeseries` | 复用 econometrics | 时序 ≠ 计量, 层级过深 | ❌ 拒绝 |
+| D. 统一所有模块到子命名空间 | 完全对称 | 大规模迁移, 超出 v1.6 scope | ❌ 拒绝 (留待 v2.0) |
+
+### 后果
+
+- **新模块归属**: v1.6+ 所有时序头文件落 `include/cpphub/timeseries/`, 命名空间 `cpphub::v1::timeseries`
+- **现有模块不迁移**: hfecon 的 `har_model.hpp`、econometrics 的 `volatility_diagnostics.hpp` 保持原位
+- **CMake 目标**: 新增 `cpphub_timeseries` INTERFACE 库, 或合并到 `cpphub_econometrics` (若依赖 Eigen3)
+- **Eigen3 隔离**: 按 ADR-013 原则, 需 Eigen3 的时序方法 (GARCH 估计/VAR) 放 `cpphub_econometrics`, 纯序列检验 (方差比) 放 `cpphub_core`
+- **命名空间不对称**: risk/pricing 无子命名空间问题留待 v2.0 独立 ADR (ADR-018) 统一决策
+- **C ABI 版本化**: 时序模块用 `cpphub_v1_6_*` / `cpphub_v1_7_*` 版本前缀 (约束 C5)
+
+### 关联
+
+- **完整文档**: [ADR-017_TIMESERIES_NAMESPACE.md](ADR-017_TIMESERIES_NAMESPACE.md)
+- **调研报告**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §22
+- **前置 ADR**: [ADR-013](#adr-013-双层线性代数架构-固定尺寸--动态尺寸) (Eigen3 隔离), [ADR-015](#adr-015-证伪统计量模块边界-通用-vs-模块特定) (命名空间不对称, 决策点 4)
+- **关联 ADR**: [ADR-016](#adr-016-金融时间序列实施边界-18-项) (金融时间序列实施边界, 18 项决策)
+- **后续 ADR**: 待编写 ADR-018 (risk/pricing 子命名空间统一, v2.0 scope)

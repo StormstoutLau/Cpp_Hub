@@ -11,6 +11,11 @@ endfunction()
 cpphub_add_test(test_core_math unit/core/test_core_math.cpp)
 cpphub_add_test(test_linalg unit/core/test_linalg.cpp)
 cpphub_add_test(test_rng unit/core/test_rng.cpp)
+cpphub_add_test(test_cpu_features unit/core/test_cpu_features.cpp)
+
+# RISK-002: Philox benchmark (信息性, 不注册 ctest)
+add_executable(benchmark_philox unit/performance/benchmark_philox.cpp)
+target_link_libraries(benchmark_philox PRIVATE cpphub_core)
 
 # instruments 测试
 cpphub_add_test(test_payoff_bridge unit/instruments/test_payoff_bridge.cpp)
