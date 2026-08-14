@@ -683,3 +683,276 @@ TEST(CalibConfigDefaults, NewFieldsHaveCorrectDefaults) {
     EXPECT_TRUE(cfg.params_prior.empty());
     EXPECT_DOUBLE_EQ(cfg.early_stop_rmse, 0.0);
 }
+
+// ===========================================================================
+// SLSQP tests (ADR-018 implementation boundary)
+// 12 test cases covering P0 basic functionality, GARCH application, and
+// numerical stability. References:
+//   - scipy.optimize.minimize(method='SLSQP') for numerical baselines
+//   - arch package GARCH constraint conventions
+// ===========================================================================
+
+// P0: Unconstrained quadratic minimization
+// min (x-1)^2 + (y-2)^2,  solution x=1, y=2
+TEST(M3CompileCheck, SLSQPUnconstrainedQuadratic) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = x[0] - 1.0;
+        Real d2 = x[1] - 2.0;
+        return d1 * d1 + d2 * d2;
+    };
+    std::vector<Bounds> bounds = {{-10.0, 10.0}, {-10.0, 10.0}};
+    SLSQP::Config cfg;
+    cfg.max_iterations = 100;
+    auto r = SLSQP::minimize(f, {0.0, 0.0}, bounds, {}, {}, cfg);
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 1.0, 1e-4);
+    EXPECT_NEAR(r.x[1], 2.0, 1e-4);
+    EXPECT_NEAR(r.fx, 0.0, 1e-8);
+}
+
+// P0: Bound-constrained quadratic
+// min (x-5)^2 s.t. x in [0, 2],  solution x=2 (boundary)
+TEST(M3CompileCheck, SLSQPBoundConstraint) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d = x[0] - 5.0;
+        return d * d;
+    };
+    std::vector<Bounds> bounds = {{0.0, 2.0}};
+    auto r = SLSQP::minimize(f, {1.0}, bounds);
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 2.0, 1e-4);
+    EXPECT_NEAR(r.fx, 9.0, 1e-4);
+}
+
+// P0: Inequality constraint c(x) >= 0
+// min (x-3)^2 s.t. x >= 1  (constraint: x - 1 >= 0), solution x=3 (interior)
+TEST(M3CompileCheck, SLSQPInequalityConstraint) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d = x[0] - 3.0;
+        return d * d;
+    };
+    std::vector<Bounds> bounds = {{-10.0, 10.0}};
+    // Inequality: x - 1 >= 0
+    ConstraintFn ineq = [](const std::vector<Real>& x) {
+        return std::vector<Real>{x[0] - 1.0};
+    };
+    auto r = SLSQP::minimize(f, {0.5}, bounds, {ineq}, {});
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 3.0, 1e-4);
+    // Verify constraint satisfied
+    EXPECT_GE(r.x[0] - 1.0, -1e-6);
+}
+
+// P0: Equality constraint c(x) = 0
+// min x^2 + y^2 s.t. x + y = 2,  solution x=1, y=1
+TEST(M3CompileCheck, SLSQPEqualityConstraint) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        return x[0] * x[0] + x[1] * x[1];
+    };
+    std::vector<Bounds> bounds = {{-10.0, 10.0}, {-10.0, 10.0}};
+    // Equality: x + y - 2 = 0
+    ConstraintFn eq = [](const std::vector<Real>& x) {
+        return std::vector<Real>{x[0] + x[1] - 2.0};
+    };
+    SLSQP::Config cfg;
+    cfg.max_iterations = 200;
+    auto r = SLSQP::minimize(f, {0.5, 0.5}, bounds, {}, {eq}, cfg);
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 1.0, 1e-3);
+    EXPECT_NEAR(r.x[1], 1.0, 1e-3);
+    EXPECT_NEAR(r.x[0] + r.x[1], 2.0, 1e-4);
+}
+
+// P0: Mixed constraints (equality + inequality + bounds)
+// min (x-2)^2 + (y-1)^2 s.t. x + y <= 2 (ineq: 2 - x - y >= 0), x - y = 1 (eq)
+// Solution: x=1.5, y=0.5 (active inequality + equality)
+TEST(M3CompileCheck, SLSQPMixedConstraints) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = x[0] - 2.0;
+        Real d2 = x[1] - 1.0;
+        return d1 * d1 + d2 * d2;
+    };
+    std::vector<Bounds> bounds = {{-10.0, 10.0}, {-10.0, 10.0}};
+    ConstraintFn ineq = [](const std::vector<Real>& x) {
+        return std::vector<Real>{2.0 - x[0] - x[1]};
+    };
+    ConstraintFn eq = [](const std::vector<Real>& x) {
+        return std::vector<Real>{x[0] - x[1] - 1.0};
+    };
+    SLSQP::Config cfg;
+    cfg.max_iterations = 200;
+    auto r = SLSQP::minimize(f, {0.0, 0.0}, bounds, {ineq}, {eq}, cfg);
+    EXPECT_TRUE(r.converged);
+    // x + y = 2 (active inequality), x - y = 1 => x=1.5, y=0.5
+    EXPECT_NEAR(r.x[0], 1.5, 1e-3);
+    EXPECT_NEAR(r.x[1], 0.5, 1e-3);
+    EXPECT_GE(2.0 - r.x[0] - r.x[1], -1e-6);
+    EXPECT_NEAR(r.x[0] - r.x[1], 1.0, 1e-4);
+}
+
+// P0: GARCH parameter constraints (non-negativity + stationarity)
+// Constraints: omega > 0, alpha >= 0, beta >= 0, alpha + beta < 1
+// We test constraint satisfaction, not actual GARCH calibration.
+TEST(M3CompileCheck, SLSQPGARCHConstraints) {
+    // Dummy objective: minimize distance to (0.1, 0.05, 0.9)
+    // But alpha + beta = 0.95 < 1, so unconstrained optimum is feasible.
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = x[0] - 0.1;
+        Real d2 = x[1] - 0.05;
+        Real d3 = x[2] - 0.9;
+        return d1 * d1 + d2 * d2 + d3 * d3;
+    };
+    std::vector<Bounds> bounds = {
+        {1e-8, 10.0},   // omega > 0
+        {0.0, 10.0},    // alpha >= 0
+        {0.0, 10.0}     // beta >= 0
+    };
+    // Stationarity: 1 - alpha - beta >= 0  => alpha + beta <= 1
+    ConstraintFn stationarity = [](const std::vector<Real>& x) {
+        return std::vector<Real>{1.0 - x[1] - x[2]};
+    };
+    auto r = SLSQP::minimize(f, {0.05, 0.02, 0.5}, bounds, {stationarity}, {});
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 0.1, 1e-3);
+    EXPECT_NEAR(r.x[1], 0.05, 1e-3);
+    EXPECT_NEAR(r.x[2], 0.9, 1e-3);
+    // Constraints satisfied
+    EXPECT_GT(r.x[0], 0.0);
+    EXPECT_GE(r.x[1], 0.0);
+    EXPECT_GE(r.x[2], 0.0);
+    EXPECT_GE(1.0 - r.x[1] - r.x[2], -1e-6);
+}
+
+// P0: GARCH-style calibration with infeasible start
+// Start at (0.3, 0.7, 0.5) where alpha+beta=1.2 > 1 (infeasible)
+// Optimizer must recover to feasible region
+TEST(M3CompileCheck, SLSQPGARCHCalibration) {
+    // Objective: mimic GARCH negative log-likelihood shape (quadratic approx)
+    // Target: omega=0.1, alpha=0.1, beta=0.85 (alpha+beta=0.95 < 1)
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = x[0] - 0.1;
+        Real d2 = x[1] - 0.1;
+        Real d3 = x[2] - 0.85;
+        return d1 * d1 + d2 * d2 + d3 * d3;
+    };
+    std::vector<Bounds> bounds = {
+        {1e-8, 10.0},
+        {0.0, 10.0},
+        {0.0, 10.0}
+    };
+    ConstraintFn stationarity = [](const std::vector<Real>& x) {
+        return std::vector<Real>{1.0 - x[1] - x[2]};
+    };
+    SLSQP::Config cfg;
+    cfg.max_iterations = 200;
+    // Infeasible start: alpha + beta = 0.7 + 0.5 = 1.2 > 1
+    auto r = SLSQP::minimize(f, {0.3, 0.7, 0.5}, bounds, {stationarity}, {}, cfg);
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 0.1, 1e-3);
+    EXPECT_NEAR(r.x[1], 0.1, 1e-3);
+    EXPECT_NEAR(r.x[2], 0.85, 1e-3);
+    EXPECT_GE(1.0 - r.x[1] - r.x[2], -1e-6);
+}
+
+// P1: Infeasible start recovery
+// min x^2 s.t. x >= 5, start at x=0 (infeasible)
+TEST(M3CompileCheck, SLSQPInfeasibleStart) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        return x[0] * x[0];
+    };
+    std::vector<Bounds> bounds = {{-100.0, 100.0}};
+    ConstraintFn ineq = [](const std::vector<Real>& x) {
+        return std::vector<Real>{x[0] - 5.0};  // x >= 5
+    };
+    SLSQP::Config cfg;
+    cfg.max_iterations = 200;
+    auto r = SLSQP::minimize(f, {0.0}, bounds, {ineq}, {}, cfg);
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 5.0, 1e-3);
+    EXPECT_GE(r.x[0] - 5.0, -1e-6);
+}
+
+// P1: Rosenbrock function (classic unconstrained test)
+// min (1-x)^2 + 100*(y - x^2)^2,  solution x=1, y=1
+TEST(M3CompileCheck, SLSQPRosenbrock) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = 1.0 - x[0];
+        Real d2 = x[1] - x[0] * x[0];
+        return d1 * d1 + 100.0 * d2 * d2;
+    };
+    std::vector<Bounds> bounds = {{-5.0, 5.0}, {-5.0, 5.0}};
+    SLSQP::Config cfg;
+    cfg.max_iterations = 500;
+    cfg.ftol = 1e-10;
+    cfg.gtol = 1e-8;
+    auto r = SLSQP::minimize(f, {-1.2, 1.0}, bounds, {}, {}, cfg);
+    // Rosenbrock is a hard test; relax tolerance
+    EXPECT_NEAR(r.x[0], 1.0, 1e-2);
+    EXPECT_NEAR(r.x[1], 1.0, 1e-2);
+}
+
+// P1: Max iterations reached (non-converging case)
+TEST(M3CompileCheck, SLSQPMaxIterations) {
+    // Highly oscillatory objective that won't converge
+    Size eval_count = 0;
+    ObjectiveFn f = [&eval_count](const std::vector<Real>& x) {
+        ++eval_count;
+        return std::sin(x[0] * 100.0) * std::cos(x[0] * 100.0) + x[0] * x[0];
+    };
+    std::vector<Bounds> bounds = {{-2.0, 2.0}};
+    SLSQP::Config cfg;
+    cfg.max_iterations = 3;  // very low to force max-iter
+    auto r = SLSQP::minimize(f, {0.5}, bounds, {}, {}, cfg);
+    // Should not crash; either converged or max iterations
+    EXPECT_LE(r.n_iterations, 3);
+}
+
+// P1: Numerical baseline vs scipy SLSQP (basic quadratic)
+// scipy: minimize(lambda x: (x[0]-1.5)**2 + (x[1]-2.5)**2, [0,0],
+//                 method='SLSQP', bounds=[(-5,5),(-5,5)])
+// Expected: x=[1.5, 2.5], fun=0
+TEST(M3CompileCheck, SLSQPVsScipyBasic) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = x[0] - 1.5;
+        Real d2 = x[1] - 2.5;
+        return d1 * d1 + d2 * d2;
+    };
+    std::vector<Bounds> bounds = {{-5.0, 5.0}, {-5.0, 5.0}};
+    auto r = SLSQP::minimize(f, {0.0, 0.0}, bounds);
+    EXPECT_TRUE(r.converged);
+    EXPECT_NEAR(r.x[0], 1.5, 1e-4);
+    EXPECT_NEAR(r.x[1], 2.5, 1e-4);
+    EXPECT_NEAR(r.fx, 0.0, 1e-8);
+}
+
+// P1: Numerical baseline vs scipy SLSQP (constrained GARCH-like)
+// scipy: minimize(lambda x: (x[0]-0.1)**2 + (x[1]-0.1)**2 + (x[2]-0.85)**2,
+//                 [0.3, 0.7, 0.5], method='SLSQP',
+//                 bounds=[(1e-8,10),(0,10),(0,10)],
+//                 constraints={'type':'ineq','fun': lambda x: 1-x[1]-x[2]})
+// Expected: x=[0.1, 0.1, 0.85], fun=0
+TEST(M3CompileCheck, SLSQPVsScipyGARCH) {
+    ObjectiveFn f = [](const std::vector<Real>& x) {
+        Real d1 = x[0] - 0.1;
+        Real d2 = x[1] - 0.1;
+        Real d3 = x[2] - 0.85;
+        return d1 * d1 + d2 * d2 + d3 * d3;
+    };
+    std::vector<Bounds> bounds = {
+        {1e-8, 10.0},
+        {0.0, 10.0},
+        {0.0, 10.0}
+    };
+    ConstraintFn stationarity = [](const std::vector<Real>& x) {
+        return std::vector<Real>{1.0 - x[1] - x[2]};
+    };
+    SLSQP::Config cfg;
+    cfg.max_iterations = 200;
+    auto r = SLSQP::minimize(f, {0.3, 0.7, 0.5}, bounds, {stationarity}, {}, cfg);
+    EXPECT_TRUE(r.converged);
+    // GARCH parameter-level tolerance: 1e-4 (vs scipy baseline)
+    EXPECT_NEAR(r.x[0], 0.1, 1e-4);
+    EXPECT_NEAR(r.x[1], 0.1, 1e-4);
+    EXPECT_NEAR(r.x[2], 0.85, 1e-4);
+    EXPECT_GE(1.0 - r.x[1] - r.x[2], -1e-6);
+}

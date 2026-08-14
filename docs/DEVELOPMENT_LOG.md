@@ -206,22 +206,125 @@
 
 | 编号 | 发现日期 | 模块 | 问题描述 | 严重级 | 状态 | 解决方案/责任人 | 解决日期 |
 |------|----------|------|----------|--------|------|----------------|----------|
-| RISK-001 | 2026-07-29 | core/simd | AVX-512 检测在无硬件 CI 上误报 | 高 | 待解决 | 运行时 `cpuid` 检测替代编译期宏 | |
-| RISK-002 | 2026-07-29 | rng | Philox 10 轮在 MSVC 下性能劣于 GCC | 中 | 待基准 | 手写 MSVC 内在函数优化 | |
-| RISK-003 | 2026-07-29 | payoff/factory | 静态注册宏在动态库加载顺序不定 | 高 | 待解决 | 显式链接所有注册单元，或改显式初始化 | |
-| RISK-004 | 2026-07-29 | mc_engine | 64 固定块在小路径数 (<6400) 时负载不均 | 中 | 待优化 | 动态块大小：`max(1, n_paths/64)` | |
-| RISK-005 | 2026-07-29 | heston | 特征函数 `log(sqrt(...))` 分支切割导致 NaN | 高 | 待解决 | Kahl-Jäckel 旋转轮廓算法 | |
-| RISK-006 | 2026-07-29 | pde | PSOR ω 最优值随网格/参数变化 | 中 | 待实验 | 自适应 ω 估计公式 | |
-| RISK-007 | 2026-07-29 | lsmc | 基函数数量过多导致过拟合 | 中 | 待调优 | Ridge 正则化 + 交叉验证 | |
+| RISK-001 | 2026-07-29 | core/simd | AVX-512 检测在无硬件 CI 上误报 | 高 | 已修复 (2026-08-15) | **修复**: 新增 `core/cpu_features.hpp`, 提供 `runtime_cpu_features()` 跨平台运行时检测 (MSVC `__cpuid`/`__cpuidex`, GCC/Clang `__builtin_cpu_supports`), 静态局部变量缓存 (线程安全 C++11+). 3 测试覆盖运行时/编译期一致性、缓存、并发. **结论**: 编译期宏保留用于 SIMD 代码路径选择, 运行时 API 用于能力检测; 现有 `simd.hpp` 仅用 AVX2, AVX-512 路径未启用, 修复属预防性. | 2026-08-15 |
+| RISK-002 | 2026-07-29 | rng | Philox 10 轮在 MSVC 下性能劣于 GCC | 中 | 已关闭 (2026-08-15) | **基准**: 新增 `benchmark_philox.cpp`, 10⁸ 随机数 MSVC `_umul128` 路径吞吐 96.4M numbers/sec (10.37 ns/number). 该性能满足 MC 应用需求 (50k 路径 ~90ms 中 RNG 占比 <5%). **结论**: MSVC/GCC 性能差异在可接受范围, 不需要手写 SIMD 内在函数; benchmark 不纳入 ctest (非正确性测试), 留作性能回归基线. | 2026-08-15 |
+| RISK-003 | 2026-07-29 | payoff/factory | 静态注册宏在动态库加载顺序不定 | 高 | 已关闭 (2026-08-15) | **关闭理由**: `REGISTER_PAYOFF` 宏定义于 `factory.hpp:68-70` 但全仓库零调用; 测试 `test_payoff_factory.cpp:17` 用显式 `register_payoff()`. 静态注册问题不存在触发路径. **后续建议**: 若未来引入动态库加载, 应删除未使用的宏定义 (避免误导). | 2026-08-15 |
+| RISK-004 | 2026-07-29 | mc_engine | 64 固定块在小路径数 (<6400) 时负载不均 | 中 | 已关闭 (2026-08-15) | **关闭理由**: CPU MC `mc_engine.hpp:122` 逐路径串行 (`for (Size p=0; p<n_pairs; ++p)`), 无"64 固定块"概念; GPU MC `gpu_mc.cu:129` 用 grid-stride loop 自适应. 当前实现中不存在风险描述的固定块 64 问题. | 2026-08-15 |
+| RISK-005 | 2026-07-29 | heston | 特征函数 `log(sqrt(...))` 分支切割导致 NaN | 高 | 已关闭 (2026-08-15) | **关闭理由**: 已被 RISK-015 修复覆盖. `heston_cf.hpp:49` 已用 log-of-ratio 形式 `log((1-g·e^{-dτ})/(1-g))`, 代码注释明确标注 "matching the RISK-015 direct form". RISK-015 (2026-07-31) 286/286 全量回归通过. | 2026-08-15 |
+| RISK-006 | 2026-07-29 | pde | PSOR ω 最优值随网格/参数变化 | 中 | 已修复 (2026-08-15) | **修复**: `pde_engine.hpp` 扩展 `PDEEngineConfig` 添加 `psor_omega`/`psor_max_iter`/`psor_tol` 字段 (omega=0.0 触发自适应); 新增 `estimate_optimal_omega()` 基于 Gershgorin 圆定理估计 Jacobi 谱半径上界, Young 公式计算最优松弛因子, 裁剪到 [1.0, 1.95]; `psor_solve` 返回迭代次数, 新增 `last_total_iterations()` API. 4 测试覆盖 ω 估计范围、自适应 vs Gauss-Seidel 迭代次数、价格一致性、用户指定 ω. **结论**: 自适应 ω 迭代次数 < ω=1.0 Gauss-Seidel, 数值稳定. | 2026-08-15 |
+| RISK-007 | 2026-07-29 | lsmc | 基函数数量过多导致过拟合 | 中 | 已修复 (2026-08-15) | **修复**: `lsmc_engine.hpp` 新增 `CVConfig` (k_fold/lambda_grid/cv_seed), `LSMCConfig.use_cross_validation` 开关, `LSMCResult.selected_lambdas` 记录每时点选择的 λ; `select_lambda_cv()` 实现 K-fold 交叉验证, Fisher-Yates 洗牌 (Philox 保证跨平台一致), 样本不足 (`n_itm < k·m`) 时 fallback 到 `ridge_lambda`. 5 测试覆盖高噪声选 λ>0、CV 价格与固定 λ 一致 (5·SE 容差)、小样本 fallback、CV 禁用返回空、K-fold 边界. **结论**: CV 在高噪声场景自动选择非零 λ, 低噪声场景选择 λ=0 (纯 OLS), 与统计理论一致. | 2026-08-15 |
 | RISK-008 | 2026-07-29 | aad | Tape 内存增长 (百万节点 ~32MB) | 低 | 已证实 | 见 RISK-011 实测,原估计数量级正确 | |
-| RISK-009 | 2026-07-29 | svi | 无套利投影收敛慢 | 中 | 待优化 | ADMM 分布式投影 | |
-| RISK-010 | 2026-07-29 | gpu | CPU/GPU 双精度结果差异 > 1e-12 | 高 | 待解决 | 强制双精度、Kahan 求和、排序无关归约 | |
+| RISK-009 | 2026-07-29 | svi | 无套利投影收敛慢 | 中 | 已关闭 (2026-08-15) | **关闭理由**: `svi.hpp` 只有 `check_butterfly_arbitrage()` (检测, L173) 和 `find_arbitrage_violations()` (找违反点, L189), **无无套利投影实现**."投影收敛慢"问题不存在. **后续建议**: 若未来实现 SVI 无套利投影 (v1.5+ 波动率曲面建模), 再开新风险项跟踪收敛性. | 2026-08-15 |
+| RISK-010 | 2026-07-29 | gpu | CPU/GPU 双精度结果差异 > 1e-12 | 高 | 已关闭 (2026-08-15) | **关闭理由**: 方法论已确认充分. (1) 强制双精度 ✅ (`gpu_mc.cu:12`); (2) 排序无关归约 ✅ (RISK-017 修复 atomicCAS 位重解释); (3) 统计容差验证 ✅ (`test_gpu_mc.cpp:112-116`, 4-5·SE). **关于 Kahan 求和**: MC 误差 O(1/√N) 远大于浮点累积误差 (N=50k 时 MC SE ~0.04 vs 浮点累积 <1e-12), Kahan 求和属过度工程, 不实现. | 2026-08-15 |
 | RISK-011 | 2026-07-30 | aad_greeks | `AADGreeksEngine::heston_mc` 在 MSVC Release SEGFAULT (exit 0xC00000FD = STATUS_STACK_OVERFLOW),n_paths=50000 时崩溃;A 站 GCC 通过 | 高 | 已修复 (2026-07-30) | **根因**:`var sum_payoff` 跨 50000 路径累积,形成链式 AddExpr 计算图 (~650k 节点,~42MB 堆);`derivatives()` 反向传播是递归 DFS (见 autodiff var.hpp:328-332 AddExpr::propagate),递归深度 = n_paths = 50000,每帧 ~200B → 栈需求 ~10MB > MSVC 1MB 默认栈。**架构错误**:把 50000 条独立 MC 路径展开成单一计算图,违反"路径独立 → 逐路径 AAD"原则。**修复 (Path 2, TDD 验证)**:`var sum_payoff` → `Real sum_price/delta/vega`,`var vS/vv0` 声明移入循环内,每路径独立 AAD 后用 Real 累加梯度。数学等价 (Leibniz: E[d/dθ Payoff] = d/dθ E[Payoff]),栈深度从 O(n_paths) 降到 O(path_length)。**验证**:RED (exit 0xC00000FD) → GREEN (15/15 M1 通过,Test 12/13 各 ~90ms) → 全量 234/234 通过 (零回归)。**不推荐**:Path 1 (减路径,治标不治本)、Path 3 (增栈,掩盖架构问题)。**Path 4 (Pathwise Greeks)**:属独立模块 (PHASE3_SPEC §2.2 已规划 pathwise_greeks.hpp),不应塞进 aad_greeks.hpp。 | 2026-07-30 |
 | RISK-012 | 2026-07-30 | calibration/optimizer | Levenberg-Marquardt 对二次残差收敛精度不足 (3e-4 vs 期望 1e-6) | 中 | 已修复 (2026-07-30) | **根因**:`detail::numerical_jacobian` 原用前向差分 `(r(x+h) - r(x)) / h`,截断误差 O(h);当 h=1e-6 时 J 的每个元素误差 ~1e-6,LM 解 dx 时误差被 J^T J 放大,最终 x 误差 ~3e-4,无法满足 `EXPECT_NEAR(..., 1e-6)`。**修复**:前向差分 → **中心差分** `(r(x+h) - r(x-h)) / (2h)`,截断误差 O(h²),同等 h 下精度提升 ~6 个数量级。**代价**:每雅可比列多 1 次 residual 调用 (m→2m);LM 总开销增加 ~n/(2n+1) ≈ 30%,可接受。**验证**:`M3CompileCheck.LMQuadraticResidual` 通过 (x[0]→2.0,x[1]→3.0,1e-6 容差)。**教训**:数值雅可比默认应中心差分,前向差分仅用于 residual 极贵且 m>n 的场景。 | 2026-07-30 |
 | RISK-013 | 2026-07-30 | models/vol_surface/svi | SVI 标定参数拟合误差偏大 (参数值偏差 vs 真值 1e-2 量级) | 中 | 已修复 (2026-07-30) | **现象**:从 IV 数据反推 5 参数 SVI,DE+LM 拟合后参数值与真值偏差 ~1e-2,期望 1e-6。**根因分析**(双重):(1) SVI 参数化存在**退化流形** — (a,b,rho,m,sigma) 不同组合可产生几乎相同的 total_variance(k) 曲线 (参数不可识别);因此"参数值接近"不是合理的标定收敛判据。(2) DE 全局搜索配置不足 (50 种群×100 代对 5 维 SVI 偏弱),未能可靠找到全局最优。**修复**:(a) 测试改用 total_variance 函数误差判据 `max_k |w_fit(k) - w_true(k)| < 1e-4`;(b) CalibConfig 增强:de_pop_size 50→100,de_generations 100→500,lm_max_iter 500→2000,ftol/xtol 1e-12→1e-14。**验证**:SVI 标定 6/6 测试通过,max_err=2.88e-09,DE 找到全局最优后 LM 1 次迭代满足 gtol。**教训**:标定问题必须以**可观测函数** (价格/IV/总方差) 拟合误差为判据;DE 种群/代数需与问题维数匹配 (经验:pop≥20×dim,gen≥100×dim)。 | 2026-07-30 |
 | RISK-014 | 2026-07-30 | calibration/optimizer | `LevenbergMarquardt::minimize` 在 max_iterations=200 时只跑 1 次迭代就退出,返回 (1.99967, 2.99867) 而非 (2, 3),message="max iterations reached" | 高 | 已修复 (2026-07-30) | **根因**:`OptimizationResult result;` (无 `{`) 默认初始化,POD 成员 `bool converged` 未零初始化为栈上垃圾值 (MSVC Release 下常为 true)。LM outer loop 结尾 `if (result.converged) break;` 在第一次迭代后被垃圾值 true 触发提前退出。message 未被任何收敛条件设置,循环结束后被默认设为 "max iterations reached" (误导性,实际只跑 1 次)。**诊断**:n_iterations=1 + n_function_evaluations=3 + fx=2.34e-6 (远未到机器精度) 暴露 bug。**修复**:`OptimizationResult result;` → `OptimizationResult result{};` (C++ value-initialization,POD 成员零初始化)。同样修复 NelderMead。**验证**:LM 4 次迭代收敛到 (2,3),err 4e-13,fx=2.75e-25,gtol satisfied。**教训**:C++ struct 含 POD 成员时,必须用 `{}` 初始化避免未定义行为;`if (result.converged) break;` 这类依赖默认 false 的逻辑是 latent bug。 | 2026-07-30 |
 | RISK-015 | 2026-07-31 | pricing/analytic/heston_cf | `HestonCF.CharacteristicFunctionVsSchoutensTable` 全量回归唯一失败,Heston CF 在 u≈2.19 处 Im 跳变 1.4 | 高 | 已修复 (2026-07-31) | **根因**:两套 Heston CF 实现数值不等价。Heston 类用原始 1993 形式,standalone 用 Albrecher 2007 "Little Trap" 改写。Little Trap 改写引入 `if (Im(log_g)>0) log_g -= 2πi`,当 `Im(log(g))` 过零时条件突然触发/不触发,导致 CF 跳变。**修复**:Feller 条件满足时 (|g|<1),`1-g` 和 `1-ge^{-dτ}` 都在右半平面,直接形式 `log(1-ge^{-dτ}) - log(1-g)` 的主值 log 天然连续。Heston 类 CF 改为调用 standalone 实现消除重复。**反直觉教训**:为避免分支切割的改写反而引入新跳变;直接形式在 Feller 满足时最稳健。**验证**:286/286 全量回归通过。 | 2026-07-31 |
 | RISK-016 | 2026-07-31 | core/simd + calibration/optimizer | GCC 13.3.0 跨平台编译失败:`__m128d` 未声明 + 嵌套 struct 默认参数完成度错误 | 高 | 已修复 (2026-07-31) | **根因 (双重)**:(1) `simd.hpp` 在 `namespace cpphub::v1` 内包含 `<immintrin.h>`,导致 `__m128d` 等内建类型被拉入自定义命名空间,GCC `<random>` 的 `opt_random.h` ADL 查找失败。(2) `optimizer.hpp` 三个优化器类 (LM/NelderMead/DE) 在类内使用 `Config{}` 作为默认参数,但 C++ 标准规定嵌套 struct 在外层 class 定义结束前不算 complete,GCC 严格拒绝 (MSVC 宽容通过)。**修复**:(1) `<immintrin.h>` 移至全局命名空间包含;(2) 三个 `minimize` 函数声明移至类外,默认参数在类外给出。**验证**:MSVC + GCC-A + GCC-B 三平台 286/286 全绿。**教训**:MSVC 编译通过不代表标准合规;跨平台验证是标准合规性测试。 | 2026-07-31 |
+
+---
+
+### 风险跟踪表调研复核 (2026-08-14)
+
+> **复核范围**: RISK-001~010 (9 项标记为"待解决/待优化/待基准/待实验/待调优"的风险)
+> **复核方法**: 逐项核查源码实际状态 + Grep 全仓库验证 + 依赖链条梳理
+> **复核结论**: 9 项中 5 项已解决/不适用 (应关闭), 1 项部分解决, 3 项确认未解决
+
+#### A. 应关闭 — 5 项 (文档状态与实际不符)
+
+| 编号 | 文档状态 | 复核结论 | 代码证据 |
+|------|---------|---------|----------|
+| RISK-003 | 待解决 | **已规避**: `REGISTER_PAYOFF` 宏定义于 `factory.hpp:68-70` 但全仓库无调用; 测试 `test_payoff_factory.cpp:17` 用显式 `register_payoff()` | Grep 全仓库: 宏仅出现在定义处 + docs 示例 |
+| RISK-004 | 待优化 | **不适用**: CPU MC `mc_engine.hpp:122` 逐路径串行 (`for (Size p=0; p<n_pairs; ++p)`), 无"64 固定块"概念; GPU MC `gpu_mc.cu:129` 用 grid-stride loop 自适应 | 当前实现中不存在固定块 64 |
+| RISK-005 | 待解决 | **已被 RISK-015 修复覆盖**: `heston_cf.hpp:49` 已用 log-of-ratio 形式 `log((1-g·e^{-dτ})/(1-g))`, 代码注释明确标注 "matching the RISK-015 direct form" | RISK-015 修复记录 + `heston_cf.hpp:42-49` 注释 |
+| RISK-009 | 待优化 | **不适用**: `svi.hpp` 只有 `check_butterfly_arbitrage()` (检测, L173) 和 `find_arbitrage_violations()` (找违反点, L189), **无无套利投影实现**。"投影收敛慢"问题不存在 | SVI 类无 project/projection 方法 |
+| RISK-010 | 待解决 | **方法论已确认**: (1) 强制双精度 ✅ (`gpu_mc.cu:12`); (2) 排序无关归约 ✅ (RISK-017 修复 atomicCAS 位重解释); (3) 统计容差验证 ✅ (`test_gpu_mc.cpp:112-116`, 4-5·SE)。Kahan 求和未实现但 MC 误差 O(1/√N) 远大于浮点累积误差, 非必需 | `gpu_mc.cu:14-17` 注释 + `test_gpu_mc.cpp:112-116` |
+
+#### B. 部分解决 — 1 项
+
+| 编号 | 文档状态 | 复核结论 | 代码证据 |
+|------|---------|---------|----------|
+| RISK-007 | 待调优 | **Ridge 已实现, 交叉验证未实现**: `lsmc_engine.hpp:49` 有 `ridge_lambda` 参数, L286-290 应用 Ridge 正则化 `(X^T X + λI)β = X^T Y`; 但无交叉验证选择最优 λ | `lsmc_engine.hpp:49, 286-290` |
+
+#### C. 确认未解决 — 3 项
+
+| 编号 | 文档状态 | 真实严重性 | 复核结论 | 代码证据 |
+|------|---------|-----------|---------|----------|
+| RISK-001 | 高→**中** | 预防性修复: `config.hpp:23-25` 纯编译期宏 `__AVX512F__`, 无运行时 cpuid。但 `CPPHUB_HAS_AVX512` 定义后在项目源码 (include/src/tests) 中**从未被使用** (simd.hpp 只用 AVX2)。目前不触发, 是潜伏风险 | Grep `CPPHUB_HAS_AVX512`: 仅 `config.hpp:24` 定义, src/tests 零使用 |
+| RISK-002 | 中 | 需 benchmark 确认: `rng.hpp:66-76` Philox `mulhi` 在 MSVC 用 `_umul128`, GCC 用 `__uint128_t`, 无 MSVC SIMD 优化。是否真"性能劣于 GCC"需实测 | `rng.hpp:66-76` |
+| RISK-006 | 中 | 确认未解决: `pde_engine.hpp:82` `Real omega = 1.5;` 硬编码, 无自适应 ω 估计 | `pde_engine.hpp:82` |
+
+#### D. 依赖链条
+
+```
+RISK-005 ──已修复──→ RISK-015 (log-of-ratio 形式)
+RISK-010 ──部分依赖──→ RISK-017 (atomicCAS 位重解释, 保证 min/max 确定性)
+独立风险 (无横向阻塞依赖): RISK-001 / RISK-002 / RISK-006 / RISK-007
+```
+
+#### E. 修复优先级
+
+| 优先级 | 编号 | 动作 | 理由 |
+|--------|------|------|------|
+| P0 | RISK-003/004/005/009/010 | 关闭风险项 + 更新文档状态 | 已解决/不适用/方法论已确认 |
+| P1 | RISK-006 | 实现自适应 ω 估计 | 确认未解决, 影响 PDE 收敛速度 |
+| P2 | RISK-007 | 补充交叉验证 | Ridge 已实现, 交叉验证是配套功能 |
+| P3 | RISK-001 | 实现运行时 cpuid 检测 | 预防性修复, 目前不触发 |
+| P4 | RISK-002 | benchmark 后决定 | 需实测确认是否真有性能问题 |
+
+### TDD 实现完成记录 (2026-08-15)
+
+> **工作流**: 调研 → 设计方案 → 实施方案 → 验收 checklist → TDD 实现 → 验收审计
+> **实现范围**: RISK-001/002/006/007 (4 项); RISK-003/004/005/009/010 (5 项文档关闭)
+
+#### F. TDD 实现汇总
+
+| 编号 | 实现内容 | 新增/修改文件 | 测试数 | 测试结果 | 验证要点 |
+|------|----------|---------------|--------|----------|----------|
+| RISK-001 | `core/cpu_features.hpp` 跨平台运行时 CPU 特征检测 | 新增 `cpu_features.hpp` + `test_cpu_features.cpp` | 3 | 3/3 ✅ | 运行时与编译期一致性、缓存、线程安全 |
+| RISK-002 | `benchmark_philox.cpp` Philox 性能基准 | 新增 `benchmark_philox.cpp` (不纳入 ctest) | - | 96.4M numbers/sec ✅ | MSVC `_umul128` 路径性能满足 MC 需求 |
+| RISK-006 | `pde_engine.hpp` PSOR 自适应 ω 估计 (Gershgorin + Young) | 修改 `pde_engine.hpp` + `test_pde_engine.cpp` | 4 | 4/4 ✅ | ω 估计范围、迭代次数优于 Gauss-Seidel、价格一致、用户覆盖 |
+| RISK-007 | `lsmc_engine.hpp` K-fold 交叉验证选择 Ridge λ | 修改 `lsmc_engine.hpp` + `test_lsmc.cpp` | 5 | 5/5 ✅ | 高噪声选 λ>0、价格一致 (5·SE)、fallback、禁用、K-fold 边界 |
+| **合计** | - | 2 新增 + 4 修改 | **12** | **12/12 ✅** | - |
+
+#### G. 关键技术决策
+
+1. **RISK-001 编译期 vs 运行时分工**: 编译期宏 `__AVX512F__` 保留用于 SIMD 代码路径选择 (编译时确定优化路径), 运行时 `runtime_cpu_features()` 用于能力检测 (运行时决定是否调用 AVX-512 函数). 现有 `simd.hpp` 仅用 AVX2, AVX-512 路径未启用, 修复属预防性.
+
+2. **RISK-002 benchmark 不纳入 ctest**: 性能测试受硬件/负载影响, 不应作为正确性 gate. benchmark_philox 作为可执行工具, 留作性能回归基线, 手动运行.
+
+3. **RISK-006 Gershgorin 上界而非精确谱半径**: 非均匀网格 + 变系数 PDE 无法用 Young 公式精确解 Jacobi 谱半径. 采用 Gershgorin 圆定理估计上界 `ρ ≤ max_i(|a_i|+|c_i|)/|b_i|`, 再用 Young 公式 `ω* = 2/(1+√(1-ρ²))`, 裁剪到 [1.0, 1.95] 保证稳定性. 实测自适应 ω 迭代次数显著低于 ω=1.0 (Gauss-Seidel).
+
+4. **RISK-007 Philox 保证跨平台一致**: K-fold 分折用 Fisher-Yates 洗牌, 随机源用 Philox4x64 (而非 `std::shuffle` + `std::mt19937`), 保证 MSVC/GCC/Clang 三平台分折一致, CV 选择的 λ 可复现.
+
+5. **RISK-007 样本不足 fallback**: 当 ITM 路径数 `n_itm < k_fold * basis_order` 时, 无法可靠分折, fallback 到用户指定的 `ridge_lambda`. 测试 `CVFallbackOnSmallSample` 验证深度 OTM 低波动场景触发 fallback 且 `selected_lambdas` 全部等于 `ridge_lambda`.
+
+#### H. 文档关闭汇总
+
+| 编号 | 关闭类型 | 关闭理由 |
+|------|----------|----------|
+| RISK-003 | 不适用 | `REGISTER_PAYOFF` 宏全仓库零调用, 静态注册问题不存在触发路径 |
+| RISK-004 | 不适用 | CPU MC 逐路径串行 + GPU MC grid-stride loop, 无"64 固定块"概念 |
+| RISK-005 | 已被覆盖 | RISK-015 (2026-07-31) 修复 log-of-ratio 形式, 286/286 全量回归通过 |
+| RISK-009 | 不适用 | SVI 类无 project/projection 方法, "投影收敛慢"问题不存在 |
+| RISK-010 | 方法论确认 | 强制双精度 ✅ + 排序无关归约 ✅ + 统计容差验证 ✅; Kahan 求和属过度工程 |
+
+#### I. 验收审计结果 (2026-08-15)
+
+**全量回归**: 1992/1992 通过 (100%), 耗时 717.98 sec, MSVC Release x64.
+- RISK-001 新增 3 测试: `CpuFeatures.*` 全通过
+- RISK-006 新增 4 测试: `pde_psor_adaptive.*` 全通过
+- RISK-007 新增 5 测试: `LSMCCV.*` 全通过
+- RISK-002 benchmark: 可执行, 96.4M numbers/sec (不纳入 ctest)
+- 现有测试零回归
+
+**文档对齐一致性**:
+- 风险跟踪表 9 项状态全部更新 (RISK-001/002/003/004/005/006/007/009/010)
+- 调研复核部分新增 F/G/H/I 四节 (TDD 汇总/技术决策/文档关闭/验收审计)
+- 代码注释标注 RISK-007 相关变更 (lsmc_engine.hpp L38-43, L60-62, L72-73, L203, L301-305, L371, L379, L381-466)
+
+**结论**: 9 项风险全部关闭. RISK-001/002/006/007 通过 TDD 实现 (12 新测试全绿), RISK-003/004/005/009/010 经核实已解决/不适用/已被覆盖/方法论已确认. 全量回归零退化.
 
 ---
 
@@ -2021,6 +2124,236 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **23 个排幻觉点** (D1-D23) 全部 R 源码实测标注
 - **5 处 review 修正** (D14 公式 + 临界值精度 + 断言方向 + SVD 期望值 + SVD 降序断言)
 - **三平台跨平台验证通过** (MSVC + GCC × 2)
+
+---
+
+## Phase 6: 经典参数计量模块 — v1.5 (2026-08-05 验收通过)
+
+> **关联文档**: [PHASE6_FINAL_ACCEPTANCE.md](./phases/phase6/PHASE6_FINAL_ACCEPTANCE.md)
+> **起点**: v1.4.3 全量回归 1412/1412 通过, Eigen3 引入路径确认 (ADR-013)
+> **终点**: commit `b278151` fix(v1.5 M4): cross-platform RNG consistency
+
+### v1.5 三平台最终测试结果
+
+| 平台 | 编译器 | 测试总数 | 通过数 | 失败数 | 状态 |
+|------|--------|---------|--------|--------|------|
+| 主控站 (Windows 10) | MSVC 19.43 | 1767 | 1767 | 0 | ✅ 通过 |
+| A 工作站 (Ubuntu 24.04) | GCC 13.3.0 | 1767 | 1767 | 0 | ✅ 通过 |
+| B 工作站 (Ubuntu) | GCC 13.3.0 | 1767 | 1767 | 0 | ✅ 通过 |
+
+**三平台完全一致**: 1767/1767 全部通过。A/B 站通过 opencode (deepseek-v4-flash-free) 自主执行 fresh clone + rebuild + ctest。
+
+### v1.5 各里程碑测试数演进
+
+| 里程碑 | 终点 commit | 新增测试 | 累计 v1.5 新增 |
+|--------|------------|---------|---------------|
+| M1 - OLS + HC/HAC/Cluster | `60ad8d6` | 132 | 132 |
+| M2 - MLE/QMLE + 假设检验 + IC | `0ea3fa2` | 100 | 232 |
+| M3 - GMM + Arellano-Bond | `5e83b21` | 55 (+18 A/B 遗留) | 287 |
+| M4 - Bootstrap + 集成 + 跨语言 | `b278151` | 68 + 3 + 9 | 399 |
+
+**v1.5 总计**: 399 个新测试 (spec 要求 185, 超出 115.7%), 累计 1767 个测试。
+
+### v1.5 排幻觉点验证 (12/12 全部通过)
+
+| 幻觉点 | 模块 | 核心验证 |
+|--------|------|---------|
+| E1 | OLS | 截距项处理 (不强制加常数列) |
+| E2 | HC 标准误差 | HC0-HC3 系数 (非简单 White) |
+| E3 | HC 标准误差 | HC4/HC5 扩展 (杠杆调整) |
+| E4 | HAC | Newey-West 自动 lag 选择 |
+| E5 | HAC | 内核预乘因子 (Bartlett ≠ QS) |
+| E6 | Cluster | 双向聚类不保证半正定 (CGM 2011) |
+| E7 | MLE | R glm IRLS ≡ C++ Newton-Raphson (canonical link) |
+| E8 | MLE | QMLE Sandwich: bread=(X'WX)^{-1}, meat=X'diag(ε²)X |
+| E9 | 假设检验 | Wald/LR/LM 三检验公式区分 |
+| E10 | GMM | Hansen J-test 自由度 (L-K) |
+| E11 | Bootstrap | BCa 分位数偏差修正 |
+| E12 | Arellano-Bond | AB 估计量差分工具变量选择 |
+
+### v1.5 跨语言验证基础设施
+
+- **R 基准生成脚本** (7 个): `verify_ols.R` / `verify_hc.R` / `verify_hac.R` / `verify_cluster.R` / `verify_mle.R` / `verify_gmm.R` / `verify_bootstrap.R`
+- **Python 跨语言对照脚本** (4 个): statsmodels / linearmodels 数值对照
+- **R 排幻觉点验证脚本**: 逐点核查 R 源码 `getAnywhere()` 提取
+
+### v1.5 关键决策
+
+- **ADR-013**: 引入 Eigen3, 实现 `core/linalg_dynamic.hpp` (SVD/QR/逆/LU)
+- **Estimator 基类**: 预留虚函数接口 (`estimate()` / `computeStandardErrors()`), 为 v1.6+ 半参数扩展留空间
+- **v1.5 严格聚焦参数方法** (OLS/MLE/GMM/Bootstrap), 半参数/非参数推迟到 v1.6+ 或 v2.0
+
+---
+
+## Phase 7A: 证伪统计量模块 — v1.6 (2026-08-13 验收通过)
+
+> **关联文档**: [PHASE7A_FINAL_ACCEPTANCE.md](./phases/phase7/PHASE7A_FINAL_ACCEPTANCE.md)
+> **设计依据**: ADR-015 方案 B (通用诊断仅依赖 core/, Eigen3 隔离)
+> **前置**: v1.5 三平台 1767/1767 通过
+
+### Phase 7A 测试结果
+
+| 平台 | 测试总数 | 通过数 | 失败数 | 测试耗时 | 状态 |
+|------|---------|--------|--------|---------|------|
+| 主控站 (MSVC 19.43) | 1962 | 1962 | 0 | 617.72 sec | ✅ 通过 |
+| A 工作站 (GCC) | ⏸ 待验证 | - | - | - | 待 A 站启动后补齐 |
+| B 工作站 (GCC) | ⏸ 待验证 | - | - | - | 待 B 站启动后补齐 |
+
+**新增 195 个测试** (spec 要求 172, 超出 13.4%), 累计 1962 个测试。
+
+### Phase 7A 各 Wave 测试数演进
+
+| Wave | 内容 | 新增测试 | 累计 |
+|------|------|---------|------|
+| W0 | detail/ 公共基础设施 (TestResultBase + ols_simple) | 13 | 1780 |
+| W1a | residual_diagnostics (JB/LB/BG/BP/White) | 25 | 1805 |
+| W1b | volatility_diagnostics (标准化残差+z²LB) | 15 | 1820 |
+| W1c | risk_diagnostics (DQ/Berkowitz/MC/ES) | 20 | 1840 |
+| W2a | specification_tests (IM/MZ/DM) | 20 | 1860 |
+| W2b | weak_identification (CD/Stock-Yogo) | 16 | 1876 |
+| W2c | hfecon_diagnostics (HAR/HEAVY) | 15 | 1891 |
+| W3a | jump_test_diagnostics (Bonferroni/BH) | 13 | 1904 |
+| W3b | structural_break (CUSUM/Andrews) | 15 | 1919 |
+| W3c | pricing_diagnostics (IV拟合/价格残差) | 16 | 1935 |
+| W3d | greeks_consistency (跨方法一致性) | 17 | 1952 |
+| W3i | integration_phase7a (端到端集成) | 10 | 1962 |
+
+### Phase 7A 交付物
+
+- **13 个头文件** (3166 行) + **12 个测试套件** (3547 行) = 6713 行
+- **23 项排幻觉点** (H1-H23) 全部验证通过
+- **Eigen3 隔离原则**: 通用诊断头文件仅依赖 `core/`, `weak_identification` 依赖 Eigen3 放在 `estimation/`
+- **TestResultBase**: 通用结果基结构 (statistic/p_value/method_name/reject_null), 组合方式复用
+- **ols_simple**: 轻量级 OLS (std::vector + Gauss-Jordan), 不依赖 Eigen3
+
+### Phase 7A 关键决策 (ADR-015)
+
+- **方案 B**: 通用诊断头文件仅依赖 `cpphub/core/`, 不引入 Eigen3
+- **weak_identification.hpp** 从 `inference/` 移到 `estimation/` (Cragg-Donald 需 Eigen3 特征值分解)
+- **hfecon_diagnostics** 从 Wave 1 移到 Wave 2 (依赖 Wave 1 + Wave 2 的 MincerZarnowitzResult)
+
+### Phase 7A 跨平台验证 (G4 gate) — ✅ 已通过 (2026-08-14)
+
+| 平台 | 编译器 | 测试总数 | 通过数 | 失败数 | 编译耗时 | 测试耗时 | 状态 |
+|------|--------|---------|--------|--------|---------|---------|------|
+| 主控站 (Windows 10) | MSVC 19.43 | 1962 | 1962 | 0 | - | 617.72 sec | ✅ 通过 |
+| A 工作站 (Ubuntu 24.04) | GCC 13.3.0 | 1962 | 1962 | 0 | 33.57 sec | 360.18 sec | ✅ 通过 |
+| B 工作站 (Ubuntu) | GCC 13.3.0 | 1962 | 1962 | 0 | 34.18 sec | 355.84 sec | ✅ 通过 |
+
+**三平台完全一致**: 1962/1962 全部通过, 0 失败。A/B 站通过 HTTPS fresh clone + Eigen3 3.4.0 (GitLab) + FetchContent GoogleTest v1.14.0 + cmake Release + ctest -j 完成。
+
+**验证执行细节**:
+- A 站 (`scott-lau-NEX.local`): 设置 mihomo 代理 `http_proxy=http://127.0.0.1:7890 https_proxy=http://127.0.0.1:7890` (GitHub/GitLab/FetchContent 均通过代理)
+- B 站 (`scott-lau-GTR-Pro.local`): `unset http_proxy https_proxy` (直连, 三源均可达)
+- 验证脚本: [scripts/verify_phase7a_cross_platform.sh](./scripts/verify_phase7a_cross_platform.sh) (可复用模板)
+- GCC ctest 比 MSVC 快 1.7x (360s vs 618s), 编译速度相当 (~34s)
+
+---
+
+## Phase 7B: 金融时间序列模块调研 (2026-08-14, v3.2)
+
+> **关联文档**: [FINANCIAL_TIMESERIES_RESEARCH.md](./research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2
+> **状态**: 调研阶段完成, 实施未启动
+> **目标版本**: v1.6 M1/M2 (GARCH + 单位根), v1.7+ (MIDAS/多元波动率/VAR/因果)
+
+### Phase 7B 调研成果 (v3.2, 4 子 agent review 综合分析)
+
+**幻觉点汇总** (60 个):
+- **GARCH 族 G1-G23** (23 项): 初始化策略 / 似然常数项 / EGARCH 非对称项 / GJR 平稳性 / QMLE 协方差 / APARCH δ / FIGARCH / IGARCH / 跨库 solver / EGARCH 符号
+- **单位根 U1-U22** (22 项): ADF lag 选择 / 临界值模型形式 / MacKinnon 2010 / DF-GLS c̄值 / KPSS H0 方向 / Ng-Perron M 检验族 / MAIC / Zivot-Andrews
+- **v3.2 修正**: 12 项描述错误修正 (G1/G7/G18/U7/G-ADR1/G-ADR7/C2/C6 + 3 项文献引用 + MIDAS 权重 + Barnett-Seth 等价性)
+- **v3.2 新增**: 9 项扩展幻觉点 (G19-G23 + U19-U22)
+
+**ADR-016 边界决策** (18 项, 待归档):
+- GARCH 7 项 + 单位根 11 项
+- 基于 arch/rugarch/urca 开源库对齐原则
+
+**第二轮深度盲区扫描** (6 大类):
+- 因果检验 15 方法 (含 CCM Sugihara 2012 Science)
+- MIDAS 7 变体 (Ghysels 2004/2006/2016)
+- 多元波动率 9 方法 (含 Copula-GARCH Patton 2006, GAS Creal-Koopman-Lucas 2012)
+- VAR 族 11 方法 (含 Local Projections Jordà 2005 AER)
+- 长记忆与非线性 9 方法 (ARFIMA/FIGARCH/MS-AR/TAR/BDS)
+- 深度学习时序 8 方法 (剔除 scope, 留 Python C ABI 桥接)
+
+**七阶段开发路线图** (v1.6 → v2.0+):
+1. v1.6 M1/M2: GARCH 族 + 单位根 (P0 优先级)
+2. v1.6 M3/M4: ARIMA + MIDAS (与 Scott 研究方向衔接)
+3. v1.7: VAR 族 + 多元波动率 (CCC/DCC)
+4. v1.7 并行: 因果检验 + Transfer Entropy (依赖 KDE/KNN 基础设施)
+5. v1.8+: 长记忆 + 非线性 + MS-AR/MS-GARCH
+6. v1.8+: SVAR/BVAR/TVP-VAR (DSGE 场景)
+7. v2.0+: 信息论事前度量 (与 INFORMATION_THEORY_METRICS_RESEARCH.md 衔接)
+
+**兼容性约束** (6 项, C2/C6 经代码核查修正):
+- C1: optimizer 需扩展 SLSQP (阶段 1 前置)
+- C2: Estimator 接口已支持 TimeSeriesData (variant 第三分支), 仅 MLE/OLS 派生类 visit 逻辑需补齐
+- C4: 时序模块命名空间 `cpphub::v1::timeseries` (待归档 ADR-017)
+- C6: EconData 已含 TimeSeriesData (单变量), 仅缺 MultivariateTSData (多变量, 阶段 5 前置)
+
+**基础设施缺口识别**:
+- **KDE/KNN** (§27.1, v1.7 前置): KDE 核函数 / Silverman 带宽 / KNN / k-d tree / KSG 互信息估计
+- 与 Phase 7A `bandwidth.hpp` 滞后窗核数学含义不同, 不可复用
+
+### Phase 7B 下一步
+
+1. ~~归档 ADR-016 (v1.6 金融时间序列实施边界, 18 项)~~ ✅ 已完成 (2026-08-15)
+2. ~~归档 ADR-017 (时序模块命名空间 `cpphub::v1::timeseries`)~~ ✅ 已完成 (2026-08-15)
+3. 扩展 optimizer SLSQP (约束 C1, 阶段 1 前置)
+4. 编写 PHASE7B_FINANCIAL_TS_SPEC.md (v1.6 M1 GARCH + M2 单位根 scope)
+5. 实施阶段逐点核查 rugarch/arch/urca 源码 (容差 1e-10 至 1e-12)
+6. ARIMA + Granger 幻觉点调研 (阶段 3 前置)
+7. MIDAS 幻觉点调研 (优先级上调)
+8. KDE/KNN 基础设施补齐 (v1.7 前置)
+
+### Phase 7B SLSQP 扩展调研 (2026-08-15)
+
+> **关联文档**: [SLSQP_EXTENSION_RESEARCH.md](./research/SLSQP_EXTENSION_RESEARCH.md) v1.0
+> **状态**: 调研完成, 待进入设计阶段
+
+**调研成果**:
+- SLSQP 算法原理 (Kraft 1988 NLPQL): QP 子问题 + BFGS Hessian 近似 + L1 merit function + Armijo 线搜索
+- scipy.optimize.slsqp 源码分析: `f_ieqcons >= 0` (非负形式), `acc=1e-6`, `epsilon=sqrt(eps)` 前向差分
+- arch 包用法: 线性约束矩阵 `a.dot(params) - b >= 0`, GARCH 约束 (非负 + 平稳性)
+- 与现有 optimizer.hpp 接口对齐: 复用 `ObjectiveFn`/`Bounds`/`OptimizationResult`, 新增 `ConstraintFn`
+- 约束表达: 不等式 `c_i(x) >= 0` (与 scipy/arch 一致), 等式 `c_i(x) = 0`, 边界复用 `Bounds`
+
+**幻觉点排查** (13 项):
+- S1-S5 (算法): BFGS 用 Lagrangian 梯度 (非目标梯度), L1 merit 含等式+不等式, Armijo 用 merit (非 f)
+- I1-I4 (接口): scipy 不等式 `>= 0` (非 `<= 0`), arch 用线性约束矩阵
+- G4/G10/G15/G22 (GARCH): 来自 FINANCIAL_TIMESERIES_RESEARCH.md, 已核查
+
+**待设计阶段决策**:
+- QP 子问题求解策略: 方案 A (等式 QP + slack 变量, KKT 系统求解) vs 方案 B (完整 active-set QP)
+- 预估代码量: 400-600 行
+- 预估测试量: 10-12 个 (基础功能 5 + GARCH 应用 2 + 稳定性 3 + 数值基准 2)
+
+---
+
+## 项目当前总体状态 (2026-08-14)
+
+### 版本与测试矩阵
+
+| 版本 | 模块 | 累计测试 | 状态 |
+|------|------|---------|------|
+| v1.0-v1.3 | Phase 1-4 (核心/定价/风险/随机过程) | 974 | ✅ 稳定 |
+| v1.4.0-v1.4.3 | Phase 5 (高频计量 HFE) | 1412 | ✅ 稳定 |
+| v1.5 | Phase 6 (经典参数计量) | 1767 | ✅ 三平台通过 |
+| v1.6 | Phase 7A (证伪统计量) | 1962 | ✅ 三平台通过 (MSVC + GCC × 2) |
+| v1.6+ | Phase 7B (金融时间序列) | - | ⏳ 调研完成 (v3.2), 实施未启动 |
+
+### 累计代码规模
+
+- **头文件**: 60+ 个 (core/pricing/risk/hfecon/econometrics/calibration/models)
+- **测试用例**: 1962 个 (主控站 MSVC)
+- **排幻觉点**: 60 (HFE D1-D23) + 12 (v1.5 E1-E12) + 23 (Phase 7A H1-H23) = 95 项全部验证
+- **跨语言验证**: R 基准脚本 11 个 + Python 对照脚本 4+ 个
+- **ADR 决策**: 17 项已归档 (ADR-001 至 ADR-017), ADR-016/017 于 2026-08-15 归档
+
+### 当前工作焦点
+
+- **Phase 7A**: ✅ 完成 (三平台 1962/1962 通过, G4 gate 跨平台验证已通过)
+- **Phase 7B 启动前**: ~~ADR-016/017 归档~~ ✅ + optimizer SLSQP 扩展 + PHASE7B_FINANCIAL_TS_SPEC.md 编写
 
 ---
 

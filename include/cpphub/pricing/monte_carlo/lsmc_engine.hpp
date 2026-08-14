@@ -14,11 +14,13 @@
 //   4. 价格 = mean(discounted payoffs)
 #include "cpphub/core/types.hpp"
 #include "cpphub/core/math.hpp"
+#include "cpphub/core/rng.hpp"
 #include "cpphub/instruments/payoff/payoff.hpp"
 #include "cpphub/pricing/monte_carlo/path_generator.hpp"
 #include "cpphub/monte_carlo/control_variate.hpp"
 #include <vector>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <algorithm>
 #include <numeric>
@@ -31,6 +33,13 @@ enum class BasisType {
     Hermite,    // 概率学家 Hermite 多项式
     Monomial,   // 简单幂基 (1, x, x^2, ...)
     Chebyshev   // 第一类 Chebyshev 多项式
+};
+
+// RISK-007: K-fold 交叉验证配置
+struct CVConfig {
+    Size k_fold = 5;                                              // K-fold 数
+    std::vector<Real> lambda_grid = {0.0, 0.01, 0.1, 1.0, 10.0};  // λ 候选
+    uint64_t cv_seed = 12345;                                     // 分折随机种子
 };
 
 struct LSMCConfig {
@@ -48,6 +57,9 @@ struct LSMCConfig {
     bool antithetic = true;     // 反变量方差缩减
     Real ridge_lambda = 0.0;    // Ridge 正则化 (0=纯 OLS, >0 防 overfitting)
     PathScheme path_scheme = PathScheme::Exact;
+    // RISK-007: 交叉验证配置
+    CVConfig cv_config;                    // K-fold CV 配置
+    bool use_cross_validation = false;     // false=用 ridge_lambda, true=用 CV 选 λ
 };
 
 struct LSMCResult {
@@ -57,6 +69,8 @@ struct LSMCResult {
     Real early_exercise_premium = 0.0;  // 美式 - 欧式
     Size n_exercised = 0;       // 实际行使的路径数
     Size n_paths = 0;           // 总路径数
+    // RISK-007: 每个行使时点 CV 选择的 λ (若 use_cross_validation=true)
+    std::vector<Real> selected_lambdas;
 };
 
 // Laguerre 多项式 L_n(x) (物理学家版本)
@@ -186,6 +200,7 @@ public:
         if (exercise_times.empty()) {
             throw std::invalid_argument("LSMCEngine: exercise_times must not be empty");
         }
+        cv_selected_lambdas_.clear();  // RISK-007: 重置 CV 记录
         // 生成路径
         GBMConfig gbm_cfg{cfg_.S0, cfg_.r, cfg_.q, cfg_.sigma, cfg_.T, cfg_.n_steps};
         GBMPathGenerator gen(gbm_cfg, cfg_.path_scheme);
@@ -282,10 +297,15 @@ public:
                     }
                 }
             }
-            // Ridge 正则化
-            if (cfg_.ridge_lambda > 0.0) {
+            // Ridge 正则化: 选择 λ (固定或 CV)
+            Real lambda_used = cfg_.ridge_lambda;
+            if (cfg_.use_cross_validation) {
+                lambda_used = select_lambda_cv(X, Y_itm, m);
+                cv_selected_lambdas_.push_back(lambda_used);
+            }
+            if (lambda_used > 0.0) {
                 for (Size j = 0; j < m; ++j) {
-                    XtX[j][j] += cfg_.ridge_lambda;
+                    XtX[j][j] += lambda_used;
                 }
             }
 
@@ -348,6 +368,7 @@ public:
         result.early_exercise_premium = mean - euro_price;
         result.n_exercised = n_exercised;
         result.n_paths = n_paths;
+        result.selected_lambdas = std::move(cv_selected_lambdas_);  // RISK-007
         return result;
     }
 
@@ -355,6 +376,94 @@ public:
 
 private:
     LSMCConfig cfg_;
+    mutable std::vector<Real> cv_selected_lambdas_;  // RISK-007: CV 选择的 λ 记录
+
+    // RISK-007: K-fold 交叉验证选择最优 λ
+    // 返回最优 λ; 若样本不足 (n_itm < k_fold * basis_order) 则 fallback 到 ridge_lambda
+    Real select_lambda_cv(const std::vector<std::vector<Real>>& X,
+                            const std::vector<Real>& Y, Size m) const {
+        Size n_itm = X.size();
+        Size k = cfg_.cv_config.k_fold;
+
+        // Fallback: 样本不足以分折
+        if (n_itm < k * m) {
+            return cfg_.ridge_lambda;
+        }
+
+        // 生成分折索引 (随机排列后均分)
+        std::vector<Size> perm(n_itm);
+        std::iota(perm.begin(), perm.end(), 0);
+        Philox4x64 cv_rng(cfg_.cv_config.cv_seed);
+        // Fisher-Yates 洗牌 (用 Philox 代替 std::shuffle 保证跨平台一致)
+        for (Size i = n_itm - 1; i > 0; --i) {
+            Size j = static_cast<Size>(cv_rng() % (i + 1));
+            std::swap(perm[i], perm[j]);
+        }
+
+        // 每折大小 (最后一个折吸收余数)
+        Size fold_size = n_itm / k;
+        Size fold_remainder = n_itm % k;
+
+        Real best_mse = std::numeric_limits<Real>::max();
+        Real best_lambda = cfg_.ridge_lambda;
+
+        for (Real lambda : cfg_.cv_config.lambda_grid) {
+            Real total_mse = 0.0;
+            Size fold_start = 0;
+            for (Size fold = 0; fold < k; ++fold) {
+                Size this_fold_size = fold_size + (fold < fold_remainder ? 1 : 0);
+                Size fold_end = fold_start + this_fold_size;
+
+                // 训练集: perm[0..fold_start) + perm[fold_end..n_itm)
+                // 验证集: perm[fold_start..fold_end)
+                std::vector<std::vector<Real>> X_train;
+                std::vector<Real> Y_train;
+                for (Size idx = 0; idx < n_itm; ++idx) {
+                    if (idx >= fold_start && idx < fold_end) continue;
+                    X_train.push_back(X[perm[idx]]);
+                    Y_train.push_back(Y[perm[idx]]);
+                }
+
+                // 训练: (X_train^T X_train + λI) β = X_train^T Y_train
+                std::vector<std::vector<Real>> XtX_train(m, std::vector<Real>(m, 0.0));
+                std::vector<Real> XtY_train(m, 0.0);
+                for (Size i = 0; i < X_train.size(); ++i) {
+                    for (Size j = 0; j < m; ++j) {
+                        XtY_train[j] += X_train[i][j] * Y_train[i];
+                        for (Size jj = 0; jj < m; ++jj) {
+                            XtX_train[j][jj] += X_train[i][j] * X_train[i][jj];
+                        }
+                    }
+                }
+                if (lambda > 0.0) {
+                    for (Size j = 0; j < m; ++j) XtX_train[j][j] += lambda;
+                }
+                std::vector<Real> beta = XtY_train;
+                bool ok = solve_linear_system(XtX_train, beta, m);
+                if (!ok) {
+                    total_mse = std::numeric_limits<Real>::max();
+                    break;
+                }
+
+                // 验证集 MSE
+                for (Size idx = fold_start; idx < fold_end; ++idx) {
+                    Real pred = 0.0;
+                    for (Size j = 0; j < m; ++j) {
+                        pred += beta[j] * X[perm[idx]][j];
+                    }
+                    Real err = Y[perm[idx]] - pred;
+                    total_mse += err * err;
+                }
+                fold_start = fold_end;
+            }
+
+            if (total_mse < best_mse) {
+                best_mse = total_mse;
+                best_lambda = lambda;
+            }
+        }
+        return best_lambda;
+    }
 
     void validate_config() const {
         if (cfg_.S0 <= 0.0) throw std::invalid_argument("LSMCEngine: S0 must be positive");

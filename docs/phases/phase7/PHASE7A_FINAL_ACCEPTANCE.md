@@ -40,12 +40,18 @@
 
 ### 2.2 A/B 工作站跨平台验证
 
-| 平台 | 状态 | 备注 |
-|------|------|------|
-| A 工作站 (Ubuntu 24.04, GCC 13.3.0) | ⏸ 待验证 | A 站当前关机, 待启动后执行 fresh clone + rebuild + ctest |
-| B 工作站 (Ubuntu, GCC 13.3.0) | ⏸ 待验证 | B 站当前关机, 待启动后执行 fresh clone + rebuild + ctest |
+| 平台 | 编译器 | 测试总数 | 通过数 | 失败数 | 编译耗时 | 测试耗时 | 状态 |
+|------|--------|---------|--------|--------|---------|---------|------|
+| A 工作站 (Ubuntu 24.04, `scott-lau-NEX.local`) | GCC 13.3.0 | 1962 | 1962 | 0 | 33.57 sec | 360.18 sec | ✅ 通过 |
+| B 工作站 (Ubuntu, `scott-lau-GTR-Pro.local`) | GCC 13.3.0 | 1962 | 1962 | 0 | 34.18 sec | 355.84 sec | ✅ 通过 |
 
-**跨平台验证 G4 gate**: A/B 站 GCC 编译验证是 spec §6.2 硬要求, 当前因工作站关机暂缓, 待启动后补齐。
+**跨平台验证 G4 gate**: ✅ 已通过。A/B 站 fresh clone (HTTPS) + Eigen3 3.4.0 (GitLab) + cmake -DCMAKE_BUILD_TYPE=Release + cmake --build -j + ctest -j, 三平台完全一致 1962/1962, 0 失败。
+
+**验证执行细节** (2026-08-14):
+- A 站: `export http_proxy=http://127.0.0.1:7890 https_proxy=http://127.0.0.1:7890` (mihomo 代理, GitHub HTTPS clone + GitLab eigen + FetchContent googletest)
+- B 站: `unset http_proxy https_proxy` (直连, opencode.ai/GitHub/GitLab 均可达)
+- 验证脚本: [scripts/verify_phase7a_cross_platform.sh](../../scripts/verify_phase7a_cross_platform.sh)
+- CMake Configure: A 站 13.3s / B 站 5.7s (含 FetchContent GoogleTest v1.14.0 下载)
 
 ### 2.3 各 Wave 测试数演进
 
