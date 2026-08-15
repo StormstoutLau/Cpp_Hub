@@ -43,74 +43,79 @@
 | 1.2.6 | `include/cpphub/timeseries/unit_root/mackinnon_cv.hpp` | [ ] | MacKinnon 2010 临界值 |
 | 1.2.7 | `include/cpphub/timeseries/unit_root/unit_root_common.hpp` | [ ] | 共享工具 (Schwert/长期方差) |
 
-### 1.3 基准验证脚本 (8 个, 不入版本控制)
+### 1.3 基准验证脚本 (17 个, 已提交版本控制)
+
+> **修正说明 (2026-08-15)**: 原计划 8 个 verify 脚本不入版本控制; 实施时按 v1.4.1 可追溯惯例改为**全部提交** (`tests/fixtures/timeseries/`, commit `1441fbb`)。`.gitignore` 排除的仅限含版权的第三方源码副本。单位根 5 检验 (ADF/PP/KPSS/DF-GLS/VR) 合并为单一 `verify_unit_root.py`; 另提交 12 个 probe 脚本 (arch 源码逐点核查过程可追溯)。
 
 | # | 脚本 | 状态 | 备注 |
 |---|------|------|------|
 | 1.3.1 | `tests/fixtures/timeseries/verify_garch.py` | [ ] | arch GARCH(1,1) 对照 |
 | 1.3.2 | `tests/fixtures/timeseries/verify_egarch.py` | [ ] | arch EGARCH 对照 |
 | 1.3.3 | `tests/fixtures/timeseries/verify_gjr.py` | [ ] | arch GJR 对照 |
-| 1.3.4 | `tests/fixtures/timeseries/verify_adf.py` | [ ] | arch ADF 对照 |
-| 1.3.5 | `tests/fixtures/timeseries/verify_pp.py` | [ ] | arch PP 对照 |
-| 1.3.6 | `tests/fixtures/timeseries/verify_kpss.py` | [ ] | arch KPSS 对照 |
-| 1.3.7 | `tests/fixtures/timeseries/verify_df_gls.py` | [ ] | arch DF-GLS 对照 |
-| 1.3.8 | `tests/fixtures/timeseries/verify_variance_ratio.py` | [ ] | arch 方差比对照 |
+| 1.3.4 | `tests/fixtures/timeseries/verify_unit_root.py` | [ ] | arch 单位根 5 检验合并对照 (ADF/PP/KPSS/DF-GLS/VR) |
+| 1.3.5 | `tests/fixtures/timeseries/gen_mackinnon_tables.py` | [ ] | MacKinnon 2010 系数表 arch 源码 → C++ 生成器 |
+| 1.3.6 | `probe_arch_unitroot(1-6).py` 等 12 个 probe | [ ] | arch 源码逐点核查 (convention/cov/egarch/unitroot×6/egarch_sim/egarch_src/gjr_h1) |
 
-### 1.4 测试套件 (12 套, 191 用例)
+### 1.4 测试套件 (13 套, 203 用例)
+
+> **修正说明 (2026-08-15)**: 原列 12 套 191 例; 实际交付 13 套 203 例 — 补 `test_unit_root_common` (12 例), 且 garch_distribution 13 / variance_ratio 22 / mackinnon_cv 12 / integration 5 与原估计有出入。M1 = 84, M2 = 114, 集成 = 5。
 
 | # | 测试套件 | 用例数 | 状态 | 备注 |
 |---|----------|--------|------|------|
-| 1.4.1 | `test_garch_model` | 20 | [ ] | |
-| 1.4.2 | `test_egarch_model` | 18 | [ ] | |
-| 1.4.3 | `test_gjr_garch_model` | 18 | [ ] | |
-| 1.4.4 | `test_garch_distribution` | 12 | [ ] | |
-| 1.4.5 | `test_garch_diagnostics` | 15 | [ ] | |
-| 1.4.6 | `test_adf_test` | 20 | [ ] | |
-| 1.4.7 | `test_pp_test` | 15 | [ ] | |
-| 1.4.8 | `test_kpss_test` | 15 | [ ] | |
-| 1.4.9 | `test_df_gls_test` | 18 | [ ] | |
-| 1.4.10 | `test_variance_ratio_test` | 20 | [ ] | |
-| 1.4.11 | `test_mackinnon_cv` | 10 | [ ] | |
-| 1.4.12 | `test_integration_phase7b` | 10 | [ ] | 端到端集成 |
+| 1.4.1 | `test_garch_model` | 20 | [ ] | M1 |
+| 1.4.2 | `test_egarch_model` | 18 | [ ] | M1 |
+| 1.4.3 | `test_gjr_garch_model` | 18 | [ ] | M1 |
+| 1.4.4 | `test_garch_distribution` | 13 | [ ] | M1 |
+| 1.4.5 | `test_garch_diagnostics` | 15 | [ ] | M1 |
+| 1.4.6 | `test_adf_test` | 20 | [ ] | M2 |
+| 1.4.7 | `test_pp_test` | 15 | [ ] | M2 |
+| 1.4.8 | `test_kpss_test` | 15 | [ ] | M2 |
+| 1.4.9 | `test_df_gls_test` | 18 | [ ] | M2 |
+| 1.4.10 | `test_variance_ratio_test` | 22 | [ ] | M2 |
+| 1.4.11 | `test_mackinnon_cv` | 12 | [ ] | M2 |
+| 1.4.12 | `test_unit_root_common` | 12 | [ ] | M2 (原清单遗漏) |
+| 1.4.13 | `test_integration_phase7b` | 5 | [ ] | 端到端集成 (spec §4 即 5 场景, 原列 10 有误) |
 
 ---
 
 ## 2. 编译与跨平台测试
 
+> **实测数据 (2026-08-15, 已完成)**: 主控 MSVC **2207/2207** (614.21 sec) / A 站 GCC **2189/2189** (364.47 sec) / B 站 GCC **2189/2189** (358.56 sec), 零失败; GitHub Actions CI run #47 (commit `a1b7215`) 4/4 job 全绿 (仓库首个)。MSVC 与 GCC 18 个测试差额为平台专属用例, 非功能差异。A/B 站当日 github 阻断, 采用 bundle 中继 (git bundle + googletest/eigen 源 tar scp + FETCHCONTENT_SOURCE_DIR 本地覆盖)。状态列留白待正式验收签署。
+
 ### 2.1 主控站 (Windows MSVC Release)
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.1.1 | CMake 配置成功 (`cmake -DCPPHUB_ENABLE_C_API=ON`) | [ ] | |
-| 2.1.2 | MSVC Release 编译零警告零错误 | [ ] | |
-| 2.1.3 | 全量 ctest 通过 (新增 ~201 + 现有 = ~2205) | [ ] | 记录通过数: _____ / _____ |
-| 2.1.4 | 无现有测试退化 (Phase 1-7A 全部仍通过) | [ ] | |
-| 2.1.5 | SLSQP 12/12 测试仍通过 (ADR-018 无退化) | [ ] | |
+| 2.1.1 | CMake 配置成功 (`cmake -DCPPHUB_ENABLE_C_API=ON`) | [ ] | 实测通过 (2026-08-15) |
+| 2.1.2 | MSVC Release 编译零警告零错误 | [ ] | 实测通过 (MSVC 19.50) |
+| 2.1.3 | 全量 ctest 通过 (新增 ~201 + 现有 = ~2205) | [ ] | 实测 **2207/2207** (614.21 sec) |
+| 2.1.4 | 无现有测试退化 (Phase 1-7A 全部仍通过) | [ ] | 实测零回归 |
+| 2.1.5 | SLSQP 12/12 测试仍通过 (ADR-018 无退化) | [ ] | 实测通过 (Calib 套件 12/12) |
 
 ### 2.2 A 站 (Ubuntu GCC)
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.2.1 | fresh clone + rebuild 成功 | [ ] | |
-| 2.2.2 | GCC 编译零警告零错误 | [ ] | |
-| 2.2.3 | ctest 全量通过 | [ ] | 记录通过数: _____ / _____ |
-| 2.2.4 | 与主控站数值一致 (容差 1e-10) | [ ] | |
+| 2.2.1 | fresh clone + rebuild 成功 | [ ] | 实测通过 (bundle 中继 + eigen tar, GCC 13.3) |
+| 2.2.2 | GCC 编译零警告零错误 | [ ] | 实测通过 |
+| 2.2.3 | ctest 全量通过 | [ ] | 实测 **2189/2189** (364.47 sec) |
+| 2.2.4 | 与主控站数值一致 (容差 1e-10) | [ ] | 实测一致 (硬编码基准三平台同源) |
 
 ### 2.3 B 站 (Ubuntu GCC)
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.3.1 | fresh clone + rebuild 成功 | [ ] | |
-| 2.3.2 | GCC 编译零警告零错误 | [ ] | |
-| 2.3.3 | ctest 全量通过 | [ ] | 记录通过数: _____ / _____ |
-| 2.3.4 | 与主控站数值一致 (容差 1e-10) | [ ] | |
+| 2.3.1 | fresh clone + rebuild 成功 | [ ] | 实测通过 (bundle 中继 + eigen tar, GCC 13.3) |
+| 2.3.2 | GCC 编译零警告零错误 | [ ] | 实测通过 |
+| 2.3.3 | ctest 全量通过 | [ ] | 实测 **2189/2189** (358.56 sec) |
+| 2.3.4 | 与主控站数值一致 (容差 1e-10) | [ ] | 实测一致 (硬编码基准三平台同源) |
 
 ### 2.4 三平台一致性
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.4.1 | SLSQP + GARCH + 单位根测试三平台无数值偏差 | [ ] | |
-| 2.4.2 | 无平台相关编译宏差异 (如 `timegm`/`_mkgmtime`) | [ ] | |
+| 2.4.1 | SLSQP + GARCH + 单位根测试三平台无数值偏差 | [ ] | 实测一致 (含 CI run #47 双平台全绿) |
+| 2.4.2 | 无平台相关编译宏差异 (如 `timegm`/`_mkgmtime`) | [ ] | 实测无新增平台宏 (7B 全 header-only, 纯 std) |
 
 ---
 
@@ -401,6 +406,8 @@
 
 ## 7. 端到端集成测试
 
+> **修正说明 (2026-08-15)**: 实际交付为 **5 个 TEST 场景** (与 spec §4 表格 1:1, 即 7.1-7.5); 7.6-7.10 为复用/方向性验证点, 内嵌于 5 场景断言或由对应单测套件覆盖 (Kupiec/MZ/DM/BH 在场景 1/3/4 内, t 分布残差与 EGARCH 杠杆在 test_garch_diagnostics / test_egarch_model 内)。
+
 | # | 场景 | 验证点 | 状态 | 备注 |
 |---|------|--------|------|------|
 | 7.1 | GARCH→VaR 集成 | GARCH 波动率 → VaR → Backtest 通路完整 | [ ] | |
@@ -581,7 +588,7 @@
 
 | 维度 | 总项数 | 通过 | 未通过 | 通过率 |
 |------|--------|------|--------|--------|
-| 1. 交付物完整性 | 33 | | | |
+| 1. 交付物完整性 | 43 | | | |
 | 2. 编译与跨平台 | 15 | | | |
 | 3. M1 GARCH 数值基准 | 48 | | | |
 | 4. M2 单位根数值基准 | 38 | | | |
@@ -595,7 +602,9 @@
 | 12. 文档对齐 | 7 | | | |
 | 13. 性能验证 | 6 | | | |
 | 14. 风险项 | 10 | | | |
-| **总计** | **302** | | | |
+| **总计** | **312** | | | |
+
+> 注: §1 项数 33→43 (§1.3 脚本 8→17 项, §1.4 套件 12→13 套), 总计 302→312 (2026-08-15 修正)。
 
 ### 15.2 验收结论
 
