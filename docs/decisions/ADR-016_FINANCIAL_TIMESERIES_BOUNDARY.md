@@ -5,7 +5,7 @@
 **版本归属**: v1.6 (Phase 7B M1/M2)
 **关联 Phase**: 7B
 **决策者**: 架构组
-**调研依据**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §13-14 (经 4 子 agent review 综合分析, 60 个幻觉点全部验证, G-ADR1/G-ADR7 决策依据已修正)
+**调研依据**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §13-14 (经 4 子 agent review 综合分析, 60 个幻觉点全部验证, G-ADR1/G-ADR7 决策依据已修正; 2026-08-15 二次审计修正 U-ADR1/5/7/8/10 决策依据与 spec 对齐)
 
 ---
 
@@ -42,16 +42,16 @@ v1.6 GARCH 族与单位根检验实施中存在 18 个边界决策点 (GARCH 7 �
 
 | # | 决策点 | 候选方案 | 决策 | 依据 |
 |---|--------|---------|------|------|
-| **U-ADR1** | ADF lag 选择规则 | (a) 立方根 floor(T^1/3) (b) Schwert floor(12(T/100)^0.25) (c) AIC/BIC | **(b) Schwert** | `arch` 默认; Schwert 1989; 可选 AIC/BIC 作为备选 (U1) |
+| **U-ADR1** | ADF lag 选择规则 | (a) 立方根 floor(T^1/3) (b) Schwert ceil(12(T/100)^0.25) (c) AIC/BIC | **(b) Schwert** | `arch` 默认; Schwert 1989; ceil (向上取整, 非 floor); 可选 AIC/BIC 作为备选 (U1) |
 | **U-ADR2** | ADF 方程形式选择 | (a) 手动指定 nc/c/ct (b) 自动 (趋势检验后选择) | **(b) 自动** | `arch` 默认自动; 基于趋势显著性选择 c/ct; 减少用户误选 (U2) |
 | **U-ADR3** | 临界值来源 | (a) MacKinnon 1996 (b) MacKinnon 2010 response surface (c) 查表 | **(b) MacKinnon 2010** | `arch` 已用 2010; 4 系数 response surface, 精度最高 (U3/U13) |
 | **U-ADR4** | DF-GLS demean 临界值 | (a) ERS 1996 原表 (b) `arch` 独立系数表 | **(b) arch 独立表** | ERS 原表仅含 trend; demean 需 `arch` 扩展系数 (U7) |
-| **U-ADR5** | DF-GLS c̄值 | (a) 0 (b) ERS 固定值 c̄₁=-7.0, c̄₂=-13.5 | **(b) ERS 固定值** | ERS 1996; detrending 回归必须含 c̄ (U8) |
+| **U-ADR5** | DF-GLS c̄值 | (a) 0 (b) ERS 固定值 c̄=-7.0 (demean) / c̄=-13.5 (trend) | **(b) ERS 固定值** | ERS 1996; trend_spec=="c" => c̄=-7.0 (demean, 弱 detrending); trend_spec=="ct" => c̄=-13.5 (trend, 强 detrending); detrending 回归必须含 c̄ (U8); 与 arch `dfgls.py` 实现一致 |
 | **U-ADR6** | KPSS H0 方向标注 | (a) 单位根 (错误) (b) 平稳性 | **(b) 平稳性** | KPSS 1992; API 必须明确标注 H0/H1 方向, 避免与 ADF 混淆 (U12) |
-| **U-ADR7** | KPSS 长期方差带宽 | (a) 固定 (b) Andrews 自动 (c) Schwert | **(b) Andrews 自动** | KPSS 1992; `arch` 默认; 带宽影响长期方差估计 (U11) |
-| **U-ADR8** | PP 检验带宽 | (a) 固定 (b) Newey-West automatic (c) Andrews | **(b) NW automatic** | Phillips-Perron 1988; `arch` 默认; PP 用 Bartlett 核 (U5/U6) |
+| **U-ADR7** | KPSS 长期方差带宽 | (a) 固定 (b) Hobijn et al. 1998 数据依赖法 (c) Schwert | **(b) Hobijn et al. 1998** | KPSS 1992; `arch` KPSS `_autolag` 默认 (基于 Bartlett 核假设); 带宽影响长期方差估计 (U11); legacy 模式 (lags=-1) 用 Schwert 规则; 核函数为 Bartlett (非 QS, arch `unitroot.py:1336,1352-1357` 实测) |
+| **U-ADR8** | PP 检验带宽 | (a) 固定 (b) Schwert 规则 ceil(12(T/100)^0.25) (c) Andrews | **(b) Schwert 规则** | Phillips-Perron 1988; `arch` 默认 (与 ADF lag 相同公式, `unitroot.py:1135-1136` 实测); PP 用 Bartlett 核 (通过 cov_nw, 与 KPSS 相同; U5/U6) |
 | **U-ADR9** | 基准对照软件 | (a) R urca (b) Python arch (c) R tseries | **(b) Python arch** | `arch` 用 MacKinnon 2010 (最新); `urca` 可能用旧版; 统一用 `arch` 作为 C++ 基准 |
-| **U-ADR10** | 方差比检验变体 | (a) 仅 Z₁/Z₂ (b) Z₁/Z₂ + Chow-Denning (c) 全部含 debiased | **(c) 全部** | 覆盖 Lo-MacKinlay + Chow-Denning + Chen-Deo; 多重检验复用 Phase 7A `multiple_test_correction` (U14-U17) |
+| **U-ADR10** | 方差比检验变体 | (a) 仅 Z₁/Z₂ (b) Z₁/Z₂ + Chow-Denning (c) 全部含 debiased | **(c) 全部** | 覆盖 Lo-MacKinlay + Chow-Denning + CLM debiased (Campbell-Lo-MacKinlay 1997, 非 Chen-Deo 2006); 多重检验复用 Phase 7A `multiple_test_correction` (U14-U17); Chow-Denning 用 Z₂ (异方差稳健) + SMM(m,∞) 联合分布 |
 | **U-ADR11** | 结构断点检验 | (a) v1.6 纳入 Zivot-Andrews (b) 推迟到 v1.7 | **(b) 推迟 v1.7** | v1.6 scope 已满; ZA 检验需独立临界值表; Phase 7A 已有 CUSUM/Andrews 通用框架 (U18) |
 
 ---
@@ -70,15 +70,15 @@ v1.6 GARCH 族与单位根检验实施中存在 18 个边界决策点 (GARCH 7 �
 
 ### 单位根检验决策理由
 
-1. **U-ADR1 Schwert**: Schwert 1989 基于 ARMA 谱窗的 lag 选择规则, 对多种数据生成过程稳健; `arch` 默认, 保证基准一致
+1. **U-ADR1 Schwert**: Schwert 1989 基于 ARMA 谱窗的 lag 选择规则 `ceil(12·(T/100)^0.25)` (向上取整, 非 floor; arch `unitroot.py:378-380, 1136, 1326` 三处实测一致), 对多种数据生成过程稳健; `arch` 默认, 保证基准一致
 2. **U-ADR2 自动**: 用户可能误选方程形式 (如对明显有趋势的数据选 nc), 自动选择基于趋势显著性检验, 减少人为错误
 3. **U-ADR3 MacKinnon 2010**: 2010 版 response surface 方法用 4 系数多项式逼近临界值, 精度远高于 1996 版查表; `arch` 已采用
 4. **U-ADR4 arch 独立表**: ERS 1996 原表仅含 trend case, demean case 需 `arch` 扩展的独立系数; 用 ERS 原表会导致 demean 检验临界值错误
-5. **U-ADR5 ERS 固定值**: c̄₁=-7.0 (trend), c̄₂=-13.5 (demean) 是 ERS 1996 推导的 detrending 回归常数, 省略会导致 GLS detrending 错误
+5. **U-ADR5 ERS 固定值**: c̄=-7.0 (demean, trend_spec=="c"), c̄=-13.5 (trend, trend_spec=="ct") 是 ERS 1996 推导的 detrending 回归常数, 省略会导致 GLS detrending 错误; 与 arch `dfgls.py` 实现一致
 6. **U-ADR6 平稳性**: KPSS 的 H₀ 是平稳性 (与 ADF 相反), API 必须明确标注, 避免用户混淆
-7. **U-ADR7/U-ADR8 Andrews/NW 自动**: 带宽选择影响长期方差估计, 自动选择比固定值更稳健; `arch` 默认策略
+7. **U-ADR7 Hobijn et al. 1998 / U-ADR8 Schwert 规则**: KPSS 用 Hobijn et al. 1998 数据依赖法 (arch KPSS `_autolag` 默认, 基于 Bartlett 核假设); PP 用 Schwert 规则 `ceil(12·(T/100)^0.25)` (与 ADF lag 相同公式, arch `unitroot.py:1135-1136` 实测); 两者均用 Bartlett 核 (非 QS 核), 带宽影响长期方差估计
 8. **U-ADR9 Python arch**: `arch` 用最新 MacKinnon 2010, `urca` 可能用旧版, 统一用 `arch` 保证基准最新
-9. **U-ADR10 全部变体**: 方差比检验有多个变体 (Z₁/Z₂/Chow-Denning/Chen-Deo), 全部实现覆盖所有用例; 多重检验复用 Phase 7A 的 `multiple_test_correction`
+9. **U-ADR10 全部变体**: 方差比检验有多个变体 (Z₁/Z₂/Chow-Denning/CLM debiased), 全部实现覆盖所有用例; CLM debiased 是 Campbell-Lo-MacKinlay 1997 重叠块偏差修正 (arch `debiased=True` 实现, 非 Chen-Deo 2006); Chow-Denning 联合检验用 Z₂ (异方差稳健) + SMM(m,∞) 分布; 多重检验复用 Phase 7A 的 `multiple_test_correction`
 10. **U-ADR11 推迟 ZA**: Zivot-Andrews 结构断点检验需独立临界值表, v1.6 scope 已满 (GARCH + 单位根 + 方差比); Phase 7A 已有 CUSUM/Andrews 通用结构断点框架, ZA 可在 v1.7 补充
 
 ---
@@ -122,7 +122,7 @@ v1.6 GARCH 族与单位根检验实施中存在 18 个边界决策点 (GARCH 7 �
 
 18 项决策点对应的幻觉点 (G1-G23, U1-U22) 必须在实施时逐点核查:
 - **GARCH 族**: G1 (backcast), G7 (EGARCH 非对称项), G9 (QMLE sandwich), G11 (JB Bootstrap), G14 (t 分布联合估计), G15/G22 (SLSQP vs solnp), G16 (多起始), G18 (GARCH-M 参数化)
-- **单位根**: U1 (Schwert lag), U2 (自动方程形式), U3/U13 (MacKinnon 2010), U5/U6 (PP 带宽), U7 (DF-GLS demean), U8 (c̄值), U11 (KPSS 带宽), U12 (KPSS H0 方向), U14-U17 (方差比变体), U18 (ZA 推迟)
+- **单位根**: U1 (Schwert lag, ceil 非 floor), U2 (自动方程形式), U3/U13 (MacKinnon 2010, 4 系数 3 次多项式), U5 (PP 带宽用 Schwert 规则, 非 NW automatic), U6 (PP 用 Bartlett 核, 与 KPSS 相同), U7 (DF-GLS demean), U8 (c̄值, c→-7.0/ct→-13.5), U9 (GLS detrending 用 ρ̄=1+c̄/T), U11 (KPSS 带宽用 Hobijn et al. 1998, 非 Andrews; 核用 Bartlett, 非 QS), U12 (KPSS H0 方向), U14-vr (VR(k) 不再除 k), U15 (Z₂ 三重: 因子 4/4 阶矩 δⱼ/√T), U16 (Chow-Denning 用 Z₂ + SMM 分布), U17 (CLM debiased, 非 Chen-Deo 2006), U18 (ZA 推迟)
 
 ---
 
