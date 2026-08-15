@@ -523,3 +523,86 @@ gtest_discover_tests(test_greeks_consistency)
 add_executable(test_integration_phase7a unit/econometrics/test_integration_phase7a.cpp)
 target_link_libraries(test_integration_phase7a PRIVATE cpphub_core GTest::gtest_main)
 gtest_discover_tests(test_integration_phase7a)
+
+# === Phase 7B v1.6 M1: GARCH 族 (PHASE7B_FINANCIAL_TS_SPEC.md §1.2) ===
+# 命名空间 cpphub::v1::timeseries::garch (ADR-017), 无 Eigen3 依赖
+
+# test_garch_distribution: Normal/t/GED 似然 (12 用例, 排幻觉 G3/G14/G-GED1)
+add_executable(test_garch_distribution unit/timeseries/test_garch_distribution.cpp)
+target_link_libraries(test_garch_distribution PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_garch_distribution)
+
+# test_garch_model: GARCH(1,1) QMLE + backcast + filter + sandwich + forecast
+# (20 用例, spec §2.0.2 测试矩阵; 基准 garch_baseline.inc 由 verify_garch.py 生成)
+add_executable(test_garch_model unit/timeseries/test_garch_model.cpp)
+target_link_libraries(test_garch_model PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_garch_model)
+
+# test_egarch_model: EGARCH(1,1) QMLE + 杠杆效应 + E|z| + forecast
+# (18 用例, spec §2.0.3 测试矩阵; 基准 egarch_baseline.inc 由 verify_egarch.py 生成)
+add_executable(test_egarch_model unit/timeseries/test_egarch_model.cpp)
+target_link_libraries(test_egarch_model PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_egarch_model)
+
+# test_gjr_garch_model: GJR-GARCH(1,1) QMLE + 非对称项 + 平稳性 + forecast
+# (18 用例, spec §2.0.4 测试矩阵; 基准 gjr_baseline.inc 由 verify_gjr.py 生成)
+add_executable(test_gjr_garch_model unit/timeseries/test_gjr_garch_model.cpp)
+target_link_libraries(test_gjr_garch_model PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_gjr_garch_model)
+
+# test_garch_diagnostics: 标准化残差 JB(Bootstrap)/LB(z)/LB(z²) (15 用例,
+# spec §2.0.6 测试矩阵; 复用 Phase 7A residual_diagnostics, 无基准文件)
+add_executable(test_garch_diagnostics unit/timeseries/test_garch_diagnostics.cpp)
+target_link_libraries(test_garch_diagnostics PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_garch_diagnostics)
+
+# === Phase 7B v1.6 M2: 单位根检验 (PHASE7B_FINANCIAL_TS_SPEC.md §3) ===
+# 命名空间 cpphub::v1::timeseries::unit_root (ADR-017), 无 Eigen3 依赖
+
+# test_unit_root_common: Schwert lag/AIC 选择/LRV/trend spec (12 用例,
+# 排幻觉 U1/U2/U5/U11; 基准 unit_root_baseline.inc 由 verify_unit_root.py 生成)
+add_executable(test_unit_root_common unit/timeseries/test_unit_root_common.cpp)
+target_link_libraries(test_unit_root_common PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_unit_root_common)
+
+# test_mackinnon_cv: MacKinnon 2010 response surface 临界值/p 值 + KPSS 插值
+# (12 用例, 排幻觉 U3/U6/U7/U13)
+add_executable(test_mackinnon_cv unit/timeseries/test_mackinnon_cv.cpp)
+target_link_libraries(test_mackinnon_cv PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_mackinnon_cv)
+
+# test_adf_test: ADF 检验 (20 用例, 排幻觉 U1-U4; Schwert lag + nc/c/ct +
+# MacKinnon 2010 + AIC 固定截断样本)
+add_executable(test_adf_test unit/timeseries/test_adf_test.cpp)
+target_link_libraries(test_adf_test PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_adf_test)
+
+# test_pp_test: Phillips-Perron 检验 (15 用例, 排幻觉 U5/U6/U5-sigma2;
+# Bartlett 核 + Schwert 带宽无上限 + 两套方差定义)
+add_executable(test_pp_test unit/timeseries/test_pp_test.cpp)
+target_link_libraries(test_pp_test PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_pp_test)
+
+# test_kpss_test: KPSS 平稳性检验 (15 用例, 排幻觉 U10-U12; H0 方向反转 +
+# Hobijn 带宽 + Bartlett 核 + legacy Schwert 等价)
+add_executable(test_kpss_test unit/timeseries/test_kpss_test.cpp)
+target_link_libraries(test_kpss_test PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_kpss_test)
+
+# test_df_gls_test: DF-GLS 检验 (18 用例, 排幻觉 U7-U9/U20/U21; GLS
+# detrending ρ̄=1+c̄/T + AIC lag on OLS-detrended + 独立临界值表)
+add_executable(test_df_gls_test unit/timeseries/test_df_gls_test.cpp)
+target_link_libraries(test_df_gls_test PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_df_gls_test)
+
+# test_variance_ratio_test: 方差比检验 (20 用例, 排幻觉 U14-U17/U-log;
+# Lo-MacKinlay Z1/Z2 + CLM debiased + Chow-Denning SMM 联合)
+add_executable(test_variance_ratio_test unit/timeseries/test_variance_ratio_test.cpp)
+target_link_libraries(test_variance_ratio_test PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_variance_ratio_test)
+
+# test_integration_phase7b: 端到端集成 (spec §4, 5 场景: GARCH→VaR+Kupiec /
+# ADF 伪回归 / GARCH vs HAR MZ+DM / 多检验 BH / 残差三重诊断)
+add_executable(test_integration_phase7b unit/timeseries/test_integration_phase7b.cpp)
+target_link_libraries(test_integration_phase7b PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_integration_phase7b)

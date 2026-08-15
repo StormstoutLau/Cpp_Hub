@@ -118,17 +118,22 @@ include/cpphub/timeseries/
 │   ├── garch_model.hpp
 │   ├── egarch_model.hpp
 │   ├── gjr_garch_model.hpp
-│   ├── aparch_model.hpp
-│   ├── figarch_model.hpp
-│   ├── igarch_model.hpp
-│   └── garch_m_model.hpp
+│   ├── garch_distribution.hpp    # M1: Normal/t/GED 似然
+│   ├── garch_forecast.hpp        # M1: 多步方差预测
+│   ├── garch_diagnostics.hpp     # M1: 标准化残差诊断 (复用 Phase 7A)
+│   ├── aparch_model.hpp          # 推迟 v1.6+
+│   ├── figarch_model.hpp         # 推迟 v1.6+
+│   ├── igarch_model.hpp          # 推迟 v1.6+
+│   └── garch_m_model.hpp         # 推迟 v1.6+
 ├── unit_root/                # v1.6 M2
 │   ├── adf_test.hpp
 │   ├── df_gls_test.hpp
 │   ├── kpss_test.hpp
 │   ├── pp_test.hpp
-│   ├── ng_perron_test.hpp
-│   └── variance_ratio_test.hpp
+│   ├── variance_ratio_test.hpp
+│   ├── mackinnon_cv.hpp          # M2: MacKinnon 2010 临界值
+│   ├── unit_root_common.hpp      # M2: 共享工具 (Schwert/长期方差)
+│   └── ng_perron_test.hpp        # 推迟 v1.7
 ├── arima/                    # v1.6 M3
 │   ├── ar_model.hpp
 │   └── arima_model.hpp
