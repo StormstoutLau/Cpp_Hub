@@ -25,7 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          # pinned: win25 (windows-latest) 将随 VS2026 转正移除 VS2022; win22 支持至 2027-10
+          - os: windows-2022
             compiler: MSVC
             cmake_generator: "Visual Studio 17 2022"
             cmake_extra: ""
@@ -37,6 +38,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # third_party/eigen 是 submodule (ADR-013); 缺失导致 Eigen/Dense 编译失败
+          submodules: recursive
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
@@ -51,11 +55,13 @@ jobs:
       - name: Cache GoogleTest
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ runner.os == 'Windows' && 'build/_deps' || 'build/_deps' }}
+          path: build/_deps
           key: gtest-1.14.0-${{ runner.os }}-${{ matrix.compiler }}
 
+      # shell: bash — Windows 默认 pwsh 不认 bash 反斜杠续行, 逐行拆成独立命令导致
+      # "-G: command not found" (自 run #1 起 Windows Configure 全败的根因)
       - name: Configure CMake
+        shell: bash
         run: |
           cmake -S . -B build \
             -G "${{ matrix.cmake_generator }}" \
@@ -79,11 +85,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-2022, ubuntu-latest]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
@@ -102,6 +110,7 @@ jobs:
           key: gtest-1.14.0-${{ runner.os }}-capi
 
       - name: Configure CMake (C API enabled)
+        shell: bash
         run: |
           cmake -S . -B build \
             -G "${{ runner.os == 'Windows' && 'Visual Studio 17 2022' || 'Ninja' }}" \
