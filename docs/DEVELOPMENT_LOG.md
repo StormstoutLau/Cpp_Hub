@@ -2415,7 +2415,43 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 - **Phase 7A**: ✅ 完成 (三平台 1962/1962 通过, G4 gate 跨平台验证已通过)
 - **Phase 7B**: ✅ 完成 (M1/M2 + 集成 2207/2207 三平台 + CI 全绿, [最终验收](./phases/phase7/PHASE7B_FINAL_ACCEPTANCE.md) 2026-08-15)
-- **下一步**: v1.6+ M3/M4 (ARIMA + MIDAS) 调研已备 (DEVELOPMENT_LOG 待办 6/7), 或 v1.7 (VAR/DCC/因果)
+- **Phase 7C**: 调研完成 ([PHASE7C_RESEARCH.md](./research/PHASE7C_RESEARCH.md) v1.0 2026-08-16), 待编写 PHASE7C_SPEC.md
+
+---
+
+## Phase 7C: v1.7 多变量时序与混频模块调研 (2026-08-16)
+
+> **关联文档**: [PHASE7C_RESEARCH.md](./research/PHASE7C_RESEARCH.md) v1.0
+> **状态**: 调研完成, 待编写 PHASE7C_SPEC.md
+> **目标版本**: v1.7 M0-M4
+
+### Phase 7C Scope 决策 (2026-08-16 确认)
+
+- **纳入**: 回填三项 (NP/ZA/GARCH-M) + M1 ARIMA/Granger + M2 VAR/IRF/FEVD/DY + M3 协整 + M4 MIDAS
+- **推迟 v1.8**: 多元 GARCH (CCC/DCC) + Kalman + KDE/KNN/TE 基础设施 + 长记忆族 (APARCH/FIGARCH/IGARCH, 与 ARFIMA/HYGARCH 统一主题调研)
+
+### Phase 7C 调研成果 (5 方向并行)
+
+**幻觉点汇总** (56 项):
+- ARIMA/Granger 15 项 (AR1-AR8/GR1-GR7): MA 符号两库同号 (反直觉), CSS 须 method 配对对照, TY Wald df=k
+- VAR/DY 13 项 (V1-V13): Cholesky 下三角, IC 用 ML 协方差 (÷T), GFEVD 须行归一化, statsmodels 无 GFEVD 须自实现
+- 协整 12 项 (CI1-CI12): EG 临界值 1994 表 (非 2010), β 归一化三库三种 (对照比较张成空间), ECT t 检验非标准分布
+- MIDAS 8 项 (MD1-MD8): nealmon j 从 1 起, lag0=期末对齐, midasr 唯一主基准 (Python 无)
+- 回填 16 项 (NP1-6/ZA1-5/GM1-5): NP 无开源基准 (Stata dfgls 不输出 M 族), ZA 三库滞后策略差异, GM archpow=1→σ/2→σ²
+
+**文献修正** (9 处): PS 1998 = Econ. Letters (非 J.Econ); Johansen 1988 = JEDC (非 JASA); MHM 1999 = JAE; PSS 2001 = JAE; NP 2001 = Econometrica (非 J.Econ); U-MIDAS = F-M-Schumacher 2011/2015; GSV 综述 = 2007 (非 2006); K-Z 2012 (非 K-R 2010); ZA 刊名 JBES (statsmodels 误写)
+
+**ADR-019 边界决策建议** (26 项) + **兼容性约束** (7 项) + **风险** (9 项, 高 3: Johansen 临界值录入 / NP 无基准 / ARIMA 多局部极值)
+
+**对照库缺口关键发现**: NP M 族无任何成熟开源库 (基准=文献+文献 Table+EViews/Julia); MIDAS Python 生态空白 (midasr 0.9 唯一); GARCH-M 仅 arch 8.0 新增 ARCHInMean + rugarch
+
+### Phase 7C 下一步
+
+1. 编写 PHASE7C_SPEC.md (M0-M4 逐模块: 接口/基准/容差/测试用例)
+2. 归档 ADR-019 (v1.7 实施边界, 26 项决策定稿)
+3. 临界值表工程先行: MacKinnon 1994 协整表 + OL1992 Johansen 表 + ZA1992 表 + NP Table 1 (转录+双库 diff)
+4. M0 回填实施 (框架已热): NP → ZA → GARCH-M
+
 
 ---
 
