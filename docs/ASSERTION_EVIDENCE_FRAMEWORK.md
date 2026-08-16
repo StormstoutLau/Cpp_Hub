@@ -171,3 +171,88 @@ def audit_class_b(assertion, source_evidence, auditor_agent):
 | 审计成本 | 3 agent × 126 条全量独立重查 | 1 遍机械核验 (脚本) + 1 agent 攻 B 类重推导 + 双源抽查 |
 | 审计输入 | 散文混断言 | 结构化断言表 (可直接喂 4.3 脚本) |
 | 无法消除项 | — | 双方误读同一来源 (→双源规则), 推理型残余 (→STEP_GAP 复查) |
+
+---
+
+## 7. 调研 Agent 报告模板 Prompt 约束 (可直接粘贴)
+
+> 目的: 让调研报告本身成为审计工具的直接输入 — `python scripts/assertion_audit.py audit --input <报告.md>`
+> 自动提取附录 B 的 ```assertions 机读块 (已实现并验证)。生成端与审计端共用同一份状态词表与 ID 体系。
+
+```markdown
+【报告模板约束 — 你的 Markdown 输出必须遵循以下骨架: 逐节存在, 顺序不变, ID 稳定不复用】
+
+# <主题> 调研报告 v<x.y> (<日期>)
+
+## 0. 断言统计表 (必填, 审计入口)
+| 级别 | 条数 | 说明 |
+|------|------|------|
+| A 事实类 | n | 每条附 URL+引文 |
+| B 推断类 | m | 每条有 ID, 登记于附录 B |
+| C 判断类 | k | 仅 rationale |
+| 假设区 | h | 无证据断言, 禁止进入正文 |
+
+正文规则 (逐条自检后才算完成):
+R1 每条断言行内标注 【A】/【B#ID】/【C】 之一; 无标注句子不得含可验证事实
+R2 【A】紧跟 "(源: URL; 引文: ...≤3行原文)" — 引文须能在源页 grep 到
+R3 【B#ID】正文只写结论一句; 证据与推理链只出现在附录 B 对应 ID
+R4 阻断性断言 (错误会传导进 spec/实现) ≥2 独立源; 单源标 [单源-待二核]
+R5 B 类断言禁止 "显然/众所周知/公认"; B 类推理链禁止无源步骤
+R6 假设区每条含 [H#] + 查证路径; 正文出现 FALSIFIED 断言时必须改写并记入修订记录
+
+## 1..N 正文章节 (按调研域组织, 断言标注规则同上)
+
+## 附录 B: 断言登记表 (机器可读 — 字段名与 assertion_audit.py 严格一致)
+```assertions
+[
+  {
+    "id": "B1",
+    "conclusion": "<结论陈述一句>",
+    "op": "equivalence|existence|counting|transitivity|cross_library|causal",
+    "claimed_chain": [
+      {"step": 1, "text": "<步骤>", "source": "<依赖源label, 无源则为null>"}
+    ],
+    "sources": [
+      {"label": "<源名>", "path": "<本地路径|null>", "url": "<URL|null>", "quote": "<引文|null>"}
+    ],
+    "probe": {"type": "<与op对应>", "files": ["<文件/目录>"], "params": {"<op专属参数>"}}
+  }
+]
+```
+(op→probe.params 对应: equivalence→falsifier_pattern+direction; existence→symbols+candidates+claim;
+ counting→definition_pattern+expected_count; transitivity→entry+target; cross_library→cmd_a+cmd_b+keys+tol;
+ causal 无机械探针, probe 置 null)
+
+## 附录 C: 假设区
+- [H1] <断言> (查证路径: <具体到工具/URL/文献>)
+
+审计闭环 (报告写完后必须执行并追加):
+  python scripts/assertion_audit.py audit --input <本报告.md> \
+      --auditor openai --base-url <LM Studio端点> --report <审计输出.md>
+审计结论以 "## 审计结论 (<日期>)" 章节追加回本报告末尾, 逐断言给出:
+  | ID | 最终状态 | 证据/分歧 |
+状态词表 (固定, 不得自造):
+  FALSIFIED 机械证伪 / SURVIVED 存活 / CONFLICT 双盲结论相反
+  STEP_GAP 疑跳步 / UNCERTAIN 无法判定 / PENDING 待人工 / NO_PROBE 无机械探针
+```
+
+### 7.1 双端词汇对照 (生成端 ↔ 审计端)
+
+| 生成端登记 | 审计端产出 | 闭环动作 |
+|-----------|-----------|---------|
+| 【B#ID】+ registry 行 | verdicts 按 ID 回填 | FALSIFIED → 正文改写; STEP_GAP/CONFLICT → 仲裁 |
+| [单源-待二核] | 双源规则触发记录 | 补第二源或降级假设区 |
+| [H#] 假设区 | 不审计 (无证据) | spec 前须转为 A/B 或清除 |
+
+### 7.2 审计产出报告骨架 (write_report 生成, 调研 Agent 追加时保持同构)
+
+```markdown
+# B 类断言审计报告
+## <ID> — <最终状态>
+- 结论: <conclusion>  |  op: <op>
+- **probe** [<状态>]: <detail>            (+证据代码块)
+- **double_blind** [<状态>]: <detail>      (STEP_GAP 时列跳步候选)
+- **arbitration** [NEEDS_ARBITRATION]: <仅分歧步的仲裁任务>
+## 汇总
+| ID | 最终状态 |
+```
