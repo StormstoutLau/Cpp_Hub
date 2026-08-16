@@ -2452,6 +2452,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 3. 临界值表工程先行: MacKinnon 1994 协整表 + OL1992 Johansen 表 + ZA1992 表 + NP Table 1 (转录+双库 diff)
 4. M0 回填实施 (框架已热): NP → ZA → GARCH-M
 
+### Phase 7C 调研全量审计验证 (2026-08-16, v1.1)
+
+> 3 审计 agent 并行独立重查 (不采信原引用): 文献查 DOI/官方页, 库行为直读源码 (statsmodels 0.14.6 + vecm.py/arima.R/midasr 0.9 tarball/arch v8.0.0 tag 等)。
+
+- **审计结果**: 126 条声明 = 98 确认 + 13 部分确认 + **8 实质错误 (已全部修正)** + 5 无法证实
+- **8 处错误** (均已在 PHASE7C_RESEARCH.md v1.1 标注修正): ① AR2 CSS n.cond = d+p 与 q 无关 (原 max(p,q)+1 会导致与 R 不可对照); ② V8 PS1998 原式分子就是 σ_ii⁻¹, σ_jj⁻¹ 是 DY2012 构造 (直接影响 DY 溢出实现); ③ CI5 statsmodels 仅一套临界值表 (c_sjt/c_sja 共用); ④ midas_r 0.9 默认 BFGS (非 NM); ⑤ zivot_andrews 0.11.0 引入 (0.20 不存在); ⑥ ZA MC c 1% = −5.27644 (−5.83 是 0.1% 值); ⑦ Lütkepohl Granger = §3.6.1 (非 §7.2.2); ⑧ fpp2 差分 = §8.1 (非 §8.7)
+- **审计增强**: NP 对照链 Julia 降权 + Stata dfgls 逐 k MAIC 免费对照点; GM 互验三步法 (ARCHInMean.fix() + rescale 校正); arch 8.0 form='log' 使 log 变体获数值基准 (风险 #8 解除); 风险 #7 关闭 (info_criteria 源码直读确认)
+- **教训**: 调研报告自身的"幻觉点"也需要审计 — 8 处错误中 V8/CI5 属于"把正确事实标成幻觉"型, 对 spec 阶段危害最大
+
 
 ---
 
