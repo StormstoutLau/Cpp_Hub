@@ -2459,6 +2459,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **审计结果**: 126 条声明 = 98 确认 + 13 部分确认 + **8 实质错误 (已全部修正)** + 5 无法证实
 - **8 处错误** (均已在 PHASE7C_RESEARCH.md v1.1 标注修正): ① AR2 CSS n.cond = d+p 与 q 无关 (原 max(p,q)+1 会导致与 R 不可对照); ② V8 PS1998 原式分子就是 σ_ii⁻¹, σ_jj⁻¹ 是 DY2012 构造 (直接影响 DY 溢出实现); ③ CI5 statsmodels 仅一套临界值表 (c_sjt/c_sja 共用); ④ midas_r 0.9 默认 BFGS (非 NM); ⑤ zivot_andrews 0.11.0 引入 (0.20 不存在); ⑥ ZA MC c 1% = −5.27644 (−5.83 是 0.1% 值); ⑦ Lütkepohl Granger = §3.6.1 (非 §7.2.2); ⑧ fpp2 差分 = §8.1 (非 §8.7)
 - **审计增强**: NP 对照链 Julia 降权 + Stata dfgls 逐 k MAIC 免费对照点; GM 互验三步法 (ARCHInMean.fix() + rescale 校正); arch 8.0 form='log' 使 log 变体获数值基准 (风险 #8 解除); 风险 #7 关闭 (info_criteria 源码直读确认)
+- **NP2 τ_T(k) 公式裁决 (2026-08-16, MCP 学术搜索)**: 唯一影响实现的"无法证实"项已闭环。路径: `scholar-mirror.fetch_by_doi` → Semantic Scholar 绿色 OA (4274 引用) → BC wp369 + AU ng_perron00 **双工作稿原文提取 eq.(12) 逐字一致**: τ_T(k) = β̂₀²·Σ_{t=kmax+1}^T ỹ²_{t−1}/σ̂²(k) (β̂₀ = ADF 辅助回归 ỹ_{t−1} 系数; 固定样本 T−k_max)。加 Stata dfgls 手册 + Zivot 讲义 = **4 源一致**, λ̂−λ̃ 差形式零命中 (v1.0 幻觉确认)。附带固化: MIC(k)=ln σ̂²(k)+C_T(τ_T(k)+k)/(T−k_max), C_T=2→MAIC, C_T=ln(T−k_max)→MBIC。Sci-Hub 两镜像失败/EuropePMC PMID 错配 (下载到无关 PLOS One 文, 已识别丢弃) — OA 绿色副本路径有效
 - **教训**: 调研报告自身的"幻觉点"也需要审计 — 8 处错误中 V8/CI5 属于"把正确事实标成幻觉"型, 对 spec 阶段危害最大
 
 
