@@ -1,9 +1,10 @@
 # 断言分级证据框架 (A/B/C) — 调研与审计工作流
 
-> **版本**: v1.0 (2026-08-16)
+> **版本**: v1.1 (2026-08-16; v1.1 合并 Discovery 007 完整发现: 错误形态学三类 + NP2 裁决路径 + 工具链守则)
 > **来源**: Phase 7C 调研审计复盘 (126 条声明 → 8 处实质错误) + NP2 τ_T(k) MCP 学术搜索裁决
 > **用途**: 所有后续调研 agent / 审计 agent 的 prompt 约束与核验流程基准
 > **核心原则**: 生成端强制证据，审计端不信任引文 — 不对称配置
+> **实证基础根因**: 幻觉点清单的作者 (调研 agent) 与其要防的对象 (弱记忆/凭印象断言) 是同一类系统 — **清单本身必然继承同类缺陷**; 验证层必须与生成层独立且结构不同 (探针为纯脚本, 与 LLM 生成异构)
 
 ---
 
@@ -24,20 +25,45 @@
 
 ## 2. 八处错误复盘 (2026-08-16 Phase 7C 案例, 7A + 1B)
 
-| # | 错误 | 级别 | 当时证据缺陷 | 正确证据要求 (若当时即满足则拦截) |
-|---|------|------|-------------|--------------------------------|
-| 1 | AR2: CSS n.cond 写 max(p,q)+1 | **A** | 凭文档印象, 未引源码行 | arima.R L158-162 链接 + 引文 `ncond = d + D*s + max(user, p + s*P)` — 摘引时即见与 q 无关 |
-| 2 | V8: 称 σ_ii⁻¹ 是 "R 包误记" | **A** | 凭记号直觉, 未引 PS 原文 | PS 1998 PDF eq.(12) 引文 `θ^g_ij(n) = σ_ii⁻¹·Σ(e_i′A_lΣe_j)²/Σ e_i′A_lΣA_l′e_i` — 原文分子就是 σ_ii⁻¹ |
-| 3 | CI5: 称 statsmodels 有 "三套" 临界值表 | **B** | **两处源码引用均正确, 综合推理错** (未检查 coint_johansen 是否直接调用 c_sjt/c_sja) | 推理链中 "内嵌表 ≠ c_sjt" 一环需赋值语句证据: vecm.py L724-725 `cvm[i,:]=c_sja(...)` — 赋值即证伪 "不同表" |
-| 4 | midas_r 默认 Nelder-Mead | **A** | 只引了函数签名 (Ofunction="optim"), 未读函数体 | midasreg.R L858-860 引文 `## Override default method...` + `control$method <- "BFGS"` |
-| 5 | zivot_andrews "0.20+" | **A** | 无 release notes 链接, 版本号凭印象 | statsmodels 0.11.0 release notes 链接 + 引文 "The Zivot-Andrews test ... has been added" |
-| 6 | ZA MC c 1% = −5.83 | **A** | 引了 MC 表但未引分位数标签 | zivot_andrews.py 表源码 + 分位标签行: −5.27644@1% / −5.83192@0.1% |
-| 7 | Lütkepohl Granger = §7.2.2 | **A** | 章节号凭记忆 | TOC 链接 + 引文 "3.6.1 A Wald Test for Granger-Causality ... 102" / "7.2.2 EGLS Estimation of the Cointegration Parameters ... 291" |
-| 8 | fpp2 差分/drift = §8.7 | **A** | 同上 | otexts.com/fpp2 TOC + 引文 "8.1 Stationarity and differencing" |
+### 2.1 错误形态学三类 (自 126 条声明审计归纳)
+
+| 形态 | 定义 | 典型案例 | 危害等级 | 拦截手段 |
+|------|------|---------|---------|---------|
+| **I. 无据断言** | 全部可核查来源零命中仍写出 | NP2: τ_T(k) 的 λ̂−λ̃ 差形式 (4 源均为 β̂₀² 形式) | 极高 — 直接进入实现即错 | 生成期证据强制 (写不出引文即自曝为假设) |
+| **II. 弱记忆填充** | 版本号/章节号/数值常量凭印象 | ZA "0.20+" (实为 0.11.0); Lütkepohl §7.2.2 (实为 §3.6.1); ZA MC −5.83 当 1% (实为 0.1% 分位值) | 中 — 引用错位误导溯源 | 同上 (A 类 URL+引文当场拦) |
+| **III. 把正确事实标成幻觉** | 依赖证据全对, 综合推理错, 结论与真实约定相反 | V8: PS 1998 原式分子本来就是 σ_ii⁻¹, 报告称其"误记"并改用 DY 2012 的 σ_jj⁻¹; CI5: 源码引用均正确, "三套表"计数错 (实际一套) | **最高** — 下游会"修正"到错误方向 | **引用强制拦不住** (证据真实存在), 需 §4 B 类探针 + 双盲 |
+
+**关键观察**: 形态 III 无法被"要求给链接"拦截 — 两处源码引用都真实存在且正确, 错误出在综合推理跳步。这是单纯的证据强制规则的盲区, 也是 B 类专用审计存在的理由。
+
+### 2.2 逐条复盘
+
+| # | 错误 | 级别 | 形态 | 当时证据缺陷 | 正确证据要求 (若当时即满足则拦截) |
+|---|------|------|------|-------------|--------------------------------|
+| 1 | AR2: CSS n.cond 写 max(p,q)+1 | **A** | II | 凭文档印象, 未引源码行 | arima.R L158-162 链接 + 引文 `ncond = d + D*s + max(user, p + s*P)` — 摘引时即见与 q 无关 |
+| 2 | V8: 称 σ_ii⁻¹ 是 "R 包误记" | **A** | **III** | 凭记号直觉, 未引 PS 原文 | PS 1998 PDF eq.(12) 引文 `θ^g_ij(n) = σ_ii⁻¹·Σ(e_i′A_lΣe_j)²/Σ e_i′A_lΣA_l′e_i` — 原文分子就是 σ_ii⁻¹ |
+| 3 | CI5: 称 statsmodels 有 "三套" 临界值表 | **B** | **III** | **两处源码引用均正确, 综合推理错** (未检查 coint_johansen 是否直接调用 c_sjt/c_sja) | 推理链中 "内嵌表 ≠ c_sjt" 一环需赋值语句证据: vecm.py L724-725 `cvm[i,:]=c_sja(...)` — 赋值即证伪 "不同表" |
+| 4 | midas_r 默认 Nelder-Mead | **A** | II | 只引了函数签名 (Ofunction="optim"), 未读函数体 | midasreg.R L858-860 引文 `## Override default method...` + `control$method <- "BFGS"` |
+| 5 | zivot_andrews "0.20+" | **A** | II | 无 release notes 链接, 版本号凭印象 | statsmodels 0.11.0 release notes 链接 + 引文 "The Zivot-Andrews test ... has been added" |
+| 6 | ZA MC c 1% = −5.83 | **A** | II | 引了 MC 表但未引分位数标签 | zivot_andrews.py 表源码 + 分位标签行: −5.27644@1% / −5.83192@0.1% |
+| 7 | Lütkepohl Granger = §7.2.2 | **A** | II | 章节号凭记忆 | TOC 链接 + 引文 "3.6.1 A Wald Test for Granger-Causality ... 102" / "7.2.2 EGLS Estimation of the Cointegration Parameters ... 291" |
+| 8 | fpp2 差分/drift = §8.7 | **A** | II | 同上 | otexts.com/fpp2 TOC + 引文 "8.1 Stationarity and differencing" |
 
 **结论**: A 类 7/8 若生成期强制 "链接+引文" 当场拦截; 唯一 B 类 (CI5) 证据全对但推理跳步 — 必须靠 B 类专用审计 (见 §4)。
 
-**同类案例 (非 8 处之内)**: NP2 τ_T(k) 的 λ̂−λ̃ 形式 = A 类无源断言 (全源零命中), 强制证据规则下根本无法写出, 会在生成期自曝为假设。
+### 2.3 NP2 完整裁决路径 (形态 I 的处置实例, 2026-08-16)
+
+τ_T(k) 内层形式是 5 项"无法证实"中唯一影响实现的 (spec 阻断性), 经 MCP 学术搜索闭环:
+
+```
+mcp_scholar-mirror.fetch_by_doi("10.1111/1468-0262.00256")
+  → Semantic Scholar 元数据 + openAccessPdf 绿色副本 (fmwww.bc.edu/EC-P/wp369.pdf, 4274 引用)
+  → BC wp369 (Sep 2000, 43页) + AU ng_perron00 (42页) 双工作稿下载
+  → pypdf 提取 eq.(12) 原文逐字比对
+```
+
+**裁决**: τ_T(k) = β̂₀²·Σ_{t=k_max+1}^T ỹ²_{t−1}/σ̂²(k) (β̂₀ = ADF 辅助回归 ỹ_{t−1} 系数; 求和与 σ̂² 均用固定样本 T−k_max); MIC 推广 C_T=2→MAIC / C_T=ln(T−k_max)→MBIC。**4 源一致** (双工作稿 + Stata dfgls 手册 + Zivot 讲义), λ̂−λ̃ 差形式全源零命中 — v1.0 报告该写法确认为形态 I 幻觉。
+
+方法学注记: 双**独立工作稿**互证 + 两个教科书级实现同式, 已满足双源规则; "对照 Econometrica 出版版"降级为可选动作。
 
 ---
 
@@ -256,3 +282,24 @@ R6 假设区每条含 [H#] + 查证路径; 正文出现 FALSIFIED 断言时必�
 ## 汇总
 | ID | 最终状态 |
 ```
+
+---
+
+## 8. 证据获取工具链守则 (NP2 裁决过程实证, 自 Discovery 007)
+
+> 证据不是"有链接"就成立 — 获取链路上每一环都可能错配。以下四条守则全部来自 Phase 7C 实测翻车或验证。
+
+| # | 守则 | 实证 |
+|---|------|------|
+| 1 | **自动下载的证据必须先验证首页身份** | EuropePMC 回退按 PMID 错配, DOI `10.1111/1468-0262.00256` (Ng-Perron 2001) 的下载管线返回了一篇 PLOS One 桥梁振动论文 — 链接有效、PDF 完整、内容错配, 不验首页即污染证据链 |
+| 2 | **优先走 Semantic Scholar openAccessPdf 绿色副本** | Sci-Hub .se/.st 双镜像均下载失败; S2 openAccessPdf 一次命中 4274 引用论文的合法绿色 OA 副本 (fmwww.bc.edu 工作稿), 是付费墙论文最有效路径 |
+| 3 | **PDF 文本检索须对连字/分拆排版容错** | AU 版工作稿把 "MAIC" 排成 "M AIC", 关键词检索零命中; 改搜公式上下文 (kmax/eq 编号) 才定位 — 引文提取同理, 不得因排版分拆判定"原文无此句" |
+| 4 | **官方文档不是真值, 关键断言双源** | statsmodels 官方文档把 Zivot-Andrews 1992 刊名误写为 "Journal of Business & Economic Studies" (实为 Statistics), arch 文档同样照抄误写 — 库权威性 ≠ 文档正确性 |
+
+**与 §1 附加规则的关系**: 守则 1 已升格为身份验证规则 (§1); 守则 4 是双源规则的实证依据; 守则 2/3 是引文可核验性的操作细则。
+
+---
+
+## 9. 与 Discovery 007 的关系
+
+本文档是 Discovery 007 (`docs/discoveries/007_hallucination_audit_asymmetric_evidence.md`, 本地发现日志) 的**公共承载与可执行化**: 发现记录完整现场 (含前人方案缺口分析 RARR/LLM-as-judge 与潜在论文定位), 本框架只保留可复用的流程约束 (分类/模板/探针/守则)。两者以编号互引, 版本同步维护 (当前均 v1.1)。
