@@ -106,6 +106,8 @@ CI5 案例解剖:
 
 ### 4.3 双盲重推导流程 (脚本骨架)
 
+> **可执行实现**: `scripts/assertion_audit.py` (本地, 不进公共仓库 — 同 `scripts/` 目录惯例) — 完整实现 5 类探针 + 双盲重推导 + STEP_GAP 检测 + 仲裁 prompt 生成; 内置 CI5/NP/计数/STEP_GAP 四个离线自检工作示例, 运行 `python scripts/assertion_audit.py demo` 验证。auditor 可插拔 (manual / OpenAI 兼容端点, 支持 LM Studio 三机)。
+
 ```python
 def audit_class_b(assertion, source_evidence, auditor_agent):
     """
