@@ -2562,6 +2562,46 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **冒烟插曲 (自查)**: 首跑抽查断言失败 — 非表错, 冒烟文件自身索引想当然 (pct=20.0 实为 idx 18, 0.001 占 idx0); 修正后 MSVC /W4 零警告通过。微型形态 II 又一例: 断言行同样需要溯源
 - 临时件已清; readiness D 组 D1/D2/D3 全闭环, ZA 数据面就绪, 可开工 zivot_andrews_test.hpp 主体
 
+### M0: zivot_andrews_test.hpp 主体 + 双库对拍通过 (2026-08-17)
+
+> `include/cpphub/timeseries/unit_root/zivot_andrews_test.hpp` — 双模式 (固定 lag 主/Baum 预选对照) + trim 网格 + 断点搜索 + 双临界值表 + MC p 插值; verify_za.py/.R + 基准 JSON/CSV 入库 (checklist §1.2.3/1.2.4 提前闭环)
+
+- **spec §2.2 Model A 勘误 (R 门禁回溯记录, 非静默)**: 原方程漏趋势项 β·t — 实施期读 statsmodels 源码 L2700 (`exog[:,2]=trend` 于 regression="c" 亦恒在) + urca dump (datmat trend 列) + Baum .ado (baseline 含 trend) 三源互证 ⇒ Model A 恒含趋势; spec 已修并内注勘误依据; ADR-019 三模型决策本身不变
+- **statsmodels 精确语义一手落档** (stattools.py L2590-2738): Baum 模式 lag = `adfuller(x, regression="ct", autolag="AIC")` → 复用 7B `select_lag_by_ic(data,"ct",0,"aic")` 零新代码; 网格 `trimcnt=int(T·trim), b∈[trimcnt+1,T−trimcnt]`; DU = 1(t≥b) 0-based (⟺ urca 1-based 1(t>z), 两库同约定); p 值 = np.interp(stat,cv,pct)/100 端点 clamp 复刻; bpidx = argmin−1 报告约定
+- **双库对拍结果 (合成数据 seed42 T120 真断点 70)**: ① statsmodels (Baum/AIC): **A/C 模型 stat/p/lag/bpidx 全对 ~1e-14** (超 1e-10 要求 4 个量级); B 模型 stat/p/lag 对但 bpidx 差 1 — 归因 statsmodels "t" 模型 DT 用 cutoff−1 边界 (与 urca 形不同, 已在头注记录; B 主对照本就是 urca) ② urca (固定 lag=1, trim 放开): **三模型 stat 全对 ~4e-13** (超 1e-8 要求 4 个量级) + bpoint 映射全对 (**urca bpoint = break_index+1** 实测定档)
+- **实施期三教训 (全部留档头注)**: ① trim→0 时 DU≡1 与常数列共线崩溃 (0xE06D7363) → 网格秩保护 (b≥k+2, b≤T−1, 等价 statsmodels L2718 rank-check); ② 近奇异候选点 (极小 b 下 DU/DT 与 trend 近共线) 跳过不进 min (语义 = urca lm NA 不进 which.min); ③ **R 显示精度假差异**: urca 打印 %.6f 时基准只有 6 位小数, 与我们对拍现 2e-7 "差异" — SVD lstsq 仲裁 (cond(X)=55 良态) 后 R 侧重印 %.12f → 4e-13 全对; 教训: **对照基准必须全精度输出**
+- **数值稳定化**: trend/DT 列按 T 缩放 (列乘常数不改 t-stat, 对齐 statsmodels 归一化意图, 正规方程条件数 ↓); 崩溃诊断链: code 3765269347 = 0xE06D7363 = MSVC C++ 异常 → try/catch 定位 ols_fit 奇异 throw
+- verify_za.py (statsmodels 基准 + JSON) / verify_za.R (urca 全精度基准) / za_smoke_data.csv / za_statsmodels_baselines.json 入库; 未来 test_zivot_andrews.cpp 直接硬编码六组基准断言
+
+### M0: test_zivot_andrews 15/15 (2026-08-17)
+
+> `tests/unit/timeseries/test_zivot_andrews.cpp` + `za_baseline.inc` (verify_za.py gen_inc 自动生成: 120 值数据 %.17g + sm 三模型基线 + urca 12 位转录) — spec §1.2 15 用例, ZA1-ZA5 全覆盖
+
+- 用例映射: 1-3 statsmodels (stat 1e-10/p 1e-12, B 模型 bpidx 断言 SM−1 quirk) / 4-6 urca (1e-8, bpoint 1-based 换算) / 7 断点定位真断点 ±5 / 8 stat≡min(path) / 9-11 trim 网格 84/60 + 越界/空网格 throw / 12 异常输入 / 13 论文表 9 值 EXPECT_DOUBLE_EQ / 14 MC 插值 (节点/中点 0.0095/端点 clamp + ZA4 trap −5.27644≠−5.83) / 15 双模式 lag (baum=0 vs Schwert=13 统计量分离)
+- 过程修复 3 处: .inc 命名空间 5 层闭括号 (与 GM gen_inc 同坑二次预演 — 生成器模板必检项); 测试内 `za_baseline::` 需 `ur::` 限定 (namespace 别名作用域); Size 无符号减法下溢 → EXPECT_NEAR double
+- gtest 15/15 (9ms); ctest unit_root 邻族 77/77 无回归
+
+### M0: garch_m_model.hpp 三变体全链 + rugarch fix() 互验发现 (2026-08-17)
+
+> `include/cpphub/timeseries/garch/garch_m_model.hpp` — GM1 三 form + GM5 耦合递归 + GM4 form 感知 Jacobian sandwich; `test_garch_m_model.cpp` 16/16; verify_gm.py/.R + gm_baseline.inc 入库 (checklist M0 GM 项闭环)
+
+- **arch 8.0 ARCHInMean 语义一手落档** (mean.py L1590 + recursions_python.py L1094-1127): ① 耦合递归逐 t 先 update h_t 再 ε_t = y_t − μ − λ·g(h_t) — λ 变化重写整条 h 路径 (GM5/issue #269); ② h₁ = ω+(α+β)·σ²₀ 与 7B G1 同源 (GARCHUpdater t=0 双 backcast 实证); ③ backcast 用无 in-mean 项残差 (ARCHInMean.resids 丢末参 → EWMA(y−ȳ)²); ④ κ 起始 0; ⑤ form 幂次 log→0 专用分支 / vol→σ / var→σ²
+- **尺度等变参数化 (逐 form)**: vol λ'=λ / var λ'=λ/s / log λ'=sλ + μ 行 log 形交叉项 2lns/s (s·[μ+λ·g(h)]=μ'+λ'·g(h') 解出); Jacobian 映射 sandwich 回原尺度 — 数据×2 实测: vol λ 不变 1e-6 / var λ 减半 1e-5 / μ×2 / ω×4
+- **对拍结果 (T=900, rescale=False)**: 三 form params 差 1e-5~1e-6 / llf 差 ≤5e-7 / robust SE 差 ≤2e-2 (数值三明治噪声层, 7B test_garch_model 头注先例口径: spec 名义 1e-8~1e-10 仅同优化器同梯度可达); 收紧 ftol 1e-12 无改善 → 落点差为 scipy 解析梯度 vs 自研数值梯度本质差, 维持默认 config
+- **GM5 测试锚**: λ=0 退化 ≡ filter_garch11 逐位 1e-15; λ+0.01 ⇒ h[0] 不变 t≥1 全变; 耦合 vs 两步解耦路径显著分离 >1e-3
+- **⚠️ rugarch fix() 互验重大发现 (spec §2.3 Step5.3 执行记录)**: ① rugarch archpow=1/2 (hybrid solver) 落点 param 差 ~0.01-0.03, 其自报 llf 与 arch/C++ 差 ~0.2 — **递归初始化约定不同** (rugarch 非 EWMA backcast), 参数级 1e-4 对照不可行, 记为已知对照边界 (同 ZA Model B 处置); ② **arch 8.0 ARCHInMean.fix() 自身有 bug**: rugarch 正常参数 (C++ 独立评估 llf=−1192.106, 仅低于最优 0.016) 代入 arch fix() 得 llf=−3002.8 (灾难性错) — fix() 路径疑未走耦合递归; 三步法改由 C++ 充当独立评估器完成隔离 (似然一致性 ✓ / 优化器落点差 ✓); 可提上游 issue
+- 过程坑: IDE 对 include/ 树写入超时 (build/ 正常) → 先写 build/ 再 Move-Item 绕行; 生成器闭括号计数坑二次出现 (5 层 namespace)
+- rugarch 1.1-9 装入 F:/R/win-library/4.6 (26 依赖二进制); verify_gm.R 输出 12 位全精度
+
+---
+
+### docs: 断言框架与 DIS-007 权威源迁移指针 (2026-08-17)
+
+> Spec_Workflow P-001 / ADR-0006 决策 3 执行（跨仓库动作，由 Spec_Workflow 会话代登，随现场下一次提交入库）
+
+- docs/ASSERTION_EVIDENCE_FRAMEWORK.md 头部落位"权威源已迁移"指针：副本冻结 v1.1，权威 = Spec_Workflow 仓库 v1.2+，新演进经 Discovery/ADR 流程回流——随本提交入库
+- docs/discoveries/007_hallucination_audit_asymmetric_evidence.md 同指针落位；该目录按 .gitignore L82 不入库，指针为本地生效（如需入库由现场裁量 add -f）
+- 背景：ADR-0006（Spec_Workflow 仓库）裁定断言框架双份并存以本仓副本滞后一代为由，权威源落 Spec_Workflow；本项目为历史副本方
 
 ---
 

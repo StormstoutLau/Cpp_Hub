@@ -556,6 +556,13 @@ add_executable(test_garch_diagnostics unit/timeseries/test_garch_diagnostics.cpp
 target_link_libraries(test_garch_diagnostics PRIVATE cpphub_core GTest::gtest_main)
 gtest_discover_tests(test_garch_diagnostics)
 
+# test_garch_m_model: GARCH(1,1)-M 三变体 (16 用例, 排幻觉 GM1-GM5;
+# vol/var/log 三 form + GM5 耦合递归 + λ robust SE;
+# 基准 gm_baseline.inc 由 verify_gm.py 生成: arch 8.0 ARCHInMean rescale=False)
+add_executable(test_garch_m_model unit/timeseries/test_garch_m_model.cpp)
+target_link_libraries(test_garch_m_model PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_garch_m_model)
+
 # === Phase 7B v1.6 M2: 单位根检验 (PHASE7B_FINANCIAL_TS_SPEC.md §3) ===
 # 命名空间 cpphub::v1::timeseries::unit_root (ADR-017), 无 Eigen3 依赖
 
@@ -594,6 +601,20 @@ gtest_discover_tests(test_kpss_test)
 add_executable(test_df_gls_test unit/timeseries/test_df_gls_test.cpp)
 target_link_libraries(test_df_gls_test PRIVATE cpphub_core GTest::gtest_main)
 gtest_discover_tests(test_df_gls_test)
+
+# test_zivot_andrews: Zivot-Andrews 结构断点单位根 (15 用例, 排幻觉 ZA1-ZA5;
+# 三模型 A/B/C + 双模式 lag + trim 网格 + 断点搜索 + 双临界值表;
+# 基准 za_baseline.inc 由 verify_za.py 生成: statsmodels Baum 模式 + urca 固定 lag)
+add_executable(test_zivot_andrews unit/timeseries/test_zivot_andrews.cpp)
+target_link_libraries(test_zivot_andrews PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_zivot_andrews)
+
+# test_ng_perron: Ng-Perron M 检验族 (18 用例, 排幻觉 NP1-NP6;
+# MZa/MZt/MSB/MPT + MAIC 固定样本轨迹; 基准 = 原文公式 + 恒等式 +
+# np_tables 精确 + 模拟方向 (NP6: 无开源 M 族对照; Stata MAIC 后补)
+add_executable(test_ng_perron unit/timeseries/test_ng_perron.cpp)
+target_link_libraries(test_ng_perron PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_ng_perron)
 
 # test_variance_ratio_test: 方差比检验 (20 用例, 排幻觉 U14-U17/U-log;
 # Lo-MacKinlay Z1/Z2 + CLM debiased + Chow-Denning SMM 联合)
