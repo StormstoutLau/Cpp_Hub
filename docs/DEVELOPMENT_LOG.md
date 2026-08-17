@@ -2472,7 +2472,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **报告即审计输入闭环** (§7): 调研报告模板内嵌 ```assertions 机读块, `audit --input 报告.md` 直接提取重审计 — 报告从被审对象变为审计工具的输入接口; 双端共用固定状态词表 (FALSIFIED/SURVIVED/CONFLICT/STEP_GAP/UNCERTAIN/PENDING/NO_PROBE)
 - **Discovery 007 登记** (docs/discoveries/, 本地): "幻觉点清单自身含幻觉" 首个方法论类发现 (总 7 号, RESOLVED 2), 潜在论文 arXiv AI4Research 方向 (中优先级, 需 ≥2 周期量化拦截率数据); 框架 = 其公共可执行承载, 两者 v1.1 同步互引
 - **反事实检验**: 8 处错误中 7/8 (A 类) 若生成期强制"链接+引文"当场拦截; 唯一 B 类 (CI5) 由赋值语句探针机械终结 — 分类与工具各自命中设计目标
-- **启用状态**: 组件就绪, 流程未接线 — DEVELOPMENT_WORKFLOW.md 尚未引用 (待决策); 首轮实战定为下一调研任务 (候选: ADR-019 复核或 v1.8 长记忆族调研), 同时开始积累 007 论文所需量化数据
+- **启用状态**: ✅ 已接线 (2026-08-16, DEVELOPMENT_WORKFLOW.md v1.1) — 新增"阶段 0: 调研与证据审计"(与三阶段同构) + R1-R4 调研门禁(与 G1-G4 平行, R4=阻断性清零) + 不信任链第六环 + discoveries 附录统计修复(6→7); 双门禁串联: R 清零 → spec 冻结 → 实施 → G 清零 → 合并; 生效范围: 自 ADR-019 复核起 (首轮 pilot), Phase 7C 已人工全量审计不追溯
 
 
 ---
