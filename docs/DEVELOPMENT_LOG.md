@@ -2513,6 +2513,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **结构**: §1 交付物 66 (25 头文件按 M0-M4 分组 + 19 脚本 + 6 临界值 .inc + 16 套件) / §2 跨平台 15 (含 cpphub_timeseries_mat 配置) / §3-§7 M0-M4 数值基准 82 (容差分层 + 对照库版本冻结) / §8 幻觉点 64 编号全列 + 10 项 scope 外不计 / §9 集成 6 / §10 ADR 对齐 38 (ADR-019 26+3 逐项 + R 门禁回溯条款 + H1/H2 对照禁令) / §11-§16 边界/规范/复用/文档/性能/风险 60
 - **7C 特有验收点**: 双库 Johansen diff 前置 (§6.2.1 为 M3 第一任务); DY 窗口裁决落验 (§5.3.2-3 window 必填 + 频率默认表); Julia 常数 MPT 禁对照/arch≠MAIC-PQ 禁令 (§10.2.9); 复用偏差归因记录 (§13.10, 7B Issue #2 惯例); 附录 C 里程碑验收节奏 (M0→M1∥M4→M2→M3 各节点覆盖节)
 
+### PHASE7C_SPEC v1.2: 工程约束 + 接口签名审计增补 (2026-08-17)
+
+> 审计驱动: 专项扫描发现 spec "性能零预算/工程细节部分缺" + 接口签名 7 处问题 → v1.2 一次性补全
+
+- **新增 §1.4 接口总则** (8 条, 对齐 v1.6 代码惯例): inline 自由函数+Result 聚合体 / 成员默认初始化+禁裸 C 数组 / enum vs 字符串参数化边界 / NaN+bool 未计算政策 / Eigen 仅限 M2/M3 / 纯函数 / seed 参数强制
+- **新增 §8.4-§8.8 工程约束** (与根 CMakeLists 实测对齐): §8.4 构建版本矩阵 (CMake 3.25/C++20/MSVC 19.5x+GCC 13.3/Eigen 3.4.0 vendored/gtest 1.14.0/cpphub_timeseries_mat 完整 CMake 片段; 行动项: 收尾 project VERSION bump 1.7.0) / §8.5 v1.6 零破坏条款 (additive-only, Python 绑定不扩展, 触碰既有文件=ADR-019 修订) / §8.6 精度政策 (Real=double, /fp:precise+-ffp-contract=off 三平台位一致, mt19937_64(seed) 唯一随机入口) / §8.7 线程策略 (单线程纯函数, 不引入 OpenMP, 并行留调用方) / §8.8 性能预算 8 项冻结 (P1-P8, 溯源修复: checklist §15 此前系自行推导无 spec 源头, 现恢复 验收点←spec 追溯)
+- **接口签名补全** (7 处审计问题全修): ① MultivariateTSData/GarchMResult/ArimaConfig 三处被引用未定义 → 补全; ② M2/M3/M4 无签名 → IRFResult/FEVDResult(FevdFramework)/DYResult(滚动+静态双入口)/VARSelectResult/EGResult/JohansenResult(cv_source 回显)/POResult/VECMResult/MidasResult+权重函数族全补; ③ **ZA 签名与 ADR-019 矛盾** (默认落在 Baum 对照模式) → `baum_preselect` 显式开关, 默认=固定 lag 主模式; ④ NgPerron 裸数组 → std::array; ⑤ ArimaResult 补 method/n_cond 回显 (AR6/AR2 对照锚) + Granger NaN 政策 (has_ty/has_hac); ⑥ VARResult 补 residuals/coeff_vcov (下游 Granger 系统检验必需); ⑦ P 注入从注释落实为 VARSpec.identification_P 字段
+- **质量事故修复**: §4.3 DY 滚动窗口行发现仍为 v1.0 旧文本 ("默认 120") — v1.1 该编辑在**同文件三处并行 Edit 竞态中丢失** (§13 表与版本头存活, 仅此行回退); 已修复并内注事故原因。**教训入库: 同一文件多处修改禁用并行 Edit, 改串行**
+
 
 ---
 
