@@ -2522,6 +2522,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **接口签名补全** (7 处审计问题全修): ① MultivariateTSData/GarchMResult/ArimaConfig 三处被引用未定义 → 补全; ② M2/M3/M4 无签名 → IRFResult/FEVDResult(FevdFramework)/DYResult(滚动+静态双入口)/VARSelectResult/EGResult/JohansenResult(cv_source 回显)/POResult/VECMResult/MidasResult+权重函数族全补; ③ **ZA 签名与 ADR-019 矛盾** (默认落在 Baum 对照模式) → `baum_preselect` 显式开关, 默认=固定 lag 主模式; ④ NgPerron 裸数组 → std::array; ⑤ ArimaResult 补 method/n_cond 回显 (AR6/AR2 对照锚) + Granger NaN 政策 (has_ty/has_hac); ⑥ VARResult 补 residuals/coeff_vcov (下游 Granger 系统检验必需); ⑦ P 注入从注释落实为 VARSpec.identification_P 字段
 - **质量事故修复**: §4.3 DY 滚动窗口行发现仍为 v1.0 旧文本 ("默认 120") — v1.1 该编辑在**同文件三处并行 Edit 竞态中丢失** (§13 表与版本头存活, 仅此行回退); 已修复并内注事故原因。**教训入库: 同一文件多处修改禁用并行 Edit, 改串行**
 
+### M0 实施前置检查清单 (预检实证, 2026-08-17)
+
+> [PHASE7C_M0_READINESS_CHECKLIST.md](./phases/phase7/PHASE7C_M0_READINESS_CHECKLIST.md) — 基于 spec v1.2 生成, 主线一手预检 (源码 grep + pip/Rscript 探测)
+
+- **预检发现 2 个 No-Go 缺口**: ① conda env **arch 未安装** (GM 主锚 ARCHInMean 需 8.0.0, ≤7 无对照); ② R **urca 未安装** (ZA ur.za 对照 + M3 OL1992 表转录源, 一装两里程碑受益)。两条 install 后 M0 即可开工
+- **复用接口审计**: DF-GLS 去势变换**内联**于 df_gls_test() 无公共函数 → NP 重实现 ERS 变换 + 复用偏差归因 (7B Issue #2 惯例, 预批); GarchConfig 无 seed 字段但 L376 多起始扰动为 **Philox 确定性计数器** — 可复现性内建, GM 沿用即可与 §8.6 兼容 (零破坏保持, 无矛盾)
+- **环境事实留痕**: 系统 python 无 statsmodels/arch (7B 惯例 = conda open-webui + R 用户库 win-library/4.6 + .libPaths 显式加载); rugarch 实际 **1.5.6** (spec 未锁版本, 记录入 verify 脚本); vars/midasr/Spillover 未装 (M2/M4 前置, 不阻断 M0)
+- **结构**: A 规范流程 (4/4 就绪) / B 复用接口 (4/5, 1 预批处置) / C 对照环境 (2✓ 2❗ 1 待确认-Stata 含降级路径) / D 数值基线 (NP Table 1 双源抄录⚠️Julia 表禁作源/ZA 双表/GM 三步法, 实施首日任务) / E 工程约束 (additive-only 例外清单=仅 tests/CMakeLists.txt) / F Go-NoGo 判据 (C1+C3 清零即 Go)
+
 
 ---
 
