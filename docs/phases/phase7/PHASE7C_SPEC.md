@@ -1,6 +1,6 @@
 # Phase 7C 执行规格书 - 多变量时序与混频模块 (v1.7 M0-M4)
 
-> **版本**: v1.1 (2026-08-17: §13 开放问题 8 项调研裁决 — DY 窗口默认表定稿/H1 成立/§4.3 窗口参数与 g 项函数名勘误; v1.0 2026-08-17 冻结)
+> **版本**: v1.2 (2026-08-17: 新增 §1.4 接口总则 + §8.4-§8.8 工程约束 (构建版本矩阵/零破坏条款/精度政策/线程策略/性能预算) + 全模块接口签名补全 + 3 处签名修正 (ZA 模式默认/NgPerron 数组/GarchMResult); v1.1 开放问题裁决; v1.0 冻结)
 > **版本归属**: **v1.7** (Phase 7C)
 > **目标**: 实现 v1.7 全部时序扩展 — 回填三项 (M0) + ARIMA/Granger (M1) + VAR/IRF/FEVD/DY (M2) + 协整三件套 (M3) + MIDAS (M4), 补齐 Research OS 因子诊断链的多变量与混频基础设施
 > **覆盖范围**:
@@ -179,6 +179,19 @@ tests/fixtures/timeseries/
 | nealmon/nbeta 权重 vs midasr 逐点 | 1e-12 | `test_midas_weights.cpp` |
 | log-sum-exp 与裸公式差 (非溢出区间) | <1e-14 | `test_midas_weights.cpp` |
 
+### 1.4 接口总则 (v1.2 新增, 全模块强制)
+
+> 与 v1.6 已交付代码惯例 (adf_test.hpp / garch_model.hpp 等) 对齐, 实施前冻结:
+
+1. **形态**: header-only `inline` 自由函数 + `XxxResult` 聚合体返回值 (7B 惯例); 无类继承体系
+2. **Result 成员一律默认初始化** (`= 0.0` / `= false` / 空容器), **禁止裸 C 数组** (定长用 `std::array<Real, N>{}`)
+3. **类型**: `Real`/`Size` 统一取自 `core/types.hpp` (Real = double, §8.6)
+4. **参数化**: 封闭集合用 `enum class` (ZAModel/GarchMForm/ArimaMethod/FevdFramework/MidasType); **跨库对照参数沿用字符串** ("c"/"ct"/"trace"/"Pz") 保持 statsmodels/urca 直译不转译
+5. **校验契约**: 输入边界 (最小 T/K/等长/无 NaN) `throw std::invalid_argument`; **"未计算"字段 = NaN + 伴随 bool 标志** (不用 std::optional, 保持 7B 风格)
+6. **Eigen 边界**: `Eigen::MatrixXd/VectorXd` 仅出现在 M2/M3 公共接口 (cpphub_timeseries_mat, §8.2); M0/M1/M4 头文件零 Eigen include
+7. **无状态**: 全部估计/检验函数为纯函数 (无全局可变状态、无 mutable static), 线程策略见 §8.7
+8. **随机性**: 凡含随机成分 (bootstrap/多起始扰动) 的函数必须带 `Size seed` 参数 (默认 42), §8.6
+
 ---
 
 ## 2. M0: 回填三项 (先行, 框架已热)
@@ -202,11 +215,11 @@ struct NgPerronResult {
     Real mz_t;          ///< MZt = MZα × MSB  (恒等式, 自检用)
     Real msb;           ///< MSB = √(T⁻²Σỹ² / s²)
     Real mpt;           ///< MPT, 分情形 (NP4): 常数 c̄=−7 / 趋势 c̄=−13.5
-    // 逐项临界值 (1/5/10%) 与结论
-    Real cv_1pct[4];    ///< {MZα, MZt, MSB, MPT}
-    Real cv_5pct[4];
-    Real cv_10pct[4];
-    bool reject_5pct[4];
+    // 逐项临界值 (1/5/10%) 与结论 — 顺序 {MZα, MZt, MSB, MPT}; std::array 非 C 数组 (§1.4-2, v1.2 修正)
+    std::array<Real, 4> cv_1pct{};   // 值初始化为 0
+    std::array<Real, 4> cv_5pct{};
+    std::array<Real, 4> cv_10pct{};
+    std::array<bool, 4> reject_5pct{};
     // 滞后选择
     Size selected_lag;          ///< MAIC 最优 k
     std::vector<Real> maic;     ///< 逐 k MAIC(k) 轨迹 (与 Stata dfgls r(results) 对照)
@@ -291,8 +304,11 @@ struct ZAResult {
 
 ZAResult zivot_andrews_test(const std::vector<Real>& data,
                             ZAModel model = ZAModel::C,
-                            Size fixed_lag = 0,        // 0 => Baum 式预选 (对照 statsmodels)
+                            Size fixed_lag = 0,          // 0 => Schwert 自动固定 (主模式); ≥1 => 用户固定 (urca 对齐)
+                            bool baum_preselect = false, // true => Baum 一次性预选 (对照模式, statsmodels)
                             Real trim = 0.15);
+///< v1.2 修正: ADR-019 "固定 lag 主模式" — 默认 (fixed_lag=0, baum=false) 即固定 lag (Schwert 自动值);
+///< Baum 模式由显式开关启用, 消除 v1.0 默认落在对照模式的矛盾
 
 }  // namespace
 ```
@@ -338,6 +354,21 @@ struct GarchMParams {
     Real mu;      ///< 均值方程截距
     Real lambda;  ///< 风险溢价系数 (g(h_t) 的系数)
     Real omega, alpha, beta;   ///< GARCH(1,1) 方差参数 (同 Phase 7B)
+};
+
+// GarchMResult (v1.2 补全定义): GarchResult 全字段 + λ 相关增量
+struct GarchMResult {
+    GarchMParams params = {};               ///< 含 λ; g(·) 形式由 form 参数决定 (GM1)
+    std::vector<Real> conditional_variances;  ///< h_t
+    std::vector<Real> residuals;              ///< ε_t = r_t − μ − λ·g(h_t) (GM5 耦合)
+    std::vector<Real> std_residuals;
+    Real log_likelihood = 0.0;                ///< G3 完整形式
+    Real aic = 0.0, bic = 0.0;
+    std::vector<std::vector<Real>> vcov;      ///< 5×5 sandwich (μ,λ,ω,α,β) (GM4)
+    std::vector<Real> std_errors;             ///< SE[1] = λ 的 Bollerslev-Wooldridge robust SE
+    bool converged = false;
+    Size n_iterations = 0;
+    std::string message;
 };
 
 GarchMResult estimate_garch_m(const std::vector<Real>& data,
@@ -400,11 +431,25 @@ enum class ArimaMethod { CSS, CSS_ML, Innovations };
 
 struct ArimaResult {
     ArimaParams params;
-    Real loglik;            ///< 差分后数据似然: −(T−d)/2·[log(2πσ²)+1] (AR3/AR4 口径)
-    Real aic;               ///< 基于 T−d 个观测 (AR4)
+    ArimaMethod method{};        ///< 实际使用的估计方法回显 (v1.2; AR6 配对对照依据)
+    Size n_cond = 0;             ///< CSS 起始条件数回显 (v1.2; AR2 对照锚)
+    Size n_obs_used = 0;         ///< T−d (v1.2)
+    Real loglik = 0.0;           ///< 差分后数据似然: −(T−d)/2·[log(2πσ²)+1] (AR3/AR4 口径)
+    Real aic = 0.0;              ///< 基于 T−d 个观测 (AR4)
     std::vector<Real> residuals;
     std::vector<std::vector<Real>> vcov;   ///< sandwich (QMLE) 可选
-    bool converged;
+    bool converged = false;
+    Size n_iterations = 0;
+    std::string message;
+};
+
+// 估计配置 (v1.2 补全定义)
+struct ArimaConfig {
+    Size n_starting_points = 4;      ///< {HR 初值, CSS 解, CSS±扰动, 随机重启} (AR7)
+    bool use_hannan_rissanen = true; ///< 起始点 1 用 HR (hannan_rissanen.hpp)
+    bool compute_sandwich = false;   ///< QMLE sandwich (默认关; 纯 CSS 无意义)
+    Size seed = 42;                  ///< 随机重启/扰动 (§1.4-8)
+    SLSQP::Config optimizer_config;  ///< C5 复用 ADR-018
 };
 
 ArimaResult arima_fit(const std::vector<Real>& data, const ArimaSpec& spec,
@@ -459,6 +504,8 @@ struct GrangerResult {
     Real hac_wald_stat, hac_wald_p;///< NW vcov 上的 Wald (GR5)
     std::string summary;           ///< 注明: 均非异方差稳健 (除 HAC 版)
 };
+///< v1.2 NaN 政策 (§1.4-5): d_max=0 ⇒ ty_wald_* = NaN; with_hac=false ⇒ hac_wald_* = NaN;
+///< 其余字段恒有效。配套 bool: has_ty / has_hac
 
 GrangerResult granger_test(const std::vector<Real>& cause,
                            const std::vector<Real>& effect,
@@ -497,11 +544,24 @@ Step 4: HAC-Wald (决策 6): NW 协方差 (复用 v1.5) 上的 Wald, χ²(k) (GR
 ```cpp
 namespace cpphub::v1::timeseries::var {
 
+// 多变量数据载体 (C4, v1.2 补全定义): K 列等长
+struct MultivariateTSData {
+    std::vector<std::vector<Real>> columns;  ///< K 列, 每列 T (构造/使用时校验等长)
+    std::vector<std::string> names;          ///< 变量名 (DY 输出/重排用, 可空)
+    Size T() const;                          ///< 有效样本 (最短列; 不等长 ⇒ invalid_argument)
+    Size K() const;                          ///< 变量数 (≥1)
+    Eigen::MatrixXd matrix() const;          ///< T×K, 行=时间 (v1.2)
+    MultivariateTSData reorder(const std::vector<Size>& order) const;  ///< 变量重排副本 (排序敏感性检验)
+    // 校验: K≥1, T≥2, 等长, 无 NaN ⇒ 否则 throw (§1.4-5)
+};
+
 struct VARSpec {
     Size lag = 0;                  ///< 0 => 由 IC 选择
     std::string trend = "c";       ///< "n"/"c"/"ct"
     Size max_lag = 0;              ///< IC 搜索上限 (0 => Schwert 型)
     bool same_sample_ic = true;    ///< V5: offset 机制强制同一样本量
+    Eigen::MatrixXd identification_P;  ///< P 注入 (v1.2 落实决策 11): 空 (0×0) => Cholesky LLT 默认;
+                                       ///< 注入须下三角且满足 P·P′ ≈ Σ (责任在调用方, 仅用于敏感性检验)
 };
 
 struct VARResult {
@@ -511,8 +571,22 @@ struct VARResult {
     Real max_abs_eigenvalue;       ///< V9: max|eig(伴随矩阵)|
     bool is_strictly_stationary;   ///< 严格 <1 判定 (与 statsmodels ≤1 区分, 双输出)
     Size n_obs_used;
+    Eigen::MatrixXd residuals;                ///< T_eff×K 残差 (v1.2; 诊断/Granger 系统检验必需)
+    std::vector<Eigen::MatrixXd> coeff_vcov;  ///< 逐方程系数协方差 (v1.2; σ̂²·(X′X)⁻¹, 同回归元共享)
     // IRF/FEVD 结果 (§4.2)
 };
+
+// 滞后选择结果 (v1.2 补全, var_select.hpp)
+struct VARSelectResult {
+    Size selected_lag = 0;               ///< 按 ic 选出
+    std::string ic_used;                 ///< "aic"/"bic"/"hqic"/"fpe"
+    std::vector<Real> aic, bic, hqic, fpe;  ///< 逐候选 p 全轨迹 (同样本 offset, V5)
+    Size n_obs_used = 0;
+};
+VARSelectResult var_select_order(const MultivariateTSData& data,
+                                 const std::string& trend = "c",
+                                 Size max_lag = 0,
+                                 const std::string& ic = "aic");
 
 VARResult var_fit(const MultivariateTSData& data, const VARSpec& spec = {});
 ///< 估计: 逐方程 OLS — 同阶同回归元下与系统 GLS 数值等价 (决策 9; B3 双盲:
@@ -528,7 +602,7 @@ VARResult var_fit(const MultivariateTSData& data, const VARSpec& spec = {});
 // Cholesky 与识别 (决策 11, V2):
 //   P = Eigen::LLT(Σ).matrixL()   ← 下三角 (numpy/Eigen 约定)
 //   ⚠️ R/MATLAB chol 返回上三角 — 误用使递归识别假设反转
-//   API 暴露: set_identification_P(MatrixXd) 注入自定义 P + reorder_variables(indices)
+//   P 注入: VARSpec.identification_P (v1.2 落实, 空 => Cholesky 默认); 变量重排: MultivariateTSData::reorder
 ```
 
 **幻觉点映射**: V2 (三角方向) / V4 (ML 协方差 ÷T) / V5 (同样本) / V6 (FPE 指数 K, n* 含确定性项) / V9 (稳定性双输出) / V12 (不稳定 VAR 前置拦截 FEVD)
@@ -556,6 +630,29 @@ GFEVD 轨 (决策 12/15, 自实现 — statsmodels 无, B1/B2 双盲确认):
   ⚠️ 两框架行归一化后数值不同 (除非各 σ 相等), API 必须注明框架且不混用
 ```
 
+**接口签名 (v1.2 补全)**:
+
+```cpp
+// IRF (irf.hpp)
+struct IRFResult {
+    std::vector<Eigen::MatrixXd> theta;   ///< Ψ_0..Ψ_{H−1} (正交化 = Φ_h·P; V3 行=响应, 列=冲击)
+    bool has_bands = false;               ///< bootstrap 置信带是否计算 (V13: 仅点估计参与容差断言)
+    std::vector<Eigen::MatrixXd> irf_lower, irf_upper;
+};
+IRFResult var_irf(const VARResult& fit, Size horizon = 10,
+                  bool bootstrap = false, Size n_boot = 1000, Size seed = 42);
+
+// FEVD 双轨 (fevd.hpp)
+enum class FevdFramework { Cholesky, GeneralizedDY, GeneralizedPS };
+struct FEVDResult {
+    Eigen::MatrixXd fevd;        ///< K×K (Cholesky: 行和=1; GFEVD: 行归一化后行和=1, V7)
+    FevdFramework framework{};   ///< 框架回显 (V8: DY σ_jj⁻¹ vs PS σ_ii⁻¹ 归一化后数值不同)
+    Size horizon = 0;
+};
+FEVDResult var_fevd(const VARResult& fit, Size horizon = 10,
+                    FevdFramework fw = FevdFramework::GeneralizedDY);
+```
+
 ### 4.3 DY 溢出指数 (`dy_spillover.hpp`)
 
 ```
@@ -564,8 +661,31 @@ GFEVD 轨 (决策 12/15, 自实现 — statsmodels 无, B1/B2 双盲确认):
   TO_j  = 100 · Σ_{i≠j} θ̃_ij / N   (j 发出)
   FROM_j= 100 · Σ_{j'≠j} θ̃_{j j'} / N   (j 接收)
   NET_j = TO_j − FROM_j
-  滚动窗口: window 参数 (默认 120, 开放问题 d); 每窗口完整重估 VAR+GFEVD
+  滚动窗口: window 参数必填 (无硬编码默认, §13-a 裁决); 频率默认表 {日 200 / 周 200 / 月 60},
+    H 默认 {日 10 / 周 10 周 / 月 12 月}; 强制 window > 2·N; step=1; 每窗口完整重估 VAR+GFEVD
+  (v1.2 注: 此行 v1.1 编辑因同文件并行编辑竞态丢失, 现修复 — 与 §13-a/签名块一致)
 主基准: R Spillover 包 g.fevd/G.spillover (1e-8)
+```
+
+**接口签名 (v1.2 补全)**:
+
+```cpp
+struct DYResult {
+    Real tci = 0.0;                                    ///< 总溢出指数 (单窗口或滚动末窗口)
+    std::vector<Real> to_spillover, from_spillover, net_spillover;  ///< 按输入变量序
+    // 滚动输出 (window > 0 时填充)
+    std::vector<Real> tci_path;                        ///< 逐窗口 TCI (step=1)
+    std::vector<std::vector<Real>> net_path;           ///< 逐窗口 × 变量
+    Size window = 0, horizon = 10;                     ///< 回显
+};
+// 滚动入口: window 必填 (> 2·K 强制, §13-a), 无硬编码默认
+DYResult dy_spillover(const MultivariateTSData& data, Size window,
+                      Size horizon = 10, const std::string& trend = "c",
+                      Size lag = 0 /* 0 => IC 自动 */, Size seed = 42);
+// 静态入口 (无滚动)
+DYResult dy_spillover_static(const MultivariateTSData& data,
+                             Size horizon = 10, const std::string& trend = "c",
+                             Size lag = 0);
 ```
 
 **测试要点**: 系数/IC/IRF/FEVD vs statsmodels 1e-10; IC vs vars::VARselect 1e-8; Cholesky vs `np.linalg.cholesky` (下三角) 与 R `t(chol(Σ))` 等价断言; GFEVD vs R Spillover 1e-8; PS vs DY 框架差异断言 (σ 不等时归一化后数值不同); FEVD 行和=1 (1e-12); 不稳定 VAR 抛异常 (V12); DY H=10 vs H=50 敏感性。
@@ -632,6 +752,62 @@ Pu (残差基, 方向依赖) / Pz (对协整向量归一化不变, 方向无关)
 ECT 系数 t 检验: Ericsson-MacKinnon 2002 响应面查表 (决策 21, CI10; 非标准 t)
 ```
 
+**接口签名 (v1.2 补全; 属性名镜像 statsmodels/urca — API 等价决策 17/19/20/21)**:
+
+```cpp
+// EG (engle_granger.hpp)
+struct EGResult {
+    Real statistic = 0.0, p_value = 0.0;   ///< p = 1994 渐近 (CI2: 与 cv 不同源, 分列断言)
+    Real cv_1pct = 0.0, cv_5pct = 0.0, cv_10pct = 0.0;  ///< 含 nobs 小样本修正
+    std::string trend = "c"; Size n_obs = 0; bool reject_null = false;
+    std::string summary;
+};
+///< CI3 方向依赖: 本函数做 y0 ← y1 方向; 反方向 = swap 两参重跑 (由调用方显式选择)
+EGResult engle_granger(const std::vector<Real>& y0, const std::vector<Real>& y1,
+                       const std::string& trend = "c");
+
+// Johansen (johansen_test.hpp) — 等价 coint_johansen(endog, det_order, k_ar_diff)
+struct JohansenResult {
+    Eigen::VectorXd eig;             ///< λ̂ 降序 (CI6)
+    Eigen::MatrixXd evec;            ///< 未归一特征向量 (CI8: coint_johansen 本身不归一)
+    Eigen::VectorXd lr1, lr2;        ///< 迹 / 最大特征值统计量 (逐级 r)
+    Eigen::MatrixXd cvt, cvm;        ///< N×3 (90/95/99), OL1992 主录 (§6.2.1 diff 冻结后注记表源)
+    int det_order = 0; Size k_ar_diff = 0, n_obs = 0;
+    std::string cv_source;           ///< "OL1992" / "MHM96" (v1.2: 表源回显)
+};
+JohansenResult coint_johansen(const MultivariateTSData& endog, int det_order,
+                              Size k_ar_diff);  ///< det_order ∈ {−1, 0, 1} (CI4, 3 情形)
+Size select_coint_rank(const MultivariateTSData& endog, int det_order,
+                       Size k_ar_diff, const std::string& method = "trace",
+                       Real signif = 0.05);     ///< 复用同表 (B4); method ∈ {"trace","maxeig"}
+
+// PO (phillips_ouliaris.hpp)
+struct POResult {
+    Real statistic = 0.0, cv_5pct = 0.0;
+    std::string type;               ///< "Pu"/"Pz" 回显 (Pz 优先, CI12)
+    std::string demean = "none"; Size lag = 0, n_obs = 0;
+    bool reject_null = false;
+};
+POResult phillips_ouliaris(const std::vector<Real>& y0, const std::vector<Real>& y1,
+                           const std::string& type = "Pz",
+                           const std::string& demean = "none", Size lag = 0);
+
+// VECM (vecm_model.hpp)
+struct VECMResult {
+    Eigen::MatrixXd alpha, beta;     ///< β 默认前 r×r=I_r (决策 21); urca 首变量归一 = 开关
+    std::vector<Eigen::MatrixXd> gamma;
+    Eigen::MatrixXd resid;
+    Real loglik = 0.0;
+    Size rank = 0; std::string det;  ///< 5 情形 {n, co, ci, lo, li} (CI4)
+    std::vector<Real> ect_t_stat, ect_cv_5pct;  ///< ECT t: EM2002 查表 (CI10), 逐方程
+    bool urca_normalization = false; ///< 回显
+};
+VECMResult vecm_fit(const MultivariateTSData& data, Size rank, Size k_ar_diff,
+                    const std::string& det = "n",
+                    bool urca_normalization = false);
+///< β 对照恒用投影矩阵 P=β(β′β)⁻¹β′ (CI8, verify_vecm.py), 逐元素仅归一内自检
+```
+
 **M3 测试要点**: EG vs statsmodels coint 1e-10 (统计量 + cv 分列断言); Johansen eig/lr1/lr2 vs coint_johansen 1e-10 (transitory); OL1992 表 static_assert; VECM 系数 vs statsmodels VECM 1e-10 + β 投影空间; ECT t vs EM2002 表; PO vs urca 1e-8; 阶数/rank 逐级检验序列正确性。
 
 ---
@@ -690,6 +866,49 @@ verify_midas.R 生成规范 (全部固化 CSV):
   - midas_u 纯 OLS 锚: 1e-10 (无优化器敏感性)
   - midas_r NLS 锚: 1e-6~1e-8 分层 (BFGS 收敛容差所限)
   - hAh_test 输出三列全录 (统计量/p/df)
+```
+
+**接口签名 (v1.2 补全)**:
+
+```cpp
+// 权重族 (midas_weights.hpp): 纯函数; nealmon 族 i 从 1 起 (MD1), nbeta 族 xi 从 0 起
+std::vector<Real> nealmon_weights(const std::vector<Real>& lambda, Size d);
+std::vector<Real> nbeta_weights(const std::vector<Real>& lambda, Size d);    ///< nbetaMT
+std::vector<Real> almonp_weights(const std::vector<Real>& lambda, Size d);
+std::vector<Real> polystep_weights(Real a, Real b, Size d);
+std::vector<Real> harstep_weights(Real a, Real b, Size d);
+///< 内部统一 log-sum-exp (MD7); Σw = δ 为独立线性参数, 不在权重函数内 (MD2)
+
+// 数据 (mixed_freq_data.hpp, C4)
+struct MixedFreqData {
+    std::vector<Real> y;          ///< 低频 n
+    std::vector<Real> x;          ///< 高频 (长度 ≥ n·m + 预烧)
+    Size m = 1;                   ///< 频率比 (m ∤ len(x) ⇒ invalid_argument)
+    Size max_low_lag = 0;
+    ///< mls 对齐: 列 = x[m·t − h], lag0 = 期末 x_{tm} (MD3); "期初信息" 预测从 k ≥ m 起窗
+    Eigen::MatrixXd design_matrix(Size k_high, Size h_start) const;  ///< DL/U-MIDAS 设计矩阵
+};
+
+// 估计 (midas_model.hpp)
+enum class MidasType { DL, AR, ARStar, UMidas };
+struct MidasResult {
+    Real intercept = 0.0;
+    std::vector<Real> delta;      ///< 内层线性参数 (含 δ 尺度/截距/AR 系数, 决策 23)
+    std::vector<Real> lambda;     ///< 外层权重超参 (最终值)
+    Real sigma2 = 0.0, loglik = 0.0, ssr = 0.0;
+    bool converged = false; std::string message;
+    Size n_obs = 0; MidasType type{};
+    std::vector<Real> residuals, fitted;
+    // hAh 权重检验 (K-Z 2012, MD6): 三列全录
+    Real hah_stat = 0.0;
+    Real hah_p = std::numeric_limits<Real>::quiet_NaN();
+    Size hah_df = 0;
+};
+MidasResult midas_fit(const MixedFreqData& data, MidasWeight weight, MidasType type,
+                      Size k_high = 1,
+                      const std::vector<std::vector<Real>>& starts = {},
+                      Size seed = 42);
+///< starts 空 ⇒ 多起点网格 × {递减, 驼峰, 均匀} (MD8); U-MIDAS 忽略 weight/starts (纯 OLS)
 ```
 
 **M4 测试要点**: 权重逐点 vs midasr 1e-12 (含 i=1 起点与 xi=0 起点两套); log-sum-exp 差 <1e-14; mls 期末对齐 (lag0 = x_tm) 断言; U-MIDAS vs midas_u 1e-10; MIDAS-DL/AR vs 夹具 1e-6~1e-8; 集中化 NLS vs 联合 NLS 一致性 (同一最优); 多起点逃逸。
@@ -753,6 +972,60 @@ M4 MIDAS
 ### 8.3 C ABI (C3)
 
 新增 C 导出 (若 Python 绑定/CDLL 需要) 统一 `cpphub_v1_7_*` 前缀; M0-M4 默认仅头文件消费, 不强制新增 C ABI 面。
+
+### 8.4 构建与版本矩阵 (v1.2 冻结, 与根 CMakeLists.txt 现状对齐)
+
+| 项 | 冻结值 | 依据 |
+|----|--------|------|
+| CMake 最低 | **3.25** | 根 CMakeLists `cmake_minimum_required` |
+| C++ 标准 | **C++20** (`cxx_std_20`, EXTENSIONS OFF, STANDARD_REQUIRED ON) | 根 CMakeLists |
+| 编译器矩阵 | MSVC 19.5x (主控) + GCC 13.3 (A/B 站) | 三平台验收 §2 |
+| Eigen | **3.4.0 vendored** (`third_party/eigen`, `EIGEN_MPL2_ONLY`), 不升 5.x | 根 CMakeLists 注释 |
+| googletest | v1.14.0 FetchContent | 根 CMakeLists |
+| 项目版本号 | 收尾时 CMake `project VERSION` bump **1.7.0** (当前 1.0.0 为全局遗留, 非 7C scope, 收尾统一处理 — 行动项) | 工程现实 |
+| 新 target | `cpphub_timeseries_mat` INTERFACE, 链接 `cpphub_core + eigen3_interface`; MSVC `/wd4505 /wd4714` 沿用 `cpphub_econometrics` 惯例 | §8.2 / ADR-013 |
+
+```cmake
+# v1.7 新增 (仅此一段, 不触碰既有 target)
+add_library(cpphub_timeseries_mat INTERFACE)
+target_link_libraries(cpphub_timeseries_mat INTERFACE cpphub_core eigen3_interface)
+target_compile_features(cpphub_timeseries_mat INTERFACE cxx_std_20)
+if(MSVC)
+    target_compile_options(cpphub_timeseries_mat INTERFACE /wd4505 /wd4714)
+endif()
+```
+
+### 8.5 兼容性: v1.6 零破坏条款 (v1.2)
+
+- **additive-only**: 仅新增头文件 / tests 目录新增 / 上述新 target / `tests/CMakeLists.txt` 追加注册 — **不修改任何 v1.6 既有头文件与源文件**
+- 既有 **2207 测试零回归** (§2.1.4 验收); SLSQP 12/12 无退化
+- **Python 绑定 v1.7 不扩展** (`bindings.cpp` 不动); C ABI 默认不新增 (§8.3)
+- 实施中若确需触碰既有文件 ⇒ 视同 scope 变更, 走 ADR-019 修订记录 (R 门禁回溯条款), 禁止静默
+
+### 8.6 数值精度与可复现性政策 (v1.2)
+
+- `Real = double` 单精度路径; 编译 flag 政策沿用根 CMakeLists: MSVC `/O2 /arch:AVX2 /fp:precise` + GCC `-O3 -march=x86-64-v3 -ffp-contract=off`, **禁 `-ffast-math`** — FMA 收缩关闭 ⇒ 三平台位一致, `.inc` 黄金值可精确断言
+- 随机性唯一入口 `std::mt19937_64(seed)` (§1.4-8); midasr 夹具 `set.seed(42)` 对偶, 夹具 CSV 记录 seed
+- 临界值表 constexpr + static_assert 双保险 (与运行时读取路径解耦)
+
+### 8.7 线程安全与并行策略 (v1.2)
+
+- v1.7 全部公共接口**单线程纯函数**: 无全局可变状态 (§1.4-7), 函数可重入
+- **不引入 OpenMP/std::thread 依赖**; DY 滚动窗口/bootstrap 重采样的并行化留给调用方 (外层循环天然独立)
+- 性能预算 (§8.8) 按单线程制定
+
+### 8.8 性能预算 (v1.2 冻结; 验收镜像 = checklist §15, 溯源修复)
+
+| # | 操作 | 预算 (单线程) | 依据 |
+|---|------|--------------|------|
+| P1 | NP T=1000 (逐 k MAIC 全搜索) | < 1 s | O(max_lag·T) 回归, 7B ADF 4ms 量级 |
+| P2 | ZA T=500 断点网格 | < 5 s | ~0.7T 断点 × ADF 回归 |
+| P3 | GM T=5000 三变体 | < 10 s | 7B GARCH 实测 90ms × 多起始 × 3 |
+| P4 | ARIMA T=1000 CSS-ML 多起始 | < 10 s | 4 起点 × SLSQP |
+| P5 | VAR K=5,T=500 + IC 扫描 | < 5 s | 逐方程 OLS + 小维特征值 |
+| P6 | Johansen N=5,T=500 | < 2 s | 5×5 广义特征值 |
+| P7 | MIDAS NLS T=250, m=22 | < 10 s | 外层 SLSQP × 内层 QR |
+| P8 | 全量 ctest (~2470) | < 45 min | 7B 基线 MSVC 614s + 增量 |
 
 ---
 
