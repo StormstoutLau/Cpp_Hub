@@ -2462,6 +2462,18 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **NP2 τ_T(k) 公式裁决 (2026-08-16, MCP 学术搜索)**: 唯一影响实现的"无法证实"项已闭环。路径: `scholar-mirror.fetch_by_doi` → Semantic Scholar 绿色 OA (4274 引用) → BC wp369 + AU ng_perron00 **双工作稿原文提取 eq.(12) 逐字一致**: τ_T(k) = β̂₀²·Σ_{t=kmax+1}^T ỹ²_{t−1}/σ̂²(k) (β̂₀ = ADF 辅助回归 ỹ_{t−1} 系数; 固定样本 T−k_max)。加 Stata dfgls 手册 + Zivot 讲义 = **4 源一致**, λ̂−λ̃ 差形式零命中 (v1.0 幻觉确认)。附带固化: MIC(k)=ln σ̂²(k)+C_T(τ_T(k)+k)/(T−k_max), C_T=2→MAIC, C_T=ln(T−k_max)→MBIC。Sci-Hub 两镜像失败/EuropePMC PMID 错配 (下载到无关 PLOS One 文, 已识别丢弃) — OA 绿色副本路径有效
 - **教训**: 调研报告自身的"幻觉点"也需要审计 — 8 处错误中 V8/CI5 属于"把正确事实标成幻觉"型, 对 spec 阶段危害最大
 
+### 断言分级证据框架诞生与工具化 (2026-08-16, commit 8e902e3 → 852c57c)
+
+> 上述审计教训的产物化: 把"审计方法论"固化为可复用工作流, 后续所有调研/审计 agent 的流程基准。
+
+- **错误形态学三类** (自 126 条审计归纳): I 无据断言 (NP2 型, 全源零命中) / II 弱记忆填充 (版本号/章节号/数值常量, 7 处中 6 处) / III 把正确事实标成幻觉 (V8/CI5, 危害最高 — 下游会"修正"到错误方向, 且引用强制拦不住)
+- **[ASSERTION_EVIDENCE_FRAMEWORK.md](./ASSERTION_EVIDENCE_FRAMEWORK.md) v1.1** (公共): A 事实类强制 URL+原文引文 / B 推断类强制逐步注源推理链 / C 判断类仅 rationale; 双源规则 + 假设区 + 证据获取工具链守则 4 条 (首页身份验证 / S2 openAccessPdf 优先 / PDF 分拆容错 / 官方文档非真值)
+- **`scripts/assertion_audit.py`** (本地, scripts/ 惯例): 框架 §4 可执行实现 — 5 类机械反证探针 (equivalence 赋值 grep / existence 候选枚举 / counting 枚举计数 / transitivity 调用图 BFS / cross_library 数值 diff) + 双盲重推导 (auditor 可插拔: manual / OpenAI 兼容 LM Studio 三机) + STEP_GAP 跳步检测 + 仲裁 prompt 生成。CI5 案例可执行复现 (合成 vecm 赋值语句两处命中即机械证伪"三套表"); demo 离线自检 4/4 通过
+- **报告即审计输入闭环** (§7): 调研报告模板内嵌 ```assertions 机读块, `audit --input 报告.md` 直接提取重审计 — 报告从被审对象变为审计工具的输入接口; 双端共用固定状态词表 (FALSIFIED/SURVIVED/CONFLICT/STEP_GAP/UNCERTAIN/PENDING/NO_PROBE)
+- **Discovery 007 登记** (docs/discoveries/, 本地): "幻觉点清单自身含幻觉" 首个方法论类发现 (总 7 号, RESOLVED 2), 潜在论文 arXiv AI4Research 方向 (中优先级, 需 ≥2 周期量化拦截率数据); 框架 = 其公共可执行承载, 两者 v1.1 同步互引
+- **反事实检验**: 8 处错误中 7/8 (A 类) 若生成期强制"链接+引文"当场拦截; 唯一 B 类 (CI5) 由赋值语句探针机械终结 — 分类与工具各自命中设计目标
+- **启用状态**: 组件就绪, 流程未接线 — DEVELOPMENT_WORKFLOW.md 尚未引用 (待决策); 首轮实战定为下一调研任务 (候选: ADR-019 复核或 v1.8 长记忆族调研), 同时开始积累 007 论文所需量化数据
+
 
 ---
 
