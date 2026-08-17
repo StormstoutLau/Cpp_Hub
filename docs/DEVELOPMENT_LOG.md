@@ -2532,6 +2532,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **结构**: A 规范流程 (4/4 就绪) / B 复用接口 (4/5, 1 预批处置) / C 对照环境 (2✓ 2❗ 1 待确认-Stata 含降级路径) / D 数值基线 (NP Table 1 双源抄录⚠️Julia 表禁作源/ZA 双表/GM 三步法, 实施首日任务) / E 工程约束 (additive-only 例外清单=仅 tests/CMakeLists.txt) / F Go-NoGo 判据 (C1+C3 清零即 Go)
 - **No-Go 清零执行 (同日)**: `pip install arch==8.0.0` (cp311 wheel, ARCHInMean+form 参数验证 ✓) + urca 1.3-4 安装 (⚠️ agent 沙箱实测禁写 `C:\Users\Peng\R` — install.packages 探测目录被拦且 requires_approval 仍拦 → 落位 **`F:\R\win-library\4.6`** 镜像路径; ur.za/ca.po/ca.jo 验证 ✓, 与 rugarch 1.5.6 双库共存 ✓); verify_*.R 头部 .libPaths 须**双库并列** (F 盘 urca 在前); **M0 状态 = GO**, 遗留仅 2 预批处置 (B1/C6) 与实施首日 D 组基线
 
+### M0 开工: np_tables.hpp (第一个文件, readiness D1 闭环, 2026-08-17)
+
+> `include/cpphub/timeseries/unit_root/np_tables.hpp` — NP 2001 Table I 渐近临界值 24 值双源转录
+
+- **取证 (阻断性数值禁凭记忆, 框架纪律)**: 24/24 值双源零差异 — [S1] AU OA 副本 (BC wp369 工作稿 PDF p.30 Table 1, pdfplumber 逐字) + [S2] **Econometrica 发表版作者存档** (columbia.edu/~sn2294/pub/ecta01.pdf, p.1524 TABLE I 逐字) + [S3] MetricGate 5% 八值三源一致; 脚注留痕: p=0 的 MZα/MZt 取自 Fuller (1976), 其余 = 20,000 模拟 × 5,000 步 Wiener
+- **讹传拦截 (形态 II 活案例)**: 趋势情形 **MSB 1% = 0.143 (非 0.121) / MPT 1% = 4.03 (非 4.47)** — 常见印象值与两版原文均不符; spec 仅冻结 5% 锚 (全对), 未冻结的 1%/10% 若凭记忆抄录即错 2 值 — "数值常量凭印象"风险的又一实证, 与 Discovery 007 错误形态学互证
+- **交付形态 (spec §1.4 总则)**: `NPStat` enum + constexpr 双表 (`std::array<std::array<Real,3>,4>`) + **12 static_assert** (8 个 5% spec 锚 + 2 讹传防呆 + 2 单调性) + `np_critical_value()` 访问器 (p 限三档 throw); NP5 方向注: 四统计量统一 stat < cv 拒绝
+- **冒烟验证**: MSVC 18.4.3 /W4 /std:c++20 /utf-8 编译零警告, 断言全过 (5% 锚 + 0.143/4.03 + 异常路径 ×2), 临时件已清; 正式断言进 test_ng_perron 套件 (checklist §3.1.6)
+
 
 ---
 
