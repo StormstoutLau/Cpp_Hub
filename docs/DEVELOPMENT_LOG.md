@@ -2541,6 +2541,16 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **交付形态 (spec §1.4 总则)**: `NPStat` enum + constexpr 双表 (`std::array<std::array<Real,3>,4>`) + **12 static_assert** (8 个 5% spec 锚 + 2 讹传防呆 + 2 单调性) + `np_critical_value()` 访问器 (p 限三档 throw); NP5 方向注: 四统计量统一 stat < cv 拒绝
 - **冒烟验证**: MSVC 18.4.3 /W4 /std:c++20 /utf-8 编译零警告, 断言全过 (5% 锚 + 0.143/4.03 + 异常路径 ×2), 临时件已清; 正式断言进 test_ng_perron 套件 (checklist §3.1.6)
 
+### M0: za1992_cv.inc (readiness D2 闭环, 2026-08-17)
+
+> `tests/fixtures/timeseries/critical_values/za1992_cv.inc` — ZA1992 论文临界值黄金副本 (消费方 zivot_andrews_test.hpp + 测试双录互校)
+
+- **溯源三源一致 (9/9 零差异)**: [S1] urca 1.3-4 (已装包) ur.za 源码 deparse 逐字 (L39 intercept −5.34/−4.8/−4.58; L53 trend −4.93/−4.42/−4.11; L69 both −5.57/−5.08/−4.82) + [S2] **Baum zandrews.ado v1.0.5** (statsmodels "Baum 近似"之正主, 注释明标论文表号 **Table 2/3/4**) + [S3] 讲义转录 (Fuente: Zivot1992); 论文锚与调研 ZA4 裁决一致 (c 1% 论文 −5.34 vs MC −5.27644)
+- **D3 附带提前落锚**: arch critical_values/zivot_andrews.py 源码页一手确认 MC 表五锚 (c 1%=−5.27644/5%=−4.81067/10%=−4.56618, t 1%=−5.03421, ct 1%=−5.57556) — za_mc_cv.inc 转录时零记忆风险
+- **实证接口事实两枚 (供 zivot_andrews_test.hpp 实施用)**: ① urca ur.za model 参数 = `c("intercept","trend","both")` (非 "constant" — 想当然即报错, 形态 II 现场拦截); ② lag 参数为数值/NULL, **无 'short'/'long' 字符串选项** (调研 "固定 lag 无 trim" 与源码吻合, 签名 `function(y, model, lag=NULL)`)
+- **交付形态**: `ZA1992_CV_GOLDEN` constexpr 3×3 (行=A/B/C, 列=1/5/10%) + **14 static_assert** (9 身份锚 + 3 单调 + 2 MC 混表防呆 [−5.27644/−5.83 不入本表, ZA4]); 零依赖裸 double (黄金副本独立性); 冒烟 MSVC /W4 零警告通过, 临时件已清
+- **复核已知问题再现**: statsmodels zivot_andrews 文档至今仍误写刊名 "J. Business & Economic Studies" (实为 Statistics) — 调研警报持续有效, C++ 侧注释已用正确刊名
+
 
 ---
 
