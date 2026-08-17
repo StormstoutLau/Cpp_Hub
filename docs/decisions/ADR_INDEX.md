@@ -1058,4 +1058,80 @@ namespace causality { class GrangerTest; /* ... */ }      // v1.7+
 - **调研报告**: [FINANCIAL_TIMESERIES_RESEARCH.md](../research/FINANCIAL_TIMESERIES_RESEARCH.md) v3.2 §22
 - **前置 ADR**: [ADR-013](#adr-013-双层线性代数架构-固定尺寸--动态尺寸) (Eigen3 隔离), [ADR-015](#adr-015-证伪统计量模块边界-通用-vs-模块特定) (命名空间不对称, 决策点 4)
 - **关联 ADR**: [ADR-016](#adr-016-金融时间序列实施边界-18-项) (金融时间序列实施边界, 18 项决策)
-- **后续 ADR**: 待编写 ADR-018 (risk/pricing 子命名空间统一, v2.0 scope)
+- **后续 ADR**: risk/pricing 子命名空间统一留待 v2.0 独立 ADR (编号顺延; ADR-018 已用于 SLSQP 优化器边界)
+
+---
+
+## ADR-018: SLSQP 优化器实现边界
+
+**状态**: Accepted
+**日期**: 2026-08-15
+**版本归属**: v1.6 (Phase 7B 阶段 1 前置)
+**关联 Phase**: 7B
+**完整文档**: [ADR-018_SLSQP_BOUNDARY.md](ADR-018_SLSQP_BOUNDARY.md)
+**调研依据**: [SLSQP_EXTENSION_RESEARCH.md](../research/SLSQP_EXTENSION_RESEARCH.md) v1.0
+**前置 ADR**: [ADR-016](#adr-016-金融时间序列实施边界-18-项) (G-ADR2: GARCH 参数约束方法选 SLSQP)
+
+### 背景
+
+Phase 7B 约束 C1: 现有 optimizer 仅 LM/NelderMead/DE 无约束优化器, 无法满足 GARCH 参数约束 (ω>0, α≥0, β≥0, α+β<1)。ADR-016 G-ADR2 决策采用 SLSQP (对齐 arch 默认 solnp 路径的数值对照需求)。
+
+### 决策 (7 项)
+
+1. QP 求解: **active-set** (KKT 系统求解等式约束 QP, 与 scipy 一致)
+2. BFGS 更新: **Damped** (曲率条件不满足时 damped 版本保证 B 正定, Nocedal-Wright Eq 18.15)
+3. 约束表达: **c_i(x) ≥ 0** (与 scipy `f_ieqcons` / arch `a·x−b` 一致)
+4. 数值差分: **中心差分** (O(h²), 步长自适应)
+5. 边界处理: **QP 内直接处理** (避免 2n 冗余约束)
+6. Eigen3: **不引入** (ADR-013 隔离; n<10 用 std::vector + Gauss-Jordan)
+7. 等式约束: **支持** (未来 ARIMA/MIDAS 固定持久性等需求)
+
+### 后果
+
+- GARCH/EGARCH/GJR QMLE 的约束优化路径打通; ADR-019 决策 23 复用 (MIDAS 集中化 NLS 外层) 与 C5 (GM QMLE)
+- 接口: `SLSQP` 类 + `ConstraintFn`/`ConstraintJacobianFn` 回调
+
+### 关联
+
+- **完整文档**: [ADR-018_SLSQP_BOUNDARY.md](ADR-018_SLSQP_BOUNDARY.md)
+- **后续 ADR**: [ADR-019](#adr-019-v17-多变量时序与混频实施边界-263-项) (决策 23/C5 复用本优化器)
+
+---
+
+## ADR-019: v1.7 多变量时序与混频实施边界 (26+3 项)
+
+**状态**: Accepted
+**日期**: 2026-08-17
+**版本归属**: v1.7 (Phase 7C)
+**关联 Phase**: 7C
+**完整文档**: [ADR-019_V17_TIMESERIES_BOUNDARY.md](ADR-019_V17_TIMESERIES_BOUNDARY.md)
+**调研依据**: [PHASE7C_RESEARCH.md](../research/PHASE7C_RESEARCH.md) v1.1 (3 agent 126 条全量审计)
+**复核记录**: [ADR019_REVIEW_PILOT.md](../research/ADR019_REVIEW_PILOT.md) v1.1 (**R1-R4 调研门禁首轮 pilot, 全通过**)
+**前置 ADR**: [ADR-016](#adr-016-金融时间序列实施边界-18-项) / [ADR-017](#adr-017-时序模块命名空间-cpphubv1timeseries) / [ADR-018](#adr-018-slsqp-优化器实现边界)
+
+### 背景
+
+v1.7 扩展多变量时序 (VAR/IRF/FEVD/DY/协整三件套) 与混频回归 (MIDAS), 回填三项 (Ng-Perron / Zivot-Andrews / GARCH-M)。首个运行于 DEVELOPMENT_WORKFLOW v1.1 阶段 0 (断言分级证据框架) 的调研→复核→冻结闭环: 调研报告经 126 条全量审计 (8 处实质错误修正), 决策集经机械探针 + 双盲重推导 (5/5 TRUE) + R2 抽检 (1 处引文失准当场修正), R1-R4 门禁全通过后冻结。
+
+### 决策 (26+3 项, 摘要)
+
+- **ARIMA/Granger (1-8)**: CSS+CSS-ML + innovations 精确 MLE; (1+θB) 正号参数化; d>0 无均值 + drift 选项; 多起始点; 不做 SARIMA/wild bootstrap
+- **VAR/DY (9-16)**: 逐方程 OLS; IC 用 Lütkepohl 约定 + 同样本 offset; Cholesky 统一 Eigen LLT 下三角 + P 注入; FEVD 双轨 (Cholesky + generalized), DY 指数基于 GFEVD (自实现, 主基准 R Spillover); 不做 SVAR/BVAR/TVP-VAR
+- **协整 (17-21)**: EG + Johansen 等价 API; EG 用 MacKinnon 1994 响应面; Johansen 临界值主录 Osterwald-Lenum 1992 + 双库 diff 前置冻结; PO 纳入 (Pz 优先); VECM β 默认 Phillips 归一
+- **MIDAS (22-26)**: DL/U-MIDAS/MIDAS-AR 逐字复刻 midasr; 集中化 NLS (外层 SLSQP λ + 内层解析 δ); midasr 0.9 唯一主基准 (夹具固化 CSV); log-sum-exp 防溢出
+- **回填 (NP/ZA/GM)**: NP 复用 ERS GLS 去势 + 原文公式钉死基准; ZA 三模型 + trim 参数化; GM 三变体双锚 (rugarch archpow ↔ arch 8.0 form) + fix() 互验三步法
+
+### 后果
+
+- **门禁制度实证**: R2 抓到复核报告自身 1 处形态 II 转述引文并当场修正 — "生成端引证, 审计端不采信"配置的首轮拦截收益; 双盲产出强于原链的证据 (B3: statsmodels `method` 参数实现层面未被使用)
+- **正向**: 决策集全部阻断性断言双源, 可直接冻结进 PHASE7C_SPEC
+- **负向**: MIDAS 夹具固化成本; Johansen 双库 diff 前置工作; GFEVD 自实现维护
+- **开放问题**: SARIMA / SVAR 族 / ARDL-PSS / v1.8+ MIDAS 扩展 / 假设区 H1-H2 ([待定] 进 spec 开放问题节)
+
+### 关联
+
+- **完整文档**: [ADR-019_V17_TIMESERIES_BOUNDARY.md](ADR-019_V17_TIMESERIES_BOUNDARY.md)
+- **调研报告**: [PHASE7C_RESEARCH.md](../research/PHASE7C_RESEARCH.md) v1.1
+- **复核 pilot**: [ADR019_REVIEW_PILOT.md](../research/ADR019_REVIEW_PILOT.md) v1.1
+- **门禁规范**: [ASSERTION_EVIDENCE_FRAMEWORK.md](../ASSERTION_EVIDENCE_FRAMEWORK.md) v1.1
+- **后续**: PHASE7C_SPEC 编写 (R 清零 → spec 冻结 → 实施 → G 清零 → 合并)
