@@ -1,6 +1,11 @@
 # 断言分级证据框架 (A/B/C) — 调研与审计工作流
 
 > **版本**: v1.1 (2026-08-16; v1.1 合并 Discovery 007 完整发现: 错误形态学三类 + NP2 裁决路径 + 工具链守则)
+
+> **⚠️ 权威源已迁移**: 本文件为历史副本，冻结于 v1.1。权威版本 = Spec_Workflow 仓库
+> (github.com/StormstoutLau/Spec_Workflow) docs/ASSERTION_EVIDENCE_FRAMEWORK.md v1.2+。
+> 本项目新发现/改进经 Discovery 或 ADR 流程回流权威仓库（ADR-0006），勿在此副本上继续演化。
+> 指针落位: 2026-08-17（Spec_Workflow P-001 执行，详见其 ADR-0006 修订历史）。
 > **来源**: Phase 7C 调研审计复盘 (126 条声明 → 8 处实质错误) + NP2 τ_T(k) MCP 学术搜索裁决
 > **用途**: 所有后续调研 agent / 审计 agent 的 prompt 约束与核验流程基准
 > **核心原则**: 生成端强制证据，审计端不信任引文 — 不对称配置
