@@ -148,24 +148,30 @@ inline NgPerronResult ng_perron_test(const std::vector<Real>& data,
     const Real c_bar = (trend_spec == "c") ? -7.0 : -13.5;
 
     // Step 2: 固定样本辅助回归 (逐 k = 0..k_max)
-    //   回归 (1-based t = k_max+1..T) ↔ 0-based idx = k_max..T−1, n = T−k_max
+    //   坐标勘误 (2026-08-18 实施期发现, 越界实锤): 原冻结口径
+    //   "t = k_max+1..T (1-based), n = T−k_max" 在 Δỹ_t 索引上偏 1 —
+    //   Δỹ_T 需 dyd[T−1] 越界 (dyd 合法 0..T−2), 堆越界读 ⇒ 跨进程概率性
+    //   mz_alpha 漂移 (主控站 3/8 复现, B 站 GCC 偶未触发);
+    //   且最深滞后 Δỹ_{t−k_max} 在 t=k_max+1 处需 Δỹ₁ (依赖不存在的 y₀)。
+    //   修正口径 (与 statsmodels adfuller 族一致): 回归观测取 0-based
+    //   Δỹ 下标 idx ∈ [k_max, T−2], n = T−1−k_max; 最深滞后 dyd[idx−k] ≥ 0 恒合法
     const Size k_max = (max_lag > 0) ? max_lag : schwert_lag(T);
-    const Size n = T - k_max;  // 固定样本观测数
-    if (n < 3) {
+    if (T < 2 || k_max + 3 > T) {
         throw std::invalid_argument(
             "ng_perron_test: lag too large for sample (n < 3)");
     }
+    const Size n = T - 1 - k_max;  // 固定样本观测数 (修正口径)
 
-    // Σỹ² (τ_T 与统计量同口径): Σ_{t=k_max+1}^{T} ỹ²_{t−1} (1-based)
-    //   ↔ 0-based ỹ 索引 [k_max−1, T−2]
+    // Σỹ² (τ_T 与统计量同口径): 回归 ỹ_{idx} 列 (= 1-based ỹ_{t−1}) 平方和,
+    //   0-based idx ∈ [k_max, T−2]
     Real sum_y2 = 0.0;
-    for (Size s = k_max - 1; s + 2 <= T; ++s) {  // s = k_max−1 .. T−2
+    for (Size s = k_max; s + 2 <= T; ++s) {  // s = k_max .. T−2
         sum_y2 += yd[s] * yd[s];
     }
     const Real n_r = static_cast<Real>(n);
     const Real t_eff = n_r;  // 口径决策: T 因子 = 固定样本观测数
 
-    // 预备 Δỹ (0-based idx 1..T−1)
+    // 预备 Δỹ (dyd[j] = ỹ_{j+1} − ỹ_j, j = 0..T−2)
     std::vector<Real> dyd(T - 1);
     for (Size t = 1; t < T; ++t) dyd[t - 1] = yd[t] - yd[t - 1];
 
@@ -174,16 +180,16 @@ inline NgPerronResult ng_perron_test(const std::vector<Real>& data,
     std::vector<std::vector<Real>> betas(k_max + 1);  // 逐 k 系数 (s² 用 k*)
 
     for (Size k = 0; k <= k_max; ++k) {
-        // 回归: Δỹ[idx] = β₀·ỹ[idx−1] + Σ_{j=1..k} β_j·Δỹ[idx−j]
-        //   idx (0-based Δỹ 数组下标 = 1-based t − 1) 范围 [k_max, T−1]
+        // 回归: Δỹ[idx] = β₀·ỹ[idx] + Σ_{j=1..k} β_j·Δỹ[idx−j]
+        //   idx (0-based Δỹ 下标) ∈ [k_max, T−2]; ỹ 列与 Δỹ 同时刻基 (adfuller 族)
         std::vector<Real> lhs(n);
         std::vector<std::vector<Real>> X(n, std::vector<Real>(1 + k));
         for (Size i = 0; i < n; ++i) {
-            const Size t1 = k_max + 1 + i;  // 1-based t
-            lhs[i] = dyd[t1 - 1];           // Δỹ_t
-            X[i][0] = yd[t1 - 1 - 1];       // ỹ_{t−1}
+            const Size idx = k_max + i;   // 0-based Δỹ 下标
+            lhs[i] = dyd[idx];            // Δỹ_{idx+1} (1-based t = idx+1)
+            X[i][0] = yd[idx];            // ỹ_idx = 1-based ỹ_{t−1} ✓
             for (Size j = 1; j <= k; ++j) {
-                X[i][j] = dyd[t1 - j - 1];  // Δỹ_{t−j}
+                X[i][j] = dyd[idx - j];   // Δỹ_{idx+1−j} (1-based), idx−j ≥ 0 ✓
             }
         }
         Real ssr = 0.0;
