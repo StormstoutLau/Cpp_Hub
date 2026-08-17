@@ -1,5 +1,6 @@
 # Phase 7C 执行规格书 - 多变量时序与混频模块 (v1.7 M0-M4)
 
+> **版本**: v1.1 (2026-08-17: §13 开放问题 8 项调研裁决 — DY 窗口默认表定稿/H1 成立/§4.3 窗口参数与 g 项函数名勘误; v1.0 2026-08-17 冻结)
 > **版本归属**: **v1.7** (Phase 7C)
 > **目标**: 实现 v1.7 全部时序扩展 — 回填三项 (M0) + ARIMA/Granger (M1) + VAR/IRF/FEVD/DY (M2) + 协整三件套 (M3) + MIDAS (M4), 补齐 Research OS 因子诊断链的多变量与混频基础设施
 > **覆盖范围**:
@@ -917,18 +918,20 @@ M3 (依赖 M2)
 
 ---
 
-## 13. 开放问题 ([待定] 项, 沿用 Phase 7B 推迟惯例)
+## 13. 开放问题 (v1.1 调研裁决, 详见 PHASE7C_OPEN_QUESTIONS_RESEARCH.md)
 
-| # | 问题 | 状态 | 处置 |
-|---|------|------|------|
-| a | DY 滚动窗口宽默认值 (120? 数据频率自适应?) | [待定] | M2 实施时以月度 120 / 日度 200 提案, ADR-020 或 spec v1.1 定稿 |
-| b | H1: Julia MacroEconometricModels.jl NP MPT 常数情形末项系数疑偏 (v0.8.0 年轻包) | [待定-假设区] | 查证路径: NP 2001 出版版 p.1531 Table 1 脚注 vs ngperron.jl; 不阻塞 (Julia 仅半基准) |
-| c | H2: Perron-Qu 2007 修正版 MAIC 与 NP 2001 小样本微差 | [待定-假设区] | v1.8 Gretl `adf --gls --perron-qu` 实测对照 |
-| d | SARIMA / wild bootstrap (Granger) | scope 外 | v1.8+ |
-| e | SVAR/BVAR/TVP-VAR | scope 外 | v1.8+ (DSGE 场景) |
-| f | ARDL/PSS 边界检验 | scope 外 | v1.8+ |
-| g | midas_nlpr/sp/qr/imidas_r, amweights, gompertz/nakagami/lcauchy/genexp | scope 外 | v1.8+ |
-| h | 多元 GARCH (CCC/DCC) / Kalman | scope 外 | v1.8+ |
+> 8 项已于 2026-08-17 专项调研 (4 并行 agent 一手取证 + R2 机械抽检 2 条亲验 + R1-R4 判定), 报告: [PHASE7C_OPEN_QUESTIONS_RESEARCH.md](../../research/PHASE7C_OPEN_QUESTIONS_RESEARCH.md)
+
+| # | 问题 | 状态 | 裁决/处置 |
+|---|------|------|----------|
+| a | DY 滚动窗口默认值 | ✅ **已裁决** (修正原提案) | 频率默认表: 日度 **200** (备选 150/250) / 周度 **200** / 月度 **60** (5 年); H 默认 日 10 / 周 10 周 / 月 12 月; `window` 参数必填无硬编码默认 (四家软件惯例) + 强制 `window > 2·N` + step=1; 稳健性 = 窗口 ±25~50% × H 减半/1.5 倍。**原提案"月度 120"被证据否定** (DY 本人月度基准 = 60, Harvey 纪念卷原文; 无任何一手文献支持 120) |
+| b | H1: Julia NP MPT 常数情形系数 | ✅ **已裁决: H1 成立 (机制修正)** | NP 2001 原文 (BC wp369 + AU 副本逐字): 常数末项 = **−c̄ = +7**, 趋势末项 = **1−c̄ = +14.5** (spec §2.1 NP4 冻结无误); Julia (FriedmanJP/MacroEconometricModels.jl main) 常数分支末项系数**裸 1** (−c̄ 因子遗漏, 偏差 7 倍, 非原猜的误用 8), 趋势分支正确; R2 主线亲验源码逐字。**处置: Julia 常数情形 MPT 禁作对照 (仅趋势可用), 降权定级维持; 可提上游 issue**。附带确认: Julia 无 MAIC 搜索循环 (k=固定带宽公式) |
+| c | H2: PQ 2007 vs NP 2001 | ✅ **已裁决** | 差异本质 = **仅数据路径** (MAIC 滞后选择辅助回归 GLS→OLS 去势; τ_T(k)+k 惩罚结构与"定 k 后 GLS 构造统计量"不变); 动机 = power reversal + size。生态: Stata=NP 原版 / Gretl `--perron-qu`=完整 PQ (官方推荐) / arch=仅数据路径且准则为**标准 AIC 非 MAIC**。**v1.8 PQ 对照唯一完整入口 = Gretl, 禁以 arch 的 k 选择充当 MAIC-PQ** |
+| d | SARIMA / wild bootstrap | scope 外 (v1.8 第二批, 成本中) | SARIMA 双端 API 完备 (statsmodels SARIMAX / R stats::arima seasonal); HH2009 wild bootstrap = vars::causality(boot=TRUE), Python 无实现 → v1.8 决策点: R 桥 vs 自研 |
+| e | SVAR/BVAR/TVP-VAR | scope 外 (v1.8 第二批, 成本中-高) | statsmodels SVAR 仅 A/B/AB 短期识别; BVAR/TVP-VAR 走 R 桥 (BVAR 1.0.5 活跃 / bvarsv=Primiceri 2005); PyMC 自建有采样性能风险 |
+| f | ARDL/PSS 边限检验 | scope 外 (v1.8 第一批, 成本低) | statsmodels ≥0.13 全家 (ardl_select_order + UECM.bounds_test) + R ARDL 包 0.2.5 (复现 PSS 原文); "urd1 包"查无此物 (勘误: 疑为 urca 之误) |
+| g | MIDAS 扩展函数族 | scope 外 (v1.8 第二批, 成本中) | midasr 0.9 四函数全在 (midas_nlpr/midas_sp/imidas_r/amweights); 权重族实名带 p 后缀 (gompertzp/nakagamip/lcauchyp/genexp, spec §1.1 g 项同步勘误); Python 无对应物, R 桥优先 |
+| h | 多元 GARCH / Kalman | scope 外 (v1.8 分批: h₁ Kalman 第一批低 / h₂ DCC 第三批高, 可滑 v1.9) | rmgarch 1.4-2 (2025-08 活跃, DCC); **arch 仍仅一元** (README 明示); statsmodels statespace 四类现成 (SARIMAX/VARMAX/DynamicFactor/UCM, ⚠️ UCM 一元专属) |
 
 ---
 

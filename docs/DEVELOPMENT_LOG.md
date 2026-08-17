@@ -2494,6 +2494,17 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **关键冻结点**: NP τ_T 4 源公式 + MPT 趋势末项 +14.5 + Stata 逐 k MAIC 1e-10 对照; ZA 双模式 (固定 lag 主/Baum 对照) + 双临界值表; GM 三变体双锚 + fix() 三步法 + rescale 统一关闭; ARIMA n.cond=d+max(user,p) 与 q 无关 + method 配对; GFEVD 双系数框架 (DY σ_jj⁻¹ 默认 / PS σ_ii⁻¹ 可选, V8); Johansen 双库 diff 前置任务; β 投影空间对照; midasr 夹具收紧规范 (reltol=1e-12 + midas_u 1e-10 锚)
 - **开放问题 8 项**: [待定] a (DY 滚动窗口默认) / H1/H2 (假设区) + 6 项 scope 外 (d-h)
 
+### PHASE7C 开放问题 8 项调研裁决 → spec v1.1 (2026-08-17)
+
+> [PHASE7C_OPEN_QUESTIONS_RESEARCH.md](./research/PHASE7C_OPEN_QUESTIONS_RESEARCH.md) v1.0 (本地) / PHASE7C_SPEC.md 升 v1.1
+
+- **方式**: 4 并行独立调研 agent (每条结论 URL+原文引文一手取证) + 主线 R2 机械抽检 2 条最高影响断言 (Julia raw 源码 / Gretl cmdref 持久化 grep, 均逐字命中) + assertion_audit.py 探针 (3 B 类全网络域 NO_PROBE, 预期) + R1-R4 判定通过
+- **a (DY 窗口) ✅ 已裁决且修正原提案**: 原提案"月度 120"**被证据否定** — DY 本人月度基准 = 60 个月/5 年 (Harvey 纪念卷原文 "We use a 5-year rolling window", 全文无 120); 定稿: window 必填无硬编码默认 (Spillover/BrainSurfing/ConnectednessApproach/frequencyConnectedness 四家惯例) + 频率默认表 {日 200 (三软件复现 DY2012 汇聚, 备选 150=DY 官网/250=ECB), 周 200 (DY 2009 原文), 月 60} + H {10/10 周/12 月} + window>2N + step=1 + 稳健性窗口±25~50%×H 半/1.5 倍; DY2014 明示 H=10 对齐 Basel 10 日 VaR
+- **b (H1 Julia MPT) ✅ 成立 (机制修正)**: NP 2001 双工作稿 (BC wp369 + AU 副本) 逐字钉死 — 常数末项 −c̄=+7, 趋势末项 1−c̄=+14.5 (spec NP4 冻结无误); Julia (FriedmanJP/MacroEconometricModels.jl) 常数分支末项系数**裸 1** (−c̄ 因子遗漏, 偏差 7 倍 — 比原猜"误用 8"更大), 趋势分支正确; 处置: Julia 常数情形 MPT 禁作对照; 附带确认其无 MAIC 搜索循环 (k=固定带宽公式); 上游 issue 行动项
+- **c (H2 PQ2007) ✅ 已裁决**: 差异本质 = 仅数据路径 (MAIC 滞后选择 GLS→OLS 去势, 惩罚结构不变); 生态三分: Stata=NP 原版 / Gretl --perron-qu=完整 PQ (官方推荐命令) / **arch=仅数据路径且准则为标准 AIC 非 MAIC** (新发现: v1.8 PQ 对照唯一完整入口 = Gretl, 禁以 arch 充当); Sephton 2022 证两路径临界值 "sometimes quite different"
+- **d-h v1.8 预扫**: 分组建议 f (ARDL/PSS, statsmodels≥0.13 全家) + h₁ (Kalman/statespace 封装) 第一批"免费午餐"; d (SARIMA 低 + HH2009 wild bootstrap 决策点 R 桥 vs 自研) / e (SVAR 低, BVAR/TVP-VAR R 桥) / g (midasr 四函数全在, 权重实名带 p 后缀 gompertzp 等) 第二批; h₂ DCC 第三批可滑 v1.9 (arch 仍仅一元); 勘误: "urd1 包"查无此物
+- **门禁闭环**: B1 (DY2012=200 天, 三软件汇聚) / B2 (Julia≠NP) / B3 (arch≠完整 PQ) 登记机读块; 假设区 4 项 (DY2012 原句/EJ 排版版/PQ 正文否定性命题/EViews PQ) 不进正文
+
 
 ---
 
