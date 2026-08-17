@@ -2505,6 +2505,14 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **d-h v1.8 预扫**: 分组建议 f (ARDL/PSS, statsmodels≥0.13 全家) + h₁ (Kalman/statespace 封装) 第一批"免费午餐"; d (SARIMA 低 + HH2009 wild bootstrap 决策点 R 桥 vs 自研) / e (SVAR 低, BVAR/TVP-VAR R 桥) / g (midasr 四函数全在, 权重实名带 p 后缀 gompertzp 等) 第二批; h₂ DCC 第三批可滑 v1.9 (arch 仍仅一元); 勘误: "urd1 包"查无此物
 - **门禁闭环**: B1 (DY2012=200 天, 三软件汇聚) / B2 (Julia≠NP) / B3 (arch≠完整 PQ) 登记机读块; 假设区 4 项 (DY2012 原句/EJ 排版版/PQ 正文否定性命题/EViews PQ) 不进正文
 
+### PHASE7C 验收 Checklist 编写 (实施前冻结, 2026-08-17)
+
+> [PHASE7C_ACCEPTANCE_CHECKLIST.md](./phases/phase7/PHASE7C_ACCEPTANCE_CHECKLIST.md) — 17 节 **331 验收点**框架, 全部 `[ ]` 待实施后逐项审计签署
+
+- **§0 编写期 spec 对齐审计**: 逐文件/逐项清点修正 2 处 devlog 计数偏差 — 头文件实列 **25** (曾记 23: unit_root 3+garch 1+arima 4+var 6 含 multivariate_data+cointegration 7+midas 4), verify 脚本实列 **19** (曾记 20) + .inc 6 件; 其余对齐项全过 (16 套 263 用例/64 幻觉点/28 基准/6 场景/7 风险/8 开放问题)
+- **结构**: §1 交付物 66 (25 头文件按 M0-M4 分组 + 19 脚本 + 6 临界值 .inc + 16 套件) / §2 跨平台 15 (含 cpphub_timeseries_mat 配置) / §3-§7 M0-M4 数值基准 82 (容差分层 + 对照库版本冻结) / §8 幻觉点 64 编号全列 + 10 项 scope 外不计 / §9 集成 6 / §10 ADR 对齐 38 (ADR-019 26+3 逐项 + R 门禁回溯条款 + H1/H2 对照禁令) / §11-§16 边界/规范/复用/文档/性能/风险 60
+- **7C 特有验收点**: 双库 Johansen diff 前置 (§6.2.1 为 M3 第一任务); DY 窗口裁决落验 (§5.3.2-3 window 必填 + 频率默认表); Julia 常数 MPT 禁对照/arch≠MAIC-PQ 禁令 (§10.2.9); 复用偏差归因记录 (§13.10, 7B Issue #2 惯例); 附录 C 里程碑验收节奏 (M0→M1∥M4→M2→M3 各节点覆盖节)
+
 
 ---
 
