@@ -1,7 +1,7 @@
 # 开发工作流：LLM 辅助开发 + 基准对齐 + 形式化验证
 
-> **版本**: 1.0
-> **日期**: 2026-07-29
+> **版本**: 1.1
+> **日期**: 2026-08-16 (v1.1: 新增阶段 0 调研证据审计 + R1-R4 门禁, Phase 7C 审计教训制度化; v1.0 2026-07-29)
 > **定位**: 本文件公开记录 Cpp_Hub 的开发方法论。我们不掩饰 LLM 辅助开发，而是将其作为正向能力信号——**驾驭 LLM 生成可验证的生产级代码**本身是稀缺技能。
 
 ---
@@ -10,12 +10,12 @@
 
 ### 1.1 工作流定位
 
-Cpp_Hub 采用 **AI-assisted development** 工作流，三阶段闭环：
+Cpp_Hub 采用 **AI-assisted development** 工作流，阶段 0 + 三阶段闭环：
 
 ```
-LLM 生成初稿 → 严格测试 + 基准对齐 → (可选) Lean4 形式化验证
-     ↓                    ↓                      ↓
-  加速交付              可验证的正确性         数学证明
+阶段 0: 调研与证据审计 → LLM 生成初稿 → 严格测试 + 基准对齐 → (可选) Lean4 形式化验证
+        ↓                    ↓                    ↓                      ↓
+   断言分级+R门禁          加速交付           可验证的正确性            数学证明
 ```
 
 ### 1.2 为什么不掩饰
@@ -36,7 +36,27 @@ LLM 生成初稿 → 严格测试 + 基准对齐 → (可选) Lean4 形式化验
 
 ---
 
-## 2. 三阶段工作流详解
+## 2. 工作流详解：阶段 0-3
+
+### 2.0 阶段 0: 调研与证据审计 (v1.1 新增)
+
+> Phase 7C 教训的制度化："排幻觉点"的调研报告经独立审计发现自身含 8 处实质错误（126 条声明），其中"把正确事实标成幻觉"型（V8/CI5）危害最大且**无法被引用强制拦截**。规范文档：[ASSERTION_EVIDENCE_FRAMEWORK.md](./ASSERTION_EVIDENCE_FRAMEWORK.md) v1.1。
+
+**输入**：
+- 调研任务书（模块范围 + 对照库候选 + spec 阻断性议题清单）
+
+**LLM 任务**（受框架 §3/§7 约束）：
+- 断言按 A/B/C 分级产出：A 事实类强制 URL+原文引文（≤3 行可 grep），B 推断类强制逐步注源推理链并登记机读块，C 判断类仅 rationale
+- 无法举证的断言一律入"假设区"，禁止进入正文结论
+- 报告含 §0 断言统计表 + 附录 B ` ```assertions ` 机读登记块 + 附录 C 假设区
+
+**人工/独立审计任务**（不对称配置：生成端引证，审计端不采信引文）：
+- B 类断言过 `scripts/assertion_audit.py`（本地）：机械反证探针（纯脚本，零 LLM）→ 双盲重推导（auditor 不接触原推理链）→ 仲裁（仅分歧步）
+- A 类抽样 grep 核验；阻断性断言双源；自动下载证据先验首页身份
+
+**产出**：调研报告 vN（含审计结论章节）— **R4 门禁通过后方可冻结进 Phase Spec / ADR**
+
+**生效范围**：自 ADR-019 复核起（首轮 pilot，同步积累 Discovery 007 量化数据）；Phase 7C 已人工全量审计（等价结果），不追溯。
 
 ### 2.1 阶段 1: LLM 生成初稿
 
@@ -207,7 +227,20 @@ A: "每个 ADR 决策都能即兴解释。比如为什么选 Philox 而不是 Me
 | G3 | 容差达标 | 论文基准 1e-8，开源库 1e-10，Stata 1e-8 |
 | G4 | 基准索引完整 | `tests/validation/README.md` 列出所有基准来源 |
 
-### 4.2 与溯源报告的关系
+### 4.2 调研证据门禁（R 系列, v1.1 新增）
+
+调研报告冻结进 Phase Spec / ADR **之前**必须通过（规范：[ASSERTION_EVIDENCE_FRAMEWORK.md](./ASSERTION_EVIDENCE_FRAMEWORK.md)，与 G 系列平行）：
+
+| 编号 | 检查项 | 标准 |
+|---|---|---|
+| R1 | 断言统计表 | 报告含 §0 统计表（A/B/C/假设区四行计数） |
+| R2 | A 类证据可核验 | URL+原文引文；抽样 grep 在源页命中；自动下载件已验首页身份 |
+| R3 | B 类登记+审计 | ` ```assertions ` 机读块存在；`assertion_audit.py` 已执行；报告附审计结论章节 |
+| R4 | 阻断性清零 | spec 将引用的阻断性断言：FALSIFIED 已改写、CONFLICT/STEP_GAP 已仲裁、双源满足；非阻断项可带 [待定] 进 spec 开放问题节（沿用 Phase 7B 推迟项惯例） |
+
+R 系列适用于每个新 Phase 的调研阶段（阶段 0）；G 系列继续适用于实施阶段。两门禁串联：**R 清零 → spec 冻结 → 实施 → G 清零 → 合并**。
+
+### 4.3 与溯源报告的关系
 
 - [TRACEABILITY_REPORT.md](../TRACEABILITY_REPORT.md)：48 项技术声明的溯源（教材页码 + 开源库文件）
 - 本文件：开发工作流的溯源（LLM 生成 + 基准对齐 + 形式化验证）
@@ -231,6 +264,7 @@ A: "每个 ADR 决策都能即兴解释。比如为什么选 Philox 而不是 Me
 - ❌ 架构设计决策（ADR 必须人工决策）
 - ❌ 基准值选择（必须人工查证论文页码）
 - ❌ 审计判断（必须人工 Review）
+- ❌ B 类断言仲裁（必须独立双盲重推导，审计者不得接触原推理链 — v1.1）
 
 ---
 
@@ -248,6 +282,7 @@ A: "每个 ADR 决策都能即兴解释。比如为什么选 Philox 而不是 Me
 - R (sandwich, rugarch, wildrwolf, modelconf, qvalue)：R 基准
 - Stata：闭源基准验证
 - Lean4：形式化证明
+- assertion_audit.py（本地）：B 类断言机械探针 + 双盲审计编排（v1.1, 阶段 0）
 
 ### 6.3 工程工具
 
@@ -267,6 +302,7 @@ A: "每个 ADR 决策都能即兴解释。比如为什么选 Philox 而不是 Me
 - **不信任博主** → 蒸馏框架
 - **不信任自己的判断** → Lean4 形式化
 - **不信任 LLM** → 基准对齐 + 三源交叉验证
+- **不信任验证产物本身** → 断言分级证据审计（Discovery 007：排幻觉清单自身含幻觉 — v1.1）
 
 所有研究产出都是"如何知道"而非"知道什么"。Cpp_Hub 的开发工作流是这一方法论在工程领域的实例化。
 
@@ -286,11 +322,12 @@ Cpp_Hub 的核心价值不只是"建造完整的库", 更是"在建造过程中�
 docs/discoveries/
 ├── README.md                      # 发现索引
 ├── 001_bh_fdr_correlated_gaussian.md  # [RESOLVED] BH-FDR 在相关双侧高斯检验下失效
-├── 002_heston_cf_branch_cut_edge.md   # [OPEN] Heston 特征函数分支切割极端参数失效
+├── 002_heston_cf_branch_cut_edge.md   # [PARTIAL_RESOLVED] Heston 特征函数分支切割极端参数失效
 ├── 003_psor_omega_adaptive.md         # [OPEN] PSOR 收敛性对 ω 选择的敏感性
 ├── 004_sobol_bb_payoff_interaction.md # [OPEN] Sobol-BB 维度分配与 payoff 交互
 ├── 005_aad_checkpointing_heston.md    # [OPEN] AAD checkpointing 在 Heston 路径上的最优策略
-└── 006_fp_determinism_cross_compiler.md # [OPEN] 跨编译器/跨硬件浮点确定性
+├── 006_fp_determinism_cross_compiler.md # [OPEN] 跨编译器/跨硬件浮点确定性
+└── 007_hallucination_audit_asymmetric_evidence.md # [RESOLVED] 幻觉点清单自身含幻觉 — 断言分级审计框架
 ```
 
 ### 发现分类
@@ -316,9 +353,10 @@ docs/discoveries/
 
 ### 当前发现统计
 
-- 总发现数: 6
-- RESOLVED: 1 (BH-FDR 反例, GPT-5.6 构造, Dobriban 2026)
-- OPEN: 5
-- 潜在论文: 5 (4 篇期刊 + 1 篇技术报告)
+- 总发现数: 7
+- RESOLVED: 2 (001 BH-FDR 反例; 007 断言分级审计框架)
+- PARTIAL_RESOLVED: 1 (002, Feller 边界已由用户 Paper A 解决)
+- OPEN: 4
+- 潜在论文: 6 (4 篇期刊 + 1 篇技术报告 + 1 篇 arXiv 方法论)
 
 详见 [docs/discoveries/README.md](discoveries/README.md)。
