@@ -2593,6 +2593,16 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - 过程坑: IDE 对 include/ 树写入超时 (build/ 正常) → 先写 build/ 再 Move-Item 绕行; 生成器闭括号计数坑二次出现 (5 层 namespace)
 - rugarch 1.1-9 装入 F:/R/win-library/4.6 (26 依赖二进制); verify_gm.R 输出 12 位全精度
 
+### M0: ng_perron_test.hpp 主体 + test_ng_perron 18/18 (2026-08-17)
+
+> `include/cpphub/timeseries/unit_root/ng_perron_test.hpp` — MZα/MZt/MSB/MPT 四统计量 + MAIC 滞后选择 + ERS GLS 去势重实现; `test_ng_perron.cpp` 18/18; verify_np_stata.py 占位入库 (checklist M0 NP 项闭环, commit 8a24993)
+
+- **对照边界声明 (NP6)**: 无成熟开源库输出 M 族 (statsmodels/arch/urca 均无) ⇒ 基准 = 原文公式钉死 (AU wp 副本 PDF Section 2/3.1 逐字复核) + MZt≡MZα×MSB 恒等式自检 1e-12 + Table 1 临界值精确相等 + 模拟方向断言; Stata dfgls 逐 k MAIC 1e-10 对照 = verify_np_stata.py 占位 (readiness C6 降级路径预批, 装机后 --emit-dofile → 批处理 → --parse 补硬编码断言)
+- **B1 处置落地**: df_gls_test.hpp 去势内联不可 include → detail::gls_detrend 重实现 (c̄=−7/−13.5, ρ̄=1+c̄/T, 首项不变换); 测试用 OLS of (y−ỹ) on z 反解 ψ̂ 验证 GLS 正交条件 dz'(dy−dz·ψ̂)=0 **含首行** (U9 首项不变换), 相对容差 1e-8 (正规方程条件数 ~1e5, 绝对零不可达)
+- **固定样本口径冻结 (Stata 验证前)**: 所有 k 的辅助回归统一 t = k_max+1..T (1-based), 观测 n = T−k_max; σ̂²(k) = SSR(k)/(n−1) (NP2 4 源裁决); Σỹ² 与 τ_T 同口径 Σ_{t=k_max+1}^T ỹ²_{t−1}; 统计量 T 因子取 T_eff = n; MBIC/seq-t 推迟 (v1.2 冻结签名无输出字段)
+- **18 用例映射**: 恒等式 / 临界值 c+ct (含 0.143/4.03 转录陷阱断言) / MPT 两情形末项 +7/+14.5 / RW 不拒绝 / AR(0.95) 拒绝 (5% 层; 1% 需更大 T, 功率边界注释) / MAIC 轨迹结构与非负惩罚 / argmin 一致性 / Schwert 默认 / GLS 正交性 / 方向重构 / 与 DF-GLS 方向一致 / 异常输入 / 默认参数 / summary / 性能 T=1000 <1s
+- **过程修复 3 处**: ① ng_perron_test.hpp 内调用 ols_fit 漏 detail:: 限定 → 编译错; ② StationaryArRejected 初版断言 1% 临界值, 有限样本 (T=300) 功率不足随机失败 → 降 5% 并注功率边界; ③ GLS 正交性检验初版漏 t=0 首行 (准差分首项不变换) → 补全 + 绝对容差改相对 (‖g‖ < 1e-8·scale)
+
 ---
 
 ### docs: 断言框架与 DIS-007 权威源迁移指针 (2026-08-17)

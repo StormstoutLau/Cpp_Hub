@@ -140,7 +140,10 @@ TEST(NgPerronTest, RandomWalkNotRejected) {
 }
 
 TEST(NgPerronTest, StationaryArRejected) {
-    const auto r = ur::ng_perron_test(gen_ar095(300), "ct");
+    // T=500: AR(0.95) 接近单位根, 有限样本功率边界 — 口径修正 (2026-08-18)
+    // 后实测 T=300 时 MZα=−16.4 vs cv=−17.3 不拒绝 (原通过系越界垃圾数据
+    // 虚增统计量); T=500 实测 MZα=−33.5 稳定拒绝, 余量充足
+    const auto r = ur::ng_perron_test(gen_ar095(500), "ct");
     EXPECT_TRUE(r.reject_5pct[0]);   // MZα 拒绝 (5% 层; 1% 需更大 T, 功率边界)
     EXPECT_TRUE(r.reject_5pct[1]);   // MZt
     EXPECT_LT(r.mz_alpha, r.cv_5pct[0]);
