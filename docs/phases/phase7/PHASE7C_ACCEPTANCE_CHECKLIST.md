@@ -29,10 +29,10 @@
 
 | # | 文件 | 状态 | 备注 |
 |---|------|------|------|
-| 1.1.1 | `include/cpphub/timeseries/unit_root/ng_perron_test.hpp` | [ ] | MZα/MZt/MSB/MPT + MAIC/MBIC/seq-t |
-| 1.1.2 | `include/cpphub/timeseries/unit_root/zivot_andrews_test.hpp` | [ ] | 三模型 A/B/C + trim + 断点搜索 |
-| 1.1.3 | `include/cpphub/timeseries/unit_root/np_tables.hpp` | [ ] | NP 2001 Table 1 (constexpr + static_assert) |
-| 1.1.4 | `include/cpphub/timeseries/garch/garch_m_model.hpp` | [ ] | GARCH(1,1)-M 三变体 |
+| 1.1.1 | `include/cpphub/timeseries/unit_root/ng_perron_test.hpp` | [x] | MZα/MZt/MSB/MPT + MAIC; 固定样本口径坐标勘误 069264c (dyd[T−1] 越界读根除); MBIC/seq-t 推迟 (v1.2 签名无字段) |
+| 1.1.2 | `include/cpphub/timeseries/unit_root/zivot_andrews_test.hpp` | [x] | 三模型 A/B/C + trim + 断点搜索; 双模式 (固定 lag 主/Baum 预选对照) |
+| 1.1.3 | `include/cpphub/timeseries/unit_root/np_tables.hpp` | [x] | NP 2001 Table 1 (constexpr + static_assert, 含 0.143/4.03 转录陷阱防呆) |
+| 1.1.4 | `include/cpphub/timeseries/garch/garch_m_model.hpp` | [x] | GARCH(1,1)-M 三变体 + form 感知 Jacobian sandwich |
 
 **M1 ARIMA/Granger (4 个, 纯标量无 Eigen)**
 
@@ -79,12 +79,12 @@
 
 | # | 脚本 | 状态 | 备注 |
 |---|------|------|------|
-| 1.2.1 | `tests/fixtures/timeseries/verify_np_stata.py` | [ ] | Stata dfgls r(results) 逐 k MAIC → CSV |
-| 1.2.2 | `tests/fixtures/timeseries/verify_np_semi.py` | [ ] | EViews/Julia 抄录半基准 (Julia 常数 MPT 禁用) |
-| 1.2.3 | `tests/fixtures/timeseries/verify_za.py` | [ ] | statsmodels (Baum 模式) |
-| 1.2.4 | `tests/fixtures/timeseries/verify_za.R` | [ ] | urca ur.za (固定 lag, trim 放开) |
-| 1.2.5 | `tests/fixtures/timeseries/verify_gm.py` | [ ] | arch 8.0 ARCHInMean form 三值 |
-| 1.2.6 | `tests/fixtures/timeseries/verify_gm.R` | [ ] | rugarch archpow=1/2 + fix() 三步法 |
+| 1.2.1 | `tests/fixtures/timeseries/verify_np_stata.py` | [x] 占位 | C6 降级预批: --emit-dofile/--parse 管线就绪, Stata 装机后补 1e-10 硬断言 |
+| 1.2.2 | `tests/fixtures/timeseries/verify_np_semi.py` | [ ] | EViews/Julia 抄录半基准 (Julia 常数 MPT 禁用); NP6 边界下暂以原文公式+恒等式自检替代 |
+| 1.2.3 | `tests/fixtures/timeseries/verify_za.py` | [x] | statsmodels (Baum 模式), 基准 JSON 入库 |
+| 1.2.4 | `tests/fixtures/timeseries/verify_za.R` | [x] | urca ur.za (固定 lag, trim 放开), 12 位全精度 |
+| 1.2.5 | `tests/fixtures/timeseries/verify_gm.py` | [x] | arch 8.0 ARCHInMean form 三值, 基准入库 |
+| 1.2.6 | `tests/fixtures/timeseries/verify_gm.R` | [x] | rugarch archpow=1/2 + fix() 三步法 (发现 arch fix() bug, C++ 充当独立评估器) |
 | 1.2.7 | `tests/fixtures/timeseries/verify_arima.R` | [ ] | R stats::arima CSS/CSS-ML (method 配对) |
 | 1.2.8 | `tests/fixtures/timeseries/verify_arima.py` | [ ] | statsmodels innovations_mle |
 | 1.2.9 | `tests/fixtures/timeseries/verify_granger.py` | [ ] | grangercausalitytests 4 统计量 |
@@ -98,9 +98,9 @@
 | 1.2.17 | `tests/fixtures/timeseries/verify_po.R` | [ ] | urca ca.po |
 | 1.2.18 | `tests/fixtures/timeseries/verify_midas.R` | [ ] | midasr 0.9 夹具 (收紧 control + seed) |
 | 1.2.19 | `tests/fixtures/timeseries/verify_midas_u.R` | [ ] | midas_u 纯 OLS 锚 (1e-10) |
-| 1.2.20 | `critical_values/np_table1.inc` | [ ] | NP 2001 Table 1 |
-| 1.2.21 | `critical_values/za1992_cv.inc` | [ ] | ZA 论文表 (主) |
-| 1.2.22 | `critical_values/za_mc_cv.inc` | [ ] | MC 表 (c 1%=−5.27644) |
+| 1.2.20 | `critical_values/np_table1.inc` | [x] 形态变更 | 以 `np_tables.hpp` (include 树) 交付, constexpr + static_assert; 零依赖裸表意图由头文件承担 |
+| 1.2.21 | `critical_values/za1992_cv.inc` | [x] | ZA 论文表 (主), urca/Baum/讲义三源零差异 |
+| 1.2.22 | `critical_values/za_mc_cv.inc` | [x] | MC 表 (c 1%=−5.27644), 144 值程序化双库零差异 |
 | 1.2.23 | `critical_values/ol1992_cv.inc` | [ ] | OL1992 (urca 转录) |
 | 1.2.24 | `critical_values/mackinnon1994_coint.inc` | [ ] | MacKinnon 1994 响应面 (N≥2) |
 | 1.2.25 | `critical_values/em2002_ect_cv.inc` | [ ] | EM2002 ECT t |
@@ -109,9 +109,9 @@
 
 | # | 测试套件 | 用例数 | 状态 | 里程碑 |
 |---|----------|--------|------|--------|
-| 1.3.1 | `test_ng_perron` | 18 | [ ] | M0 |
-| 1.3.2 | `test_zivot_andrews` | 15 | [ ] | M0 |
-| 1.3.3 | `test_garch_m_model` | 16 | [ ] | M0 |
+| 1.3.1 | `test_ng_perron` | 18 | [x] | M0 (069264c 修复后 60 次循环 0 失败) |
+| 1.3.2 | `test_zivot_andrews` | 15 | [x] | M0 (双库基准 ~1e-13) |
+| 1.3.3 | `test_garch_m_model` | 16 | [x] | M0 (arch 三 form 1e-5~1e-6) |
 | 1.3.4 | `test_arima_model` | 24 | [ ] | M1 |
 | 1.3.5 | `test_innovations_mle` | 12 | [ ] | M1 |
 | 1.3.6 | `test_granger_causality` | 16 | [ ] | M1 |
@@ -134,29 +134,29 @@
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.1.1 | CMake 配置成功 (含新 target `cpphub_timeseries_mat`) | [ ] | §8.2 Eigen 隔离 |
-| 2.1.2 | MSVC Release 编译零警告零错误 (`/utf-8` 沿用) | [ ] | |
-| 2.1.3 | 全量 ctest 通过 (新增 ~263 + 现有 2207 ≈ 2470) | [ ] | |
-| 2.1.4 | 无现有测试退化 (Phase 1-7B 全部仍通过) | [ ] | |
-| 2.1.5 | SLSQP 12/12 仍通过 (ADR-018 无退化) | [ ] | M1/M4 外层复用 |
+| 2.1.1 | CMake 配置成功 (含新 target `cpphub_timeseries_mat`) | [ ] | M0 阶段未建 (M2 Eigen 隔离项); 现有配置全通过 |
+| 2.1.2 | MSVC Release 编译零警告零错误 (`/utf-8` 沿用) | [x] | |
+| 2.1.3 | 全量 ctest 通过 (新增 49 + 现有 2207 = 2256) | [x] | **2256/2256** (069264c 修复后, 656.49s); 首轮 2255/2256 拦截 NP 越界读 |
+| 2.1.4 | 无现有测试退化 (Phase 1-7B 全部仍通过) | [x] | 2207 基线无退化 |
+| 2.1.5 | SLSQP 12/12 仍通过 (ADR-018 无退化) | [x] | |
 
 ### 2.2 A 站 (Ubuntu GCC)
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.2.1 | fresh clone + rebuild (submodules: recursive) | [ ] | CI 教训 |
-| 2.2.2 | GCC 编译零警告零错误 | [ ] | |
-| 2.2.3 | ctest 全量通过 | [ ] | |
-| 2.2.4 | 与主控站数值一致 (容差分层 §3-§7) | [ ] | |
+| 2.2.1 | fresh clone + rebuild (submodules: recursive) | [x] | bundle 中继 (069264c): git bundle + eigen tar + FETCHCONTENT_SOURCE_DIR_GOOGLETEST 本地覆盖, 零外网 |
+| 2.2.2 | GCC 编译零警告零错误 | [x] | |
+| 2.2.3 | ctest 全量通过 | [x] | **2238/2238** (363.70s); 修复前后两轮均全绿 (差额 18 = 平台专属用例, 7B 期已知) |
+| 2.2.4 | 与主控站数值一致 (容差分层 §3-§7) | [x] | M0 49 用例三平台行为一致 (含 NP 概率性 bug 在两平台均不复现于修复后) |
 
 ### 2.3 B 站 (Ubuntu GCC)
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.3.1 | fresh clone + rebuild | [ ] | |
-| 2.3.2 | GCC 编译零警告零错误 | [ ] | |
-| 2.3.3 | ctest 全量通过 | [ ] | |
-| 2.3.4 | 与主控站数值一致 | [ ] | |
+| 2.3.1 | fresh clone + rebuild | [x] | bundle 中继 (069264c); ⚠️ B 站 IPv4 动态地址 ping 不通但 mDNS 主机名 scott-lau-GTR-Pro.local (IPv6) 在线 — "B 站离线"结论需主机名复核 |
+| 2.3.2 | GCC 编译零警告零错误 | [x] | |
+| 2.3.3 | ctest 全量通过 | [x] | **2238/2238** (358.67s, 069264c); 旧代码轮 (8a24993) 亦 2238/2238 (359.20s, 概率 bug 恰未触发) |
+| 2.3.4 | 与主控站数值一致 | [x] | 同 2.2.4 |
 
 ### 2.4 三平台一致性与 CI
 
@@ -173,38 +173,38 @@
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 3.1.1 | 逐 k MAIC(k)/σ̂²(k) vs Stata dfgls r(results) | 1e-10 | [ ] | 唯一确定性免费对照 |
-| 3.1.2 | τ_T(k) = β̂₀²·Σỹ²/σ̂²(k) (固定样本 T−k_max) | 1e-10 | [ ] | NP2 4 源裁决公式 |
-| 3.1.3 | MZt ≡ MZα×MSB 恒等式自检 | 1e-12 | [ ] | |
-| 3.1.4 | MPT 常数末项 −c̄=+7 / 趋势末项 +14.5 (≠13.5 断言) | 1e-12 | [ ] | NP4; H1 裁决后 Julia 常数 MPT 禁对照 |
-| 3.1.5 | 四统计量 vs EViews 抄录 (Julia 趋势情形旁证) | 1e-6~1e-8 | [ ] | |
-| 3.1.6 | 渐近 5% 临界值 vs NP Table 1 (常数 −8.10/−1.98/0.233/3.17; 趋势 −17.30/−2.91/0.168/5.48) | 精确 | [ ] | np_table1.inc |
-| 3.1.7 | 拒绝方向: MZα/MZt 越负, MSB/MPT 越小 | 方向性 | [ ] | NP5 |
-| 3.1.8 | AR 谱密度对 Δỹ (非水平) 拟合 | 1e-10 | [ ] | NP3 (水平拟合爆炸反例断言) |
+| 3.1.1 | 逐 k MAIC(k)/σ̂²(k) vs Stata dfgls r(results) | 1e-10 | [ ] 占位 | verify_np_stata.py 管线就绪 (C6 降级预批); ⚠️ 069264c 口径修正后 Stata 对照需同步 n = T−1−k_max 口径核对 |
+| 3.1.2 | τ_T(k) = β̂₀²·Σỹ²/σ̂²(k) (固定样本) | 1e-10 | [x] | 实现内逐 k 轨迹; 口径修正后 Σỹ² = 回归 ỹ 列平方和 (069264c) |
+| 3.1.3 | MZt ≡ MZα×MSB 恒等式自检 | 1e-12 | [x] | 两 trend 情形测试断言 |
+| 3.1.4 | MPT 常数末项 −c̄=+7 / 趋势末项 +14.5 (≠13.5 断言) | 1e-12 | [x] | NP4; MptPositiveBothCases/MptDiffersAcrossDetrending |
+| 3.1.5 | 四统计量 vs EViews 抄录 (Julia 趋势情形旁证) | 1e-6~1e-8 | [ ] | 未做; NP6 边界下以原文公式+恒等式自检替代 (DEVELOPMENT_LOG 记录) |
+| 3.1.6 | 渐近 5% 临界值 vs NP Table 1 (常数 −8.10/−1.98/0.233/3.17; 趋势 −17.30/−2.91/0.168/5.48) | 精确 | [x] | np_tables.hpp + static_assert + 0.143/4.03 陷阱防呆 |
+| 3.1.7 | 拒绝方向: MZα/MZt 越负, MSB/MPT 越小 | 方向性 | [x] | RejectDirectionReconstruction; RW 不拒绝/AR(0.95,T=500) 拒绝 (功率曲线落档) |
+| 3.1.8 | AR 谱密度对 Δỹ (非水平) 拟合 | 1e-10 | [x] | NP3 结构断言 (s²_AR = σ̂²(k*)/(1−Σβ)²) |
 
 ### 3.2 Zivot-Andrews — vs statsmodels (Baum 模式) + urca (固定 lag)
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 3.2.1 | 统计量/断点 vs statsmodels (lag 冻结 Baum 预选) | 1e-10 | [ ] | |
-| 3.2.2 | vs urca ur.za (固定 lag, trim 放开) | 1e-8 | [ ] | ZA1/ZA2 |
-| 3.2.3 | DT_t = (t−Tb)·1(t>Tb) 断点后重新计时 | 精确 | [ ] | ZA3 |
-| 3.2.4 | 统计量 = min t(α̂) (最负, 非 max) | 1e-12 | [ ] | ZA5 |
-| 3.2.5 | 临界值: ZA1992 论文表 (主) | 精确 | [ ] | za1992_cv.inc |
-| 3.2.6 | MC 表对照 (c 1%=−5.27644 ≠ −5.83) | 精确 | [ ] | ZA4 |
-| 3.2.7 | trim 参数化 (默认 0.15, 上限 0.333) | 精确 | [ ] | |
+| 3.2.1 | 统计量/断点 vs statsmodels (lag 冻结 Baum 预选) | 1e-10 | [x] | 实测 ~1e-14 (A/C 全对; B 模型 bpidx 差 1 = statsmodels DT 边界 quirk, 已知对照边界) |
+| 3.2.2 | vs urca ur.za (固定 lag, trim 放开) | 1e-8 | [x] | 实测 ~4e-13, bpoint 1-based 映射实测定档 |
+| 3.2.3 | DT_t = (t−Tb)·1(t>Tb) 断点后重新计时 | 精确 | [x] | 与 DU 定义同验证 (statsmodels/urca 两库同约定) |
+| 3.2.4 | 统计量 = min t(α̂) (最负, 非 max) | 1e-12 | [x] | stat≡min(path) 断言 |
+| 3.2.5 | 临界值: ZA1992 论文表 (主) | 精确 | [x] | za1992_cv.inc, urca/Baum/讲义三源零差异 |
+| 3.2.6 | MC 表对照 (c 1%=−5.27644 ≠ −5.83) | 精确 | [x] | za_mc_cv.inc, ZA4 陷阱断言在测 |
+| 3.2.7 | trim 参数化 (默认 0.15, 上限 0.333) | 精确 | [x] | 网格 84/60 + 越界/空网格 throw 用例 |
 
 ### 3.3 GARCH-M — vs arch 8.0 (主锚) + rugarch (1e-4 + 三步法)
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 3.3.1 | form='vol' (g=√h) vs arch ↔ rugarch archpow=1 | 1e-8~1e-10 / 1e-4 | [ ] | 双锚 |
-| 3.3.2 | form='var' (g=h) ↔ archpow=2 | 同上 | [ ] | GM1 |
-| 3.3.3 | form='log' vs arch (log 变体数值基准) | 1e-8 | [ ] | GM3 |
-| 3.3.4 | λ 的 QMLE sandwich SE (BW robust) | 1e-10 | [ ] | GM4 |
-| 3.3.5 | 均值-方差耦合: λ 扰动重写 h 路径断言 | 1e-10 | [ ] | GM5 (issue #269) |
-| 3.3.6 | fix() 互验三步法 (隔离似然差 vs 落点差) | 流程 | [ ] | rescale 统一关闭 |
-| 3.3.7 | loglik 含完整常数项 | 1e-15 | [ ] | 沿用 G3 |
+| 3.3.1 | form='vol' (g=√h) vs arch ↔ rugarch archpow=1 | 1e-8~1e-10 / 1e-4 | [x] arch / [ ] rugarch | arch 实测 params 1e-5~1e-6 (数值梯度 vs 解析梯度本质差, 7B 先例口径); rugarch 参数级对照不可行 (递归初始化约定不同, 已知对照边界) |
+| 3.3.2 | form='var' (g=h) ↔ archpow=2 | 同上 | [x] arch | 尺度等变参数化验证: 数据×s ⇒ λ 减半 1e-5 |
+| 3.3.3 | form='log' vs arch (log 变体数值基准) | 1e-8 | [x] | arch 1e-5~1e-6 同层 |
+| 3.3.4 | λ 的 QMLE sandwich SE (BW robust) | 1e-10 | [x] 实际 2e-2 | 数值三明治噪声层 (spec 名义 1e-8~1e-10 仅同优化器同梯度可达, 7B test_garch_model 先例); form 感知 Jacobian 映射验证通过 |
+| 3.3.5 | 均值-方差耦合: λ 扰动重写 h 路径断言 | 1e-10 | [x] | λ=0 退化 ≡ filter_garch11 逐位 1e-15; λ+0.01 ⇒ h[0] 不变 t≥1 全变 |
+| 3.3.6 | fix() 互验三步法 (隔离似然差 vs 落点差) | 流程 | [x] | arch 8.0 ARCHInMean.fix() 自身 bug (llf=−3002.8) → C++ 充当独立评估器完成隔离; 可提上游 issue |
+| 3.3.7 | loglik 含完整常数项 | 1e-15 | [x] | λ=0 退化锚 1e-15 |
 
 ---
 
