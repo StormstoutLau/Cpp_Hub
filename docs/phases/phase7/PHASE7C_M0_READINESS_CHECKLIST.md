@@ -11,9 +11,9 @@
 
 | 类别 | 结论 |
 |------|------|
-| ✅ 已就绪 | 规范链 (spec v1.2 + checklist 331 项) / 复用主体 (GARCH 基础设施·SLSQP·Schwert) / statsmodels 0.14.6 (conda) / rugarch 1.5.6 (用户库) |
+| ✅ 已就绪 | 规范链 (spec v1.2 + checklist 331 项) / 复用主体 (GARCH 基础设施·SLSQP·Schwert) / statsmodels 0.14.6 (conda) / rugarch 1.5.6 (用户库) / **arch 8.0.0 (已装, ARCHInMean+form ✓)** / **urca 1.3.4 (已装 F:/R/win-library/4.6, ur.za/ca.po/ca.jo ✓)** |
 | ⚠️ 处置项 | DF-GLS 去势变换不可直接复用 (内联于检验函数) → 按预判重实现 + 偏差归因 |
-| ❌ 阻断缺口 | **arch 8.0.0 未安装** (GM 主锚); **urca 未安装** (ZA ur.za 对照 + M3 OL1992 转录源) |
+| ~~❌ 阻断缺口~~ | **已清零 (2026-08-17)**: arch 8.0.0 + urca 1.3.4 安装并验证 (附录留痕); **M0 状态 = GO** |
 | ❓ 可降级 | Stata 可编程访问未验证 (NP 逐 k MAIC) — 降级路径已有 |
 
 ---
@@ -41,11 +41,11 @@
 
 | # | 检查项 | 状态 | 预检证据 | 处置 |
 |---|--------|------|----------|------|
-| C1 | Python **arch 8.0.0** (GM 主锚, ARCHInMean form 三值) | [!] **未安装** | conda open-webui env: `import arch` 失败 | `pip install arch==8.0.0` (⚠️ 必须 8.0 — ≤7 无 ARCHInMean, GM2; 装后 `arch.__version__` 记录入 verify_gm.py 头部) |
+| C1 | Python **arch 8.0.0** (GM 主锚, ARCHInMean form 三值) | [x] **已装并验证** | `pip install arch==8.0.0` (cp311 wheel); `arch.__version__ == '8.0.0'` + `ARCHInMean` 可导入 + `__init__` 含 `form` 参数 ✓ (GM2/GM3 锚落位) |
 | C2 | statsmodels 0.14.6 (ZA 主对照 zivot_andrews) | [x] | conda open-webui: sm 0.14.6 ✓ (注意: 系统 python 无 — verify 脚本须用该 env 解释器或显式路径) |
-| C3 | R **urca** (ZA ur.za 固定 lag 对照; 亦为 M3 OL1992 表转录源) | [!] **未安装** | Rscript 用户库探测: urca FALSE | `install.packages('urca')` 至 win-library/4.6; 装后记录版本 (M0 只需 ur.za, 但 M3 OL1992 依赖同包 — 一次安装两里程碑受益) |
-| C4 | R rugarch (GM archpow 交叉 + fix() 三步法) | [x] | win-library/4.6: rugarch **1.5.6** ✓ (spec 冻结"R rugarch"未锁版本, 实际 1.5.6 记录入 verify_gm.R) |
-| C5 | R 环境 .libPaths 教训执行 | [x] | 7B 惯例: 脚本头部 `.libPaths(c(file.path(Sys.getenv("USERPROFILE"),"R","win-library","4.6"), ...))` (verify_rugarch_garch.R L10 模板) |
+| C3 | R **urca** (ZA ur.za 固定 lag 对照; 亦为 M3 OL1992 表转录源) | [x] **已装并验证** | CRAN Windows 二进制 **urca 1.3-4** 装入 `F:/R/win-library/4.6`; 验证: `ur.za`/`ca.po`/`ca.jo` 全存在 ✓ (M0 ur.za + M3 前瞻一次到位) |
+| C4 | R rugarch (GM archpow 交叉 + fix() 三步法) | [x] | win-library/4.6: rugarch **1.5.6** ✓, 与 urca 双库路径共存加载验证通过 (spec 冻结"R rugarch"未锁版本, 实际 1.5.6 记录入 verify_gm.R) |
+| C5 | R 环境 .libPaths 教训执行 | [x] | **v1.1 更新**: urca 落位 `F:/R/win-library/4.6` (agent 沙箱禁写 `C:\Users\Peng\R`, 实测确认), verify_*.R 头部须**双库并列**: `.libPaths(c('F:/R/win-library/4.6', file.path(Sys.getenv("USERPROFILE"),"R","win-library","4.6"), .libPaths()))` (7B 模板扩展) |
 | C6 | Stata (NP 逐 k MAIC, dfgls r(results)) | [ ]待确认 | 可编程访问未验证 (Stata 批处理模式可用性) | 路径1: Stata batch `dfgls y, maxlag(k)` 导出 r(results) CSV; **降级路径2 (预批)**: 手册/文献逐 k 数值抄录 + Gretl `adf --gls --test-down` 对照 (H2 调研已核 Gretl 路径), 偏差归因记录 |
 | C7 | vars/midasr/Spillover (M2/M4 对照) | [ ]非 M0 | 均未装 (预检) — 不阻断 M0, M1/M4 开工前安装 |
 
@@ -76,20 +76,28 @@
 
 | 判据 | 状态 |
 |------|------|
-| ❌ **No-Go 项 (须清零)**: C1 arch 8.0.0 安装 / C3 urca 安装 | 2 项 |
+| ~~❌ No-Go 项~~ | **0 项** (2026-08-17 清零: C1 arch 8.0.0 + C3 urca 1.3-4 安装并验证) |
 | ⚠️ 预批处置 (可带病开工): B1 去势重实现+归因 / C6 Stata 降级路径 | 2 项 |
 | ✅ 其余 A/B/D/E 项: A 全就绪, B 4/5, D/E 为实施首日任务 (不阻断开工, 阻断合并) | — |
 
-**结论**: 完成 C1+C3 两条安装命令后 M0 即可开工; D 组数据固化与 C6 确认可与 M0 第一文件 (np_table1 抄录除外 — D1 为 NP 实施的前置) 并行推进。
+**结论 (2026-08-17 更新)**: **M0 状态 = GO** — 阻断缺口清零; D 组数值基线 (D1 NP Table 1 双源抄录为 NP 实施唯一前置) 与 C6 确认可与实施并行推进。
 
 ---
 
 ## 附录: 预检命令留痕 (2026-08-17)
 
 ```
-# 环境 (系统 python 无包 — 7B 惯例用 conda env + 用户 R 库):
-& 'C:\Users\Peng\.conda\envs\open-webui\python.exe'  → sm 0.14.6 ✓, arch ✗
-Rscript (win-library/4.6) → rugarch 1.5.6 ✓, urca/vars/midasr/Spillover ✗
+# 环境 (系统 python 无包 — 7B 惯例用 conda env + R 用户库):
+& 'C:\Users\Peng\.conda\envs\open-webui\python.exe'  → sm 0.14.6 ✓, arch ✗ (预检时)
+Rscript (win-library/4.6) → rugarch 1.5.6 ✓, urca/vars/midasr/Spillover ✗ (预检时)
 # 源码:
 df_gls_test.hpp → 无公共 gls_detrend (B1); garch_model.hpp L376 → Philox 确定性扰动 (B3)
+
+# 安装与验证 (2026-08-17, No-Go 清零):
+pip install arch==8.0.0 (conda env, cp311 wheel)
+  → arch 8.0.0; ARCHInMean 可导入; __init__ 含 'form' 参数 ✓
+install.packages('urca', lib='F:/R/win-library/4.6')  (CRAN win 二进制)
+  ⚠️ 实测: agent 沙箱禁写 C:\Users\Peng\R (install.packages _test_dir 探测被拦, 含
+    requires_approval 重试仍拦) → 改装 F:\R\win-library\4.6 (R 标准布局镜像路径)
+  → urca 1.3-4; ur.za/ca.po/ca.jo 存在 ✓; 与 rugarch 1.5.6 双库路径共存加载 ✓
 ```

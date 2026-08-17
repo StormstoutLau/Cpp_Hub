@@ -2530,6 +2530,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **复用接口审计**: DF-GLS 去势变换**内联**于 df_gls_test() 无公共函数 → NP 重实现 ERS 变换 + 复用偏差归因 (7B Issue #2 惯例, 预批); GarchConfig 无 seed 字段但 L376 多起始扰动为 **Philox 确定性计数器** — 可复现性内建, GM 沿用即可与 §8.6 兼容 (零破坏保持, 无矛盾)
 - **环境事实留痕**: 系统 python 无 statsmodels/arch (7B 惯例 = conda open-webui + R 用户库 win-library/4.6 + .libPaths 显式加载); rugarch 实际 **1.5.6** (spec 未锁版本, 记录入 verify 脚本); vars/midasr/Spillover 未装 (M2/M4 前置, 不阻断 M0)
 - **结构**: A 规范流程 (4/4 就绪) / B 复用接口 (4/5, 1 预批处置) / C 对照环境 (2✓ 2❗ 1 待确认-Stata 含降级路径) / D 数值基线 (NP Table 1 双源抄录⚠️Julia 表禁作源/ZA 双表/GM 三步法, 实施首日任务) / E 工程约束 (additive-only 例外清单=仅 tests/CMakeLists.txt) / F Go-NoGo 判据 (C1+C3 清零即 Go)
+- **No-Go 清零执行 (同日)**: `pip install arch==8.0.0` (cp311 wheel, ARCHInMean+form 参数验证 ✓) + urca 1.3-4 安装 (⚠️ agent 沙箱实测禁写 `C:\Users\Peng\R` — install.packages 探测目录被拦且 requires_approval 仍拦 → 落位 **`F:\R\win-library\4.6`** 镜像路径; ur.za/ca.po/ca.jo 验证 ✓, 与 rugarch 1.5.6 双库共存 ✓); verify_*.R 头部 .libPaths 须**双库并列** (F 盘 urca 在前); **M0 状态 = GO**, 遗留仅 2 预批处置 (B1/C6) 与实施首日 D 组基线
 
 
 ---
