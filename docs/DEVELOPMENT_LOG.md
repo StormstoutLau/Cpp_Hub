@@ -2474,6 +2474,17 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **反事实检验**: 8 处错误中 7/8 (A 类) 若生成期强制"链接+引文"当场拦截; 唯一 B 类 (CI5) 由赋值语句探针机械终结 — 分类与工具各自命中设计目标
 - **启用状态**: ✅ 已接线 (2026-08-16, DEVELOPMENT_WORKFLOW.md v1.1) — 新增"阶段 0: 调研与证据审计"(与三阶段同构) + R1-R4 调研门禁(与 G1-G4 平行, R4=阻断性清零) + 不信任链第六环 + discoveries 附录统计修复(6→7); 双门禁串联: R 清零 → spec 冻结 → 实施 → G 清零 → 合并; 生效范围: 自 ADR-019 复核起 (首轮 pilot), Phase 7C 已人工全量审计不追溯
 
+### ADR-019 复核: R1-R4 新门禁首轮 Pilot 全通过, 决策集冻结 (2026-08-17)
+
+> [ADR019_REVIEW_PILOT.md](./research/ADR019_REVIEW_PILOT.md) v1.1 / [ADR-019_V17_TIMESERIES_BOUNDARY.md](./decisions/ADR-019_V17_TIMESERIES_BOUNDARY.md) (Accepted)
+
+- **Phase 1 机械探针** (`assertion_audit.py audit --input 报告.md --auditor none`, 本地 statsmodels 0.14.6): B1 Johansen 一套表 (equivalence, vecm.py L733-734 赋值直接证据) / B2 无 GFEVD (existence, 零命中) / B3 fit 仅 'ols' (L627) / B4 select_coint_rank→coint_johansen (transitivity 调用路径) 均 PROBE_SURVIVED; B5 Python 无 MIDAS 回归 (网络域) NO_PROBE 直进双盲
+- **Phase 2 双盲重推导** (独立子 agent, 只收{命题, 源位置}, 未接触原报告): **5/5 TRUE**, 全一手取证 (源码逐行 + 全库穷举 grep + 7 网页)。增量发现强于原链: B3 statsmodels `method` 参数在 fit 函数体完全未被引用 (文档+实现双重成立); B1 全库穷举 `c_sjt|c_sja` 仅 2 文件命中闭合"唯一性"; B5 四角度全落空 (arch 仅 MIDASHyperbolic 波动率过程 / statsmodels 全目录零命中 / PyPI MIDASpy=缺失值插补名称撞车 / mikemull fork 自述 work-in-progress)
+- **R2 抽检抓到 1 处形态 II**: B1 登记引文 `c_sja(det_order, k_ar_diff, i+1)` 系转述失准 (实际 `c_sja(neqs - i, det_order)`, 真实签名 `c_sja(n, p)`), 结论不受影响, 登记块当场修正 — **新门禁首轮即产生实际拦截收益, "审计端不采信引文"配置实证有效**
+- **STEP_GAP 分型**: B1 "唯一性"步骤属真实推导缺口 (auditor 穷举闭合, gap-closed 无需仲裁); B2-B5 增量为补强非跳步; 零 CONFLICT → 仲裁不触发。建议框架 v1.2 将 STEP_GAP 细分 gap-closed/gap-open 两态
+- **R1-R4 判定**: 全通过 (R1 统计表 / R2 抽检+修正 / B 类登记+探针+双盲 / R4 阻断性清零双源) → **ADR-019 冻结**: 26+3 项决策落盘 `docs/decisions/ADR-019_V17_TIMESERIES_BOUNDARY.md`, ADR_INDEX 补 ADR-018/019 两节 (018 此前有文件无索引行), H1/H2 入假设区以 [待定] 进 spec 开放问题节
+- **Pilot 元发现回馈 Discovery 007**: 双门禁全链路首次实战闭环 (报告 ```assertions 块 → 脚本直接消费 → 探针 → 双盲 → R 判定); 下一步 PHASE7C_SPEC 编写 (R 清零已完成)
+
 
 ---
 
