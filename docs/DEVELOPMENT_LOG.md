@@ -2551,6 +2551,17 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **交付形态**: `ZA1992_CV_GOLDEN` constexpr 3×3 (行=A/B/C, 列=1/5/10%) + **14 static_assert** (9 身份锚 + 3 单调 + 2 MC 混表防呆 [−5.27644/−5.83 不入本表, ZA4]); 零依赖裸 double (黄金副本独立性); 冒烟 MSVC /W4 零警告通过, 临时件已清
 - **复核已知问题再现**: statsmodels zivot_andrews 文档至今仍误写刊名 "J. Business & Economic Studies" (实为 Statistics) — 调研警报持续有效, C++ 侧注释已用正确刊名
 
+### M0: za_mc_cv.inc (readiness D3 闭环, 2026-08-17)
+
+> `tests/fixtures/timeseries/critical_values/za_mc_cv.inc` — ZA MC 百分位表黄金副本 (48×3 = 144 点, 消费方 zivot_andrews_test.hpp p 值插值 + 测试双录互校)
+
+- **零手抄管线**: gen_za_mc_tables.py (已入库, 沿 gen_mackinnon_tables.py 惯例) — statsmodels 0.14.6 本地 stattools.py `ZivotAndrewsUnitRoot._c/_t/_ct` (ast 解析) vs arch 8.0.0 本地 `critical_values/zivot_andrews.py` (import), **144/144 程序化双库零差异** ("共用同一 MC 表"再获一等证, MC = 100,000 模拟 × 2,000 点); C++ 字面量由脚本生成后拼装, 全程无手抄
+- **锚索引程序化确认**: c[10]=1%→−5.27644 / c[12]=5%→−4.81067 / c[14]=10%→−4.56618 / t[10]=−5.03421 / ct[10]=−5.57556 (五锚全中, 与 spec ZA4 冻结值一致)
+- **v1.0 幻觉源头坐实**: c[1] pct=0.1% → **−5.83192** (≈讹传 "−5.83") — v1.0 调研把 0.1% 分位值误当 1%, 源头即此点; 防呆断言钉死 (c[1].cv == −5.83192 且注明 "never 1%")
+- **交付形态**: `ZaMcPoint{pct,cv}` + 三表 constexpr 48 点 + **18 static_assert** (3 尺寸 + 5 锚 + 2 混表/幻觉防呆 + 6 端点防截断 + 3 单调抽查); p 值语义注释 (statsmodels L2529-2531: interp 双向 + /100, 实现侧须复刻)
+- **冒烟插曲 (自查)**: 首跑抽查断言失败 — 非表错, 冒烟文件自身索引想当然 (pct=20.0 实为 idx 18, 0.001 占 idx0); 修正后 MSVC /W4 零警告通过。微型形态 II 又一例: 断言行同样需要溯源
+- 临时件已清; readiness D 组 D1/D2/D3 全闭环, ZA 数据面就绪, 可开工 zivot_andrews_test.hpp 主体
+
 
 ---
 
