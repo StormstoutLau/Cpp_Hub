@@ -318,7 +318,11 @@ ZAResult zivot_andrews_test(const std::vector<Real>& data,
 ```
 Step 1: 断点网格: Tb ∈ [trim·T, (1−trim)·T] (默认 0.15; urca 复现须 trim 放开, ZA2)
 Step 2: 每个候选 Tb, 估计增广 DF 回归 (滞后策略按模式):
-  Model A: Δy_t = c + α·y_{t−1} + β·DU_t + Σ δᵢ Δy_{t−i} + ε_t
+  Model A: Δy_t = c + β·t + α·y_{t−1} + θ·DU_t + Σ δᵢ Δy_{t−i} + ε_t
+           [v1.2 勘误: 原方程漏 β·t — 三源实证 Model A 恒含趋势项 (statsmodels
+            stattools.py L2700 exog[:,2]=trend 于 regression="c" 亦在 / urca ur.za
+            datmat trend 列 / Baum zandrews.ado baseline "reg dy trend L.var";
+            ZA1992 原文 Model A = crash in mean under trend-stationary alt)]
   Model B: Δy_t = c + β·t + γ·DT_t + α·y_{t−1} + Σ δᵢ Δy_{t−i} + ε_t
   Model C: Δy_t = c + β·t + γ·DT_t + θ·DU_t + α·y_{t−1} + Σ δᵢ Δy_{t−i} + ε_t
   ⚠️ ZA3: DU_t = 1(t > Tb); DT_t = (t − Tb)·1(t > Tb)  (断点后重新计时, 非 DU·t 全局)
