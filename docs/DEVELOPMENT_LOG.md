@@ -2485,6 +2485,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **R1-R4 判定**: 全通过 (R1 统计表 / R2 抽检+修正 / B 类登记+探针+双盲 / R4 阻断性清零双源) → **ADR-019 冻结**: 26+3 项决策落盘 `docs/decisions/ADR-019_V17_TIMESERIES_BOUNDARY.md`, ADR_INDEX 补 ADR-018/019 两节 (018 此前有文件无索引行), H1/H2 入假设区以 [待定] 进 spec 开放问题节
 - **Pilot 元发现回馈 Discovery 007**: 双门禁全链路首次实战闭环 (报告 ```assertions 块 → 脚本直接消费 → 探针 → 双盲 → R 判定); 下一步 PHASE7C_SPEC 编写 (R 清零已完成)
 
+### PHASE7C_SPEC.md 冻结 (2026-08-17)
+
+> [PHASE7C_SPEC.md](./phases/phase7/PHASE7C_SPEC.md) — v1.7 M0-M4 全量执行规格书 (新工作流下首个经 R 门禁冻结的 spec)
+
+- **§0 门禁记录**: R1-R4 清零声明入 spec 正文; 阻断性断言全部双源, 实施期冲突须回溯 ADR-019 修订, 禁止静默改公式
+- **结构**: 交付物清单 (5 命名空间 23 新头文件 + verify 脚本 20 + 临界值 .inc 六件套) / M0-M4 逐模块 (接口签名 + 算法步骤 + 幻觉点映射) / 集成 6 场景 / Eigen3 隔离 (`cpphub_timeseries_mat` 新 target 承载 var/cointegration) / 幻觉点核查清单 **64 编号** (AR8+GR7+V13+CI12+MD8+NP6+ZA5+GM5, 勘误调研头部 "56 项" 汇总口径) / G 门禁验收 / 风险全量继承 / 顺序 M0→M1∥M4→M2→M3
+- **关键冻结点**: NP τ_T 4 源公式 + MPT 趋势末项 +14.5 + Stata 逐 k MAIC 1e-10 对照; ZA 双模式 (固定 lag 主/Baum 对照) + 双临界值表; GM 三变体双锚 + fix() 三步法 + rescale 统一关闭; ARIMA n.cond=d+max(user,p) 与 q 无关 + method 配对; GFEVD 双系数框架 (DY σ_jj⁻¹ 默认 / PS σ_ii⁻¹ 可选, V8); Johansen 双库 diff 前置任务; β 投影空间对照; midasr 夹具收紧规范 (reltol=1e-12 + midas_u 1e-10 锚)
+- **开放问题 8 项**: [待定] a (DY 滚动窗口默认) / H1/H2 (假设区) + 6 项 scope 外 (d-h)
+
 
 ---
 
