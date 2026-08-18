@@ -627,3 +627,33 @@ gtest_discover_tests(test_variance_ratio_test)
 add_executable(test_integration_phase7b unit/timeseries/test_integration_phase7b.cpp)
 target_link_libraries(test_integration_phase7b PRIVATE cpphub_core GTest::gtest_main)
 gtest_discover_tests(test_integration_phase7b)
+
+# ---- Phase 7C M1: ARIMA (spec PHASE7C v1.7 §1.2) ----
+
+# test_arima_model: ARIMA CSS/CSS-ML + n.cond=d+p + drift + 多起始 + AIC
+# (24 用例; 基准 arima_baseline.inc = R stats::arima CSS/CSS-ML +
+# forecast::Arima drift + statsmodels innovations, gen_phase7c_inc.py)
+add_executable(test_arima_model unit/timeseries/test_arima_model.cpp)
+target_link_libraries(test_arima_model PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_arima_model)
+
+# test_innovations_mle: ARMA 精确 MLE innovations 算法 (12 用例;
+# 基准 statsmodels innovations_mle, 无缺失非季节 AR8)
+add_executable(test_innovations_mle unit/timeseries/test_innovations_mle.cpp)
+target_link_libraries(test_innovations_mle PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_innovations_mle)
+
+# ---- Phase 7C M4: MIDAS (spec PHASE7C v1.7 §1.2) ----
+
+# test_midas_weights: 5 权重族逐点 vs midasr 1e-12 (16 用例; MD1 两套索引起点
+# + MD2 δ 尺度 + MD7 log-sum-exp 非溢出差 <1e-14)
+add_executable(test_midas_weights unit/timeseries/test_midas_weights.cpp)
+target_link_libraries(test_midas_weights PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_midas_weights)
+
+# test_midas_model: DL/AR/U-MIDAS + 集中化 NLS + 多起点 + hAh (18+1 用例;
+# U-MIDAS vs midas_u 1e-10 主锚; NLS vs midas_r reltol=1e-12 落点层;
+# W-dir 方向裁决 w_1↔h=0 期末; hAh vs midasr hAh_test 三列)
+add_executable(test_midas_model unit/timeseries/test_midas_model.cpp)
+target_link_libraries(test_midas_model PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_midas_model)

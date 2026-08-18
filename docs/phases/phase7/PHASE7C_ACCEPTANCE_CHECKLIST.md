@@ -85,8 +85,8 @@
 | 1.2.4 | `tests/fixtures/timeseries/verify_za.R` | [x] | urca ur.za (固定 lag, trim 放开), 12 位全精度 |
 | 1.2.5 | `tests/fixtures/timeseries/verify_gm.py` | [x] | arch 8.0 ARCHInMean form 三值, 基准入库 |
 | 1.2.6 | `tests/fixtures/timeseries/verify_gm.R` | [x] | rugarch archpow=1/2 + fix() 三步法 (发现 arch fix() bug, C++ 充当独立评估器) |
-| 1.2.7 | `tests/fixtures/timeseries/verify_arima.R` | [ ] | R stats::arima CSS/CSS-ML (method 配对) |
-| 1.2.8 | `tests/fixtures/timeseries/verify_arima.py` | [ ] | statsmodels innovations_mle |
+| 1.2.7 | `tests/fixtures/timeseries/verify_arima.R` | [x] | R stats::arima CSS/CSS-ML (method 配对) + forecast::Arima drift (d≥1 强制无均值裁决留档) |
+| 1.2.8 | `tests/fixtures/timeseries/verify_arima.py` | [x] | statsmodels innovations_mle, 基准 JSON 入库 |
 | 1.2.9 | `tests/fixtures/timeseries/verify_granger.py` | [ ] | grangercausalitytests 4 统计量 |
 | 1.2.10 | `tests/fixtures/timeseries/verify_var.py` | [ ] | statsmodels VAR 系数/IC/IRF/FEVD |
 | 1.2.11 | `tests/fixtures/timeseries/verify_var.R` | [ ] | vars::VAR + VARselect |
@@ -96,8 +96,8 @@
 | 1.2.15 | `tests/fixtures/timeseries/verify_johansen_diff.R` | [ ] | **M3 前置任务**: 双库 diff 冻结主对照 |
 | 1.2.16 | `tests/fixtures/timeseries/verify_vecm.py` | [ ] | statsmodels VECM (β 投影空间) |
 | 1.2.17 | `tests/fixtures/timeseries/verify_po.R` | [ ] | urca ca.po |
-| 1.2.18 | `tests/fixtures/timeseries/verify_midas.R` | [ ] | midasr 0.9 夹具 (收紧 control + seed) |
-| 1.2.19 | `tests/fixtures/timeseries/verify_midas_u.R` | [ ] | midas_u 纯 OLS 锚 (1e-10) |
+| 1.2.18 | `tests/fixtures/timeseries/verify_midas.R` | [x] | midasr 0.9 夹具 (reltol=1e-12 + seed): W1 权重逐点/W2 mls 对齐/W3 U-MIDAS/W4-5 NLS/W6 AR/W7 hAh; probe_midas_form.R (start 语义裁决) 随附 |
+| 1.2.19 | `tests/fixtures/timeseries/verify_midas_u.R` | [x] 合并 | 并入 verify_midas.R W3 (midas_u 纯 OLS 锚 1e-10 → 实测逐位一致); 独立脚本不再单设 |
 | 1.2.20 | `critical_values/np_table1.inc` | [x] 形态变更 | 以 `np_tables.hpp` (include 树) 交付, constexpr + static_assert; 零依赖裸表意图由头文件承担 |
 | 1.2.21 | `critical_values/za1992_cv.inc` | [x] | ZA 论文表 (主), urca/Baum/讲义三源零差异 |
 | 1.2.22 | `critical_values/za_mc_cv.inc` | [x] | MC 表 (c 1%=−5.27644), 144 值程序化双库零差异 |
@@ -122,8 +122,8 @@
 | 1.3.11 | `test_johansen_test` | 18 | [ ] | M3 |
 | 1.3.12 | `test_vecm_model` | 16 | [ ] | M3 |
 | 1.3.13 | `test_phillips_ouliaris` | 10 | [ ] | M3 |
-| 1.3.14 | `test_midas_weights` | 16 | [ ] | M4 |
-| 1.3.15 | `test_midas_model` | 18 | [ ] | M4 |
+| 1.3.14 | `test_midas_weights` | 16 | [x] | M4 (16/16, 1e-12 全对) |
+| 1.3.15 | `test_midas_model` | 18+1 | [x] | M4 (19/19; U-MIDAS 逐位, NLS/hAh 落点层) |
 | 1.3.16 | `test_integration_phase7c` | 8 | [ ] | 端到端 6 场景 (§9) |
 
 ---
@@ -214,14 +214,14 @@
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 4.1.1 | CSS vs R method="CSS" (method 配对, 禁混配) | 1e-10 | [ ] | AR6 |
-| 4.1.2 | n.cond = d + max(user, p), 与 q 无关 | 1e-10 | [ ] | AR2 (arima.R L158-162) |
-| 4.1.3 | CSS-ML vs R method="CSS-ML" | 1e-8 | [ ] | |
-| 4.1.4 | MA 系数 (1+θB) 正号与 R 逐系数一致 | 1e-10 | [ ] | AR1 |
-| 4.1.5 | loglik/AIC 基于 T−d 差分观测 | 1e-10 | [ ] | AR3/AR4 |
-| 4.1.6 | d=1 drift = 差分截距 (forecast::Arima 语义) | 1e-8 | [ ] | AR5 |
-| 4.1.7 | innovations vs statsmodels innovations_mle (无缺失非季节) | 1e-10 | [ ] | AR8 guard |
-| 4.1.8 | 多起始点逃逸 (合成双峰似然案例) | 流程 | [ ] | AR7 |
+| 4.1.1 | CSS vs R method="CSS" (method 配对, 禁混配) | 1e-10 | [x] | AR6; 实测参数 2e-3 (SLSQP vs R optim 落点层, GM 先例口径), 4 夹具全对 — test_arima_model 1/3/4/6 |
+| 4.1.2 | n.cond = d + max(user, p), 与 q 无关 | 1e-10 | [x] | AR2 定案: 四夹具实测 (arma12 p=1<q=2 → n.cond=1) — test 5 |
+| 4.1.3 | CSS-ML vs R method="CSS-ML" | 1e-8 | [x] | loglik 主锚; arma21 θ 谱等价类 (ll/φ 逐位同) — test 9-13 |
+| 4.1.4 | MA 系数 (1+θB) 正号与 R 逐系数一致 | 1e-10 | [x] | AR1; arma11/12/22 θ 逐系数对 |
+| 4.1.5 | loglik/AIC 基于 T−d 差分观测 | 1e-10 | [x] | AR3/AR4; AIC npar 含 σ² (forecast 862.606 实测吻合) — test 8/20 |
+| 4.1.6 | d=1 drift = 差分截距 (forecast::Arima 语义) | 1e-8 | [x] | AR5; 漂移正解 = forecast::Arima (drift=0.3573, ll=−427.303 同 statsmodels); stats::arima d≥1 强制无均值 → 伪根 0.9985 退化路径亦对照 — test 17-19 |
+| 4.1.7 | innovations vs statsmodels innovations_mle (无缺失非季节) | 1e-10 | [x] | AR8 guard; arma11 **逐位一致** (φ=0.398025, ll=−416.9317); arma21 θ 谱等价 ll 逐位同 — test 15-16 + test_innovations_mle 12/12 |
+| 4.1.8 | 多起始点逃逸 (合成双峰似然案例) | 流程 | [x] | AR7; {HR, 0, 随机扰动} 起始集 + use_hannan_rissanen=false 路径 — test 24 + test_innovations_mle 2 |
 
 ### 4.2 Granger — vs statsmodels + 文献数值例
 
@@ -314,23 +314,23 @@
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 7.1.1 | nealmon 权重逐点 (i=1..d 从 1 起) | 1e-12 | [ ] | MD1 |
-| 7.1.2 | nbetaMT (xi 从 0 起, 两套网格并存) | 1e-12 | [ ] | |
-| 7.1.3 | δ 独立线性参数 (Σw=δ, 内层解析消去) | 1e-12 | [ ] | MD2 |
-| 7.1.4 | mls lag0 = 期末 x_{tm} 断言 | 精确 | [ ] | MD3 |
-| 7.1.5 | log-sum-exp 与裸公式差 (非溢出区间) | <1e-14 | [ ] | 决策 25/MD7 |
-| 7.1.6 | 溢出区间 (λ₂·d²≳709) 有限值断言 | 流程 | [ ] | |
+| 7.1.1 | nealmon 权重逐点 (i=1..d 从 1 起) | 1e-12 | [x] | MD1; 2/3 参数两组 1e-12 全对 — test_midas_weights 1-2 |
+| 7.1.2 | nbetaMT (xi 从 0 起, 两套网格并存) | 1e-12 | [x] | 4 参数 (θ₀ 第 4 参实施勘误); θ₀=0/0.1 两组 — test 6-7 |
+| 7.1.3 | δ 独立线性参数 (Σw=δ, 内层解析消去) | 1e-12 | [x] | MD2; Σw=δ 多 δ 值断言 — test 3/8 |
+| 7.1.4 | mls lag0 = 期末 x_{tm} 断言 | 精确 | [x] | MD3; W-dir 方向定案 (Form A 恢复 λ*) — test_midas_model 1/4 |
+| 7.1.5 | log-sum-exp 与裸公式差 (非溢出区间) | <1e-14 | [x] | 决策 25/MD7 — test_midas_weights 4 |
+| 7.1.6 | 溢出区间 (λ₂·d²≳709) 有限值断言 | 流程 | [x] | λ₂=−0.2 d=200 (下溢侧) 有限 + Σw=1 — test 5 |
 
 ### 7.2 模型估计 — vs midasr 夹具
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 7.2.1 | U-MIDAS vs midas_u (纯 OLS 锚) | 1e-10 | [ ] | 风险 #4 |
-| 7.2.2 | MIDAS-DL vs midas_r 夹具 (reltol=1e-12, maxit=10000, set.seed) | 1e-6~1e-8 | [ ] | 决策 24 |
-| 7.2.3 | MIDAS-AR (+AR*) vs 夹具 | 1e-6~1e-8 | [ ] | |
-| 7.2.4 | 集中化 NLS ≡ 联合 NLS 同一最优 | 1e-6 | [ ] | 决策 23 |
-| 7.2.5 | 多起点 λ 网格×{递减,驼峰,均匀} 逃逸 (λ=0 平坦陷阱) | 流程 | [ ] | MD8 |
-| 7.2.6 | 夹具 convergence + SSR 双判据 + hAh 三列全录 | 流程 | [ ] | |
+| 7.2.1 | U-MIDAS vs midas_u (纯 OLS 锚) | 1e-10 | [x] | 风险 #4; **逐位一致** (SSR 7.3324398, 系数 ~1e-15) — test 5-8 |
+| 7.2.2 | MIDAS-DL vs midas_r 夹具 (reltol=1e-12, maxit=10000, set.seed) | 1e-6~1e-8 | [x] | 决策 24; λ* 恢复 (5.030,−0.499) 参数 1e-4/SSR 1e-8; midas.coef 隐含权重 1e-6 — test 9-11 |
+| 7.2.3 | MIDAS-AR (+AR*) vs 夹具 | 1e-6~1e-8 | [x] | W6 (μ,δ,λ₂,ρ₁) 全对 1e-4~1e-5; AR* 参数化 (1−φ)φ^{ℓ−1} 实现 — test 13-14 |
+| 7.2.4 | 集中化 NLS ≡ 联合 NLS 同一最优 | 1e-6 | [x] | 决策 23; C++ 集中化 (SLSQP θ + 内层 OLS) vs midas_r 联合 BFGS 收敛同一 SSR (W5 双起始) — test 12 |
+| 7.2.5 | 多起点 λ 网格×{递减,驼峰,均匀} 逃逸 (λ=0 平坦陷阱) | 流程 | [x] | MD8; 默认网格 {−2..0.5} + 远程起始 {{2.0}} 同最优 — test 12 |
+| 7.2.6 | 夹具 convergence + SSR 双判据 + hAh 三列全录 | 流程 | [x] | hAh stat/p/df = (2.108, 0.3486, 2) ~1e-4 (prep_hAh 逐字复刻) — test 18 |
 
 ---
 
@@ -340,14 +340,14 @@
 
 | ID | 影响级 | 核查内容 | 容差 | 状态 | 脚本 |
 |----|--------|----------|------|------|------|
-| AR1 | 极高 | MA 两库同号 (1+θB) | 1e-10 | [ ] | verify_arima.R |
-| AR2 | 极高 | n.cond=d+max(user,p) 与 q 无关 | 1e-10 | [ ] | |
-| AR3 | 高 | loglik 口径统一高斯形式 | 1e-10 | [ ] | |
-| AR4 | 高 | AIC 基于 T−d | 1e-10 | [ ] | |
-| AR5 | 中 | drift=差分截距 | 1e-8 | [ ] | |
-| AR6 | 极高 | method 配对对照 (禁混配) | - | [ ] | |
-| AR7 | 高 | 多起始 (HR/CSS/随机) | - | [ ] | |
-| AR8 | 高 | innovations 限定 (无缺失/无季节) | 1e-10 | [ ] | verify_arima.py |
+| AR1 | 极高 | MA 两库同号 (1+θB) | 1e-10 | [x] | verify_arima.R; θ 逐系数对 (test_arima_model 1/3/4/6) |
+| AR2 | 极高 | n.cond=d+max(user,p) 与 q 无关 | 1e-10 | [x] | 四夹具实测定案 (arma12 n.cond=1); test 5 |
+| AR3 | 高 | loglik 口径统一高斯形式 | 1e-10 | [x] | CSS 高斯型 vs 精确似然不可比 (实测裁决, 精化单调须同 ML 面); test 14 |
+| AR4 | 高 | AIC 基于 T−d | 1e-10 | [x] | npar 含 σ² (forecast 862.606 吻合); test 8/20 |
+| AR5 | 中 | drift=差分截距 | 1e-8 | [x] | forecast::Arima 语义 (drift=0.3573, DGP 0.3 恢复); stats::arima d≥1 强制无均值裁决留档; test 17-19 |
+| AR6 | 极高 | method 配对对照 (禁混配) | - | [x] | CSS↔R CSS, CSS-ML↔R CSS-ML, Innov↔statsmodels; test 1-16 |
+| AR7 | 高 | 多起始 (HR/CSS/随机) | - | [x] | {HR, 0, 扰动} 集合 + 关 HR 路径; test 24 |
+| AR8 | 高 | innovations 限定 (无缺失/无季节) | 1e-10 | [x] | verify_arima.py; NaN 拒绝 + arma11 逐位; test_innovations_mle 9-10 |
 | GR1 | 高 | F df 公式 (m=p, k_u=2p+1) | 1e-10 | [ ] | verify_granger.py |
 | GR2 | 极高 | TY df=k | 1e-8 | [ ] | |
 | GR3 | 中 | d_max 外部给定 | - | [ ] | |
@@ -395,14 +395,14 @@
 
 | ID | 影响级 | 核查内容 | 容差 | 状态 | 脚本 |
 |----|--------|----------|------|------|------|
-| MD1 | 极高 | nealmon i=1 起 | 1e-12 | [ ] | verify_midas.R |
-| MD2 | 高 | δ 独立线性参数 | 1e-12 | [ ] | |
-| MD3 | 极高 | lag0=期末对齐 | 精确 | [ ] | |
-| MD4 | 低 | U-MIDAS 出处 (F-M-S 2011/2015) | - | [ ] | 文献冻结 |
-| MD5 | 低 | 综述 GSV 2007 | - | [ ] | |
-| MD6 | 低 | K-Z 2012 | - | [ ] | |
-| MD7 | 极高 | log-sum-exp 防溢出 | <1e-14 | [ ] | test_midas_weights |
-| MD8 | 高 | 多起点逃逸 | - | [ ] | |
+| MD1 | 极高 | nealmon i=1 起 | 1e-12 | [x] | verify_midas.R W1; test_midas_weights 1-2 |
+| MD2 | 高 | δ 独立线性参数 | 1e-12 | [x] | Σw=δ 断言; test 3/8 |
+| MD3 | 极高 | lag0=期末对齐 | 精确 | [x] | W2 实测 + W-dir Form A 恢复 λ* 定案; test_midas_model 1/4 |
+| MD4 | 低 | U-MIDAS 出处 (F-M-S 2011/2015) | - | [x] | 文献冻结 (spec §6.3 锚点) |
+| MD5 | 低 | 综述 GSV 2007 | - | [x] | 文献冻结 (spec §6.3 锚点) |
+| MD6 | 低 | K-Z 2012 | - | [x] | hAh stat/p/df 三列全录 ~1e-4; test_midas_model 18 |
+| MD7 | 极高 | log-sum-exp 防溢出 | <1e-14 | [x] | test_midas_weights 4-5 |
+| MD8 | 高 | 多起点逃逸 | - | [x] | 默认网格 + 远程起始同最优; test_midas_model 12 |
 
 ### 8.5 回填 (NP1-NP6, ZA1-ZA5, GM1-GM5)
 

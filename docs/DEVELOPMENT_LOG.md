@@ -2626,3 +2626,43 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### M1∥M4: ARIMA 三方法 + MIDAS 全链 (2026-08-18)
+
+> M1: `arima/arima_model.hpp`(CSS/CSS-ML/Innovations 三方法路由) + `innovations_mle.hpp`(精确 MLE) + `hannan_rissanen.hpp`(HR 初值) — 36 用例; M4: `midas/{midas_weights, mixed_freq_data, midas_model, midas_diagnostics}.hpp` — 35 用例; 合计 **71/71 全绿** (主控站 MSVC)
+
+**实证裁决 (决策 22/24 落地, 全部一手实测留档)**:
+
+- **W-dir 方向定案**: midasr `mls` lag0 列 = x[m·t] 期末最新 (实测 mls(1:12,0:2,3) lag0 = 3,6,9,12); 精确线性 DGP `y = 2 + Σw_i·x_{3t−(i−1)}, w = nealmon(c(5,−0.5),4)` 经 midas_r Form A 恢复 λ* = (5.030, −0.499) ⇒ **w₁ ↔ h=0 期末** 定案
+- **midasr start 语义陷阱 (probe_midas_form.R 实测)**: 权重函数必须作 mls 第 4 参 (`mls(x, 0:3, m, nealmon)`), start 给纯参数; 权重调用放 start (`start = list(x = nealmon(...))`) ⇒ midasr **静默按 U-MIDAS (lm) 拟合**, 无警告返回无约束系数 — 语义边界头注留档
+- **AR2 n.cond 定案**: R stats::arima method="CSS" 四夹具实测 n.cond = d+p (**与 q 无关**: arma12 p=1<q=2 实测 n.cond=1, 非 max(p,q)); CSS 残差前 p 个 = 0 (R 同)
+- **d=1 漂移语义裁决**: stats::arima 对 d≥1 **强制无均值** (include.mean=TRUE 无效, 实测两版输出逐位同) ⇒ 漂移被 AR 多项式伪根吸收 (φ=0.9985 退化路径); **漂移正解唯一路径 = forecast::Arima include.drift** (φ=−0.0016, drift=0.3573, loglik=−427.303 与 statsmodels innovations demean 路径逐位一致)
+- **ARMA(2,1) 谱等价类发现**: C++ 与 statsmodels 到达**同一最优** (loglik −421.9194 逐位同, φ 逐位同), 但 (θ,σ²) = (−0.805, 0.822) vs (−0.584, 0.974) — 同一谱密度在 (θ,σ²) 平面上的平坦脊表示, 参数化路径依赖; 测试主锚 = φ + loglik (1e-4/1e-6), θ 仅方向断言 (头注留档, 同 ZA Model B 已知对照边界处置先例)
+
+**对拍精度 (分层容差, GM 先例口径)**:
+
+- MIDAS 权重逐点 vs midasr: **1e-12 全对** (16 用例, log-sum-exp 与裸公式非溢出区间差 <1e-14)
+- U-MIDAS vs midas_u: **逐位一致** (SSR 7.3324398, 系数全部 ~1e-15 层 — 纯 OLS 无优化器)
+- MIDAS-DL 集中化 NLS vs midas_r (reltol=1e-12): 参数 1e-4, SSR 1e-8; 多起点 (默认网格 + 远程起始) 收敛唯一最优 (W5 双起始佐证)
+- MIDAS-AR: (μ,δ,λ₂,ρ₁) vs W6 全对 1e-4~1e-5
+- hAh (K-Z 2012): stat/p/df 三列 vs midasr hAh_test (2.108/0.3486/2) ~1e-4 — prep_hAh 数学逐字复刻 (chol(X'X) + D0 数值差分 + Delta0 广义逆 Wald)
+- Innovations vs statsmodels: arma11 **逐位一致** (φ=0.398025, θ=−0.357566, ll=−416.9317); CSS vs R: 2e-3 (SLSQP vs optim 落点层)
+
+**实现要点**:
+
+- 集中化 NLS (Ghysels-Qian 2019, 决策 23): 外层 SLSQP 仅优化形状超参 θ (Nealmon λ₂/NBeta (κ₁,κ₂,θ₀)), 内层给定 θ → 线性列 → OLS 解析 (δ, AR ρ) → 集中化 SSR(θ); AlmonP/HarStep 权重线性于参数 ⇒ 约束 OLS 解析等价 (无外层, 基列聚合); PolyStep 断点为离散外部结构 → midas_fit 拒绝 (weights 逐点对照仍可用)
+- 权重族五件 midasr 逐点复刻: nealmon (MD1 i 从 1 起, log-sum-exp MD7), nbetaMT 4 参数 (第 4 参数 θ₀ 零假设混合, 实施勘误), almonp (raw poly 不归一), polystep (vector 断点通用化), harstep (d=20 硬编码)
+- arima_fit Innovations 路由 demean 裁决: 无 drift 时 demean=true (= statsmodels 默认, 实测逐位恢复), 有 drift 时 false (CSS-ML 路径联合优化)
+- AR3 口径修正: CSS loglik 统一高斯型与精确似然**不可比** (精化单调性断言须在同一 ML 面上 — 初版测试前提错误, 实测拦截后改锚)
+
+**过程坑 (4 处, 全部留档)**:
+
+- 环境写入回滚 (新现象): 同会话多次 Edit 同一文件出现选择性回滚 (开头段丢失/结尾段保留, gen 脚本与 .inc 均中招) ⇒ 写后立即 grep 验证成为必检步骤; R 脚本 Edit 同现象
+- .inc namespace 嵌套: 独立 namespace 里 Size 不可见 (using 在 include 后) ⇒ 嵌套进 `cpphub::v1::timeseries` (garch_baseline 先例), 加 #pragma once
+- midas_fit UMidas 误入非线性分支: dth 从 weight 算出 1 (应强制 0) + inner_ols 列主/行主维度错配 (ols_fit 期望 X[obs][param], D 为列主 ⇒ k 被算成 n_eff) — probe 二分定位
+- CSV data.frame 静默 recycle: R data.frame(y=100, x=300) 不报错而是 y 循环 3 次 (整除即 recycle) ⇒ 改低频宽表 (100×4: y + 该期 3 个 x), C++ 逐行展开恢复高频原序, CSV 与 MixedFreqData 同数组
+
+**交付物**: verify_midas.R (W1-W7: 权重逐点/mls 对齐/U-MIDAS/NLS/AR/hAh, set.seed(42) + reltol=1e-12) / verify_arima.R (R CSS/CSS-ML + forecast drift) / verify_arima.py (statsmodels innovations) / gen_phase7c_inc.py (自动生成 arima+midas baseline .inc) / probe_midas_form.R (start 语义裁决留档) / midas_smoke_data.csv (低频宽表) / 4 测试套件 + 2 .inc 入库
+
+---
+
+
