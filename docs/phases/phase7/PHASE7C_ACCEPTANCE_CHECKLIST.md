@@ -47,12 +47,12 @@
 
 | # | 文件 | 状态 | 备注 |
 |---|------|------|------|
-| 1.1.9 | `include/cpphub/timeseries/var/multivariate_data.hpp` | [ ] | MultivariateTSData (C4) |
-| 1.1.10 | `include/cpphub/timeseries/var/var_model.hpp` | [ ] | 逐方程 OLS + P 注入/重排 |
-| 1.1.11 | `include/cpphub/timeseries/var/var_select.hpp` | [ ] | IC 五式 + 同样本 offset |
-| 1.1.12 | `include/cpphub/timeseries/var/irf.hpp` | [ ] | 正交化 IRF + bootstrap 带 |
-| 1.1.13 | `include/cpphub/timeseries/var/fevd.hpp` | [ ] | Cholesky + GFEVD 双轨 |
-| 1.1.14 | `include/cpphub/timeseries/var/dy_spillover.hpp` | [ ] | TO/FROM/NET/TCI + 滚动 |
+| 1.1.9 | `include/cpphub/timeseries/var/multivariate_data.hpp` | [x] | MultivariateTSData (C4); T/K/matrix/reorder + 校验 |
+| 1.1.10 | `include/cpphub/timeseries/var/var_model.hpp` | [x] | 逐方程 OLS + IC 五式 + 稳定性双输出 (V9); logdet ×2 修复后 SM 1e-10 |
+| 1.1.11 | `include/cpphub/timeseries/var/var_select.hpp` | [x] | IC 五式 + 同样本 offset (V5); auto-lag 默认 aic |
+| 1.1.12 | `include/cpphub/timeseries/var/irf.hpp` | [x] | Φ 递推 + Ψ=Φ·P 正交化 + 块 bootstrap 带 (V13); P 注入 (决策 11) |
+| 1.1.13 | `include/cpphub/timeseries/var/fevd.hpp` | [x] | Cholesky + GFEVD 双框架 DY/PS (V8); V12 不稳定拦截 |
+| 1.1.14 | `include/cpphub/timeseries/var/dy_spillover.hpp` | [x] | TCI/TO/FROM/NET + 滚动 (window>2K, 无默认); R Spillover 1e-8 |
 
 **M3 协整 (7 个, 需 Eigen3)**
 
@@ -88,9 +88,9 @@
 | 1.2.7 | `tests/fixtures/timeseries/verify_arima.R` | [x] | R stats::arima CSS/CSS-ML (method 配对) + forecast::Arima drift (d≥1 强制无均值裁决留档) |
 | 1.2.8 | `tests/fixtures/timeseries/verify_arima.py` | [x] | statsmodels innovations_mle, 基准 JSON 入库 |
 | 1.2.9 | `tests/fixtures/timeseries/verify_granger.py` | [ ] | grangercausalitytests 4 统计量 |
-| 1.2.10 | `tests/fixtures/timeseries/verify_var.py` | [ ] | statsmodels VAR 系数/IC/IRF/FEVD |
-| 1.2.11 | `tests/fixtures/timeseries/verify_var.R` | [ ] | vars::VAR + VARselect |
-| 1.2.12 | `tests/fixtures/timeseries/verify_gfevd.R` | [ ] | R Spillover g.fevd/G.spillover |
+| 1.2.10 | `tests/fixtures/timeseries/verify_var.py` | [x] | statsmodels VAR 系数/IC/IRF/FEVD/select_order, 基准 JSON 入库 |
+| 1.2.11 | `tests/fixtures/timeseries/verify_var.R` | [x] | vars::VAR + VARselect 交叉 (dump_var_r_values.R 机器精度 dump) |
+| 1.2.12 | `tests/fixtures/timeseries/verify_gfevd.R` | [x] | R Spillover g.fevd/G.spillover 主基准 (0.1.1 裁剪装载) |
 | 1.2.13 | `tests/fixtures/timeseries/verify_eg.py` | [ ] | statsmodels coint |
 | 1.2.14 | `tests/fixtures/timeseries/verify_johansen.py` | [ ] | statsmodels coint_johansen |
 | 1.2.15 | `tests/fixtures/timeseries/verify_johansen_diff.R` | [ ] | **M3 前置任务**: 双库 diff 冻结主对照 |
@@ -115,9 +115,9 @@
 | 1.3.4 | `test_arima_model` | 24 | [x] | M1 (CSS/CSS-ML vs R 四夹具; θ 谱等价类 arma21 主锚 φ+ll) |
 | 1.3.5 | `test_innovations_mle` | 12 | [x] | M1 (黄金锚 B&D MA(1) 4 位逐位 + arma11 vs statsmodels 逐位) |
 | 1.3.6 | `test_granger_causality` | 16 | [ ] | M1 |
-| 1.3.7 | `test_var_model` | 20 | [ ] | M2 |
-| 1.3.8 | `test_var_irf_fevd` | 18 | [ ] | M2 |
-| 1.3.9 | `test_dy_spillover` | 12 | [ ] | M2 |
+| 1.3.7 | `test_var_model` | 20+1 | [x] | M2 (21/21; SM 1e-10 + vars 交叉 1e-8 + §15.5 性能) |
+| 1.3.8 | `test_var_irf_fevd` | 18 | [x] | M2 (18/18; SM orth_ma_rep/fevd 1e-12 + Spillover 1e-8) |
+| 1.3.9 | `test_dy_spillover` | 12 | [x] | M2 (12/12; G.spillover 表/TCI/TO/FROM/NET 1e-8 + roll 1e-6) |
 | 1.3.10 | `test_engle_granger` | 14 | [ ] | M3 |
 | 1.3.11 | `test_johansen_test` | 18 | [ ] | M3 |
 | 1.3.12 | `test_vecm_model` | 16 | [ ] | M3 |
@@ -134,9 +134,9 @@
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.1.1 | CMake 配置成功 (含新 target `cpphub_timeseries_mat`) | [ ] | M0 阶段未建 (M2 Eigen 隔离项); 现有配置全通过 |
+| 2.1.1 | CMake 配置成功 (含新 target `cpphub_timeseries_mat`) | [x] | M2 已建 (Eigen3 INTERFACE 链接); 全量构建通过 |
 | 2.1.2 | MSVC Release 编译零警告零错误 (`/utf-8` 沿用) | [x] | |
-| 2.1.3 | 全量 ctest 通过 (新增 49+71 + 现有 2207 = 2327) | [x] | M0 轮 **2256/2256** (656.49s, 首轮 2255 拦截 NP 越界读); M1∥M4 轮 **2327/2327** (67b5450) |
+| 2.1.3 | 全量 ctest 通过 (新增 49+71+51 + 现有 2207 = 2378) | [x] | M0 轮 **2256/2256** (656.49s, 首轮 2255 拦截 NP 越界读); M1∥M4 轮 **2327/2327** (67b5450); M2 轮 **2375/2375** (823.46s) + 补充 3 用例单独验证 (合计 2378) |
 | 2.1.4 | 无现有测试退化 (Phase 1-7B 全部仍通过) | [x] | 2207 基线无退化 |
 | 2.1.5 | SLSQP 12/12 仍通过 (ADR-018 无退化) | [x] | |
 
@@ -242,34 +242,34 @@
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 5.1.1 | 系数矩阵 (逐方程 OLS) vs statsmodels | 1e-10 | [ ] | 决策 9 |
-| 5.1.2 | IC 五式 (aic/bic/hqic/fpe/logdet) vs var_model.py | 1e-10 | [ ] | V4/V6 |
-| 5.1.3 | Σ_mle = SSR/T (÷T 非 ÷(T−k)) | 1e-10 | [ ] | V4 |
-| 5.1.4 | select_order 同样本 offset | 1e-10 | [ ] | V5 |
-| 5.1.5 | IC vs R vars::VARselect | 1e-8 | [ ] | |
-| 5.1.6 | Cholesky 下三角 (Eigen LLT = np.linalg.cholesky = R t(chol)) | 1e-12 | [ ] | V2 |
-| 5.1.7 | is_stable 双输出 (max|eig| + 严格 <1) | 1e-12 | [ ] | V9 |
+| 5.1.1 | 系数矩阵 (逐方程 OLS) vs statsmodels | 1e-10 | [x] | 决策 9 (SM_PARAMS 7×3 回归元主序, 测试转置读取) |
+| 5.1.2 | IC 五式 (aic/bic/hqic/fpe/logdet) vs var_model.py | 1e-10 | [x] | V4/V6 (logdet=2·Σlog L_ii LLT 因子 2 修复) |
+| 5.1.3 | Σ_mle = SSR/T (÷T 非 ÷(T−k)) | 1e-10 | [x] | V4 (SCALARS[5]=det(Σ_df) 换算关系断言) |
+| 5.1.4 | select_order 同样本 offset | 1e-10 | [x] | V5 (p=0..4 轨迹逐点; p=0 全样本锚闭包重算) |
+| 5.1.5 | IC vs R vars::VARselect | 1e-8 | [x] | AIC/SC p=1..4 逐位 (FPE 不作锚, V6 口径差留档) |
+| 5.1.6 | Cholesky 下三角 (Eigen LLT = np.linalg.cholesky = R t(chol)) | 1e-12 | [x] | V2 (R dump 列主序; matrixL 须物化后取元) |
+| 5.1.7 | is_stable 双输出 (max|eig| + 严格 <1) | 1e-12 | [x] | V9 (roots=1/eig 双口径) |
 
 ### 5.2 IRF/FEVD 双轨 — vs statsmodels + R Spillover
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 5.2.1 | IRF Θ_h[i,j] 方向 (行=响应, 列=冲击) | 1e-12 | [ ] | V3 |
-| 5.2.2 | Cholesky FEVD 行和精确=1 | 1e-12 | [ ] | |
-| 5.2.3 | GFEVD (DY 框架 σ_jj⁻¹ + 行归一化) vs R Spillover | 1e-8 | [ ] | 决策 15 |
-| 5.2.4 | PS 框架 (σ_ii⁻¹) 可选输出, 与 DY 归一化后数值差异断言 | 1e-8 | [ ] | V8 |
-| 5.2.5 | 不稳定 VAR 拦截 FEVD (异常) | 流程 | [ ] | V12 |
-| 5.2.6 | bootstrap 置信带仅点估计容差 | 流程 | [ ] | V13 |
+| 5.2.1 | IRF Θ_h[i,j] 方向 (行=响应, 列=冲击) | 1e-12 | [x] | V3 (Ψ_h vs orth_ma_rep h=1/2/10; Ψ₁=ΣΦ₁(k,·)P(·,0) 全和断言) |
+| 5.2.2 | Cholesky FEVD 行和精确=1 | 1e-12 | [x] | H=10 + H=1 双锚 |
+| 5.2.3 | GFEVD (DY 框架 σ_jj⁻¹ + 行归一化) vs R Spillover | 1e-8 | [x] | 决策 15 (raw 行归一恒等式交叉: c=[1.1122,1.2462,1.1468]) |
+| 5.2.4 | PS 框架 (σ_ii⁻¹) 可选输出, 与 DY 归一化后数值差异断言 | 1e-8 | [x] | V8 (归一后 max_diff>1e-3) |
+| 5.2.5 | 不稳定 VAR 拦截 FEVD (异常) | 流程 | [x] | V12 (爆炸 ρ=1.05 确定性触发; 随机游走 ρ̂<1 不触发属合法) |
+| 5.2.6 | bootstrap 置信带仅点估计容差 | 流程 | [x] | V13 (带仅结构断言: lower≤upper+有限; 点估计主锚) |
 
 ### 5.3 DY 溢出指数 — vs R Spillover
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 5.3.1 | TCI/TO/FROM/NET vs G.spillover | 1e-8 | [ ] | |
-| 5.3.2 | window 必填无默认 + 强制 window>2·N | 精确 | [ ] | §13-a 裁决 |
-| 5.3.3 | 频率默认表 {日 200/周 200/月 60} × H {10/10 周/12 月} | 精确 | [ ] | 月 60 非 120 |
-| 5.3.4 | H 可配置敏感性 (H=10 vs 50) | 方向性 | [ ] | V10 |
-| 5.3.5 | 滚动窗口 step=1 每窗口全重估 | 流程 | [ ] | |
+| 5.3.1 | TCI/TO/FROM/NET vs G.spillover | 1e-8 | [x] | 表/TO/FROM/NET 逐元素 (SP_TABLE 列主序); NET=TO−FROM 恒等 |
+| 5.3.2 | window 必填无默认 + 强制 window>2·N | 精确 | [x] | §13-a 裁决 (≤2K/>T 拒绝; 可估计边界 w≥K·p+kt+K+p 数据依赖留档) |
+| 5.3.3 | 频率默认表 {日 200/周 200/月 60} × H {10/10 周/12 月} | 精确 | [x] | API 无默认 (window 必填); 月 60×H=12 可配执行断言 |
+| 5.3.4 | H 可配置敏感性 (H=10 vs 50) | 方向性 | [x] | V10 (H=50 主锚 1e-8; TCI 差异 (0, 0.1) 区间) |
+| 5.3.5 | 滚动窗口 step=1 每窗口全重估 | 流程 | [x] | w=150 路径 101 点 vs roll.spillover 1e-6 (R 默认 p=1 对齐); 末窗口=子样本 static 1e-10 |
 
 ---
 
@@ -360,19 +360,19 @@
 
 | ID | 影响级 | 核查内容 | 容差 | 状态 | 脚本 |
 |----|--------|----------|------|------|------|
-| V1 | 低 | PS 1998 = Econ. Letters | - | [ ] | 文献冻结 |
-| V2 | 极高 | Cholesky 下三角 | 1e-12 | [ ] | verify_var.py |
-| V3 | 极高 | Θ[i,j] 行响应列冲击 | 1e-12 | [ ] | |
-| V4 | 极高 | IC 用 ML Σ (÷T) | 1e-10 | [ ] | |
-| V5 | 高 | select_order 同样本 offset | 1e-10 | [ ] | |
-| V6 | 高 | FPE 指数 K, n* 含 det | 1e-10 | [ ] | |
-| V7 | 极高 | GFEVD 行归一化 (行和=1) | 1e-8 | [ ] | verify_gfevd.R |
-| V8 | 极高 | 双系数框架 (DY σ_jj⁻¹ / PS σ_ii⁻¹) | 1e-8 | [ ] | |
-| V9 | 高 | 稳定性双输出 (严格 <1) | 1e-12 | [ ] | |
-| V10 | 中 | H 可配置 (非数学常数) | - | [ ] | |
-| V11 | 低 | GIRF 隐含假设注明 (Kim 2013) | - | [ ] | 文档 |
-| V12 | 高 | 不稳定 VAR 拦截 FEVD | - | [ ] | |
-| V13 | 中 | bootstrap≠δ法, 容差仅点估计 | - | [ ] | |
+| V1 | 低 | PS 1998 = Econ. Letters | - | [x] | 文献冻结 (fevd.hpp 注释) |
+| V2 | 极高 | Cholesky 下三角 | 1e-12 | [x] | verify_var.py + vars t(chol) 交叉 |
+| V3 | 极高 | Θ[i,j] 行响应列冲击 | 1e-12 | [x] | orth_ma_rep h=0/1/2/10 全锚 |
+| V4 | 极高 | IC 用 ML Σ (÷T) | 1e-10 | [x] | logdet ×2 修复后 SM 1e-10 |
+| V5 | 高 | select_order 同样本 offset | 1e-10 | [x] | p=0..4 轨迹 1e-10 |
+| V6 | 高 | FPE 指数 K, n* 含 det | 1e-10 | [x] | ((T+df_m)/df_r)^K·e^ld |
+| V7 | 极高 | GFEVD 行归一化 (行和=1) | 1e-8 | [x] | verify_gfevd.R + raw 行归一恒等 |
+| V8 | 极高 | 双系数框架 (DY σ_jj⁻¹ / PS σ_ii⁻¹) | 1e-8 | [x] | 归一后差异 >1e-3 断言 |
+| V9 | 高 | 稳定性双输出 (严格 <1) | 1e-12 | [x] | max_abs_eigenvalue + 布尔双输出 |
+| V10 | 中 | H 可配置 (非数学常数) | - | [x] | H=10/12/50 三档测试 |
+| V11 | 低 | GIRF 隐含假设注明 (Kim 2013) | - | [x] | 文档 (fevd.hpp 注释) |
+| V12 | 高 | 不稳定 VAR 拦截 FEVD | - | [x] | 爆炸 ρ=1.05 触发 throw |
+| V13 | 中 | bootstrap≠δ法, 容差仅点估计 | - | [x] | 带仅结构断言 |
 
 ### 8.3 协整 (CI1-CI12)
 
@@ -435,7 +435,7 @@
 |---|------|--------|------|
 | 9.1 | 单位根诊断全链 (ADF/DF-GLS/NP/ZA → 差分 → ARIMA → LB) | M0+M1+7B 复用; 断点→分段平稳 | [ ] |
 | 9.2 | Granger 因果链 (差分 F vs 水平 TY 对比) | GR7 失效场景 | [ ] |
-| 9.3 | VAR→DY 溢出全链 (IC→稳定→IRF/FEVD→DY+滚动) | M2 全链; V12 拦截 | [ ] |
+| 9.3 | VAR→DY 溢出全链 (IC→稳定→IRF/FEVD→DY+滚动) | M2 全链; V12 拦截 | [x] 单元级全链 (三套件 50 用例; 端到端场景待 §1.3.16) |
 | 9.4 | 协整→VECM (rank→ECT 显著性→β 投影) | M3 全链 | [ ] |
 | 9.5 | MIDAS 混频预测 (DL vs U-MIDAS, MZ/DM 复用 7B) | M4; MD3 期初起窗 | [ ] |
 | 9.6 | GARCH-M 风险溢价 (三变体→λ 显著性→vs 无 M) | M0; GM4/GM5 | [ ] |
@@ -456,14 +456,14 @@
 | 10.1.6 | D6 HAC-Wald 复用 NW | [ ] | |
 | 10.1.7 | D7 ARIMA 多起始点 | [ ] | |
 | 10.1.8 | D8 不做 SARIMA/wild bootstrap | [ ] | |
-| 10.1.9 | D9 VAR 逐方程 OLS (method='ols') | [ ] | |
-| 10.1.10 | D10 IC Lütkepohl 约定 + offset | [ ] | |
-| 10.1.11 | D11 Cholesky LLT 下三角 + P 注入/重排 | [ ] | |
-| 10.1.12 | D12 FEVD 双轨, DY 基于后者 | [ ] | |
-| 10.1.13 | D13 is_stable 双输出 | [ ] | |
-| 10.1.14 | D14 IRF 带 block bootstrap | [ ] | |
-| 10.1.15 | D15 GFEVD 自实现 (R Spillover 主基准) | [ ] | |
-| 10.1.16 | D16 不做 SVAR/BVAR/TVP-VAR | [ ] | |
+| 10.1.9 | D9 VAR 逐方程 OLS (method='ols') | [x] | 同回归元矩阵一次求解等价 |
+| 10.1.10 | D10 IC Lütkepohl 约定 + offset | [x] | IC 五式 + V5 同样本 |
+| 10.1.11 | D11 Cholesky LLT 下三角 + P 注入/重排 | [x] | 注入校验下三角; reorder 敏感性测试 |
+| 10.1.12 | D12 FEVD 双轨, DY 基于后者 | [x] | Cholesky + GFEVD(DY) 双轨 |
+| 10.1.13 | D13 is_stable 双输出 | [x] | max|eig| + 严格 <1 |
+| 10.1.14 | D14 IRF 带 block bootstrap | [x] | Politis-White 风格块长 |
+| 10.1.15 | D15 GFEVD 自实现 (R Spillover 主基准) | [x] | g.fevd 1e-8 + G.spillover 表/指数 1e-8 |
+| 10.1.16 | D16 不做 SVAR/BVAR/TVP-VAR | [x] | scope 外推迟项维持 |
 | 10.1.17 | D17 EG + coint_johansen 等价 API (3 情形) | [ ] | |
 | 10.1.18 | D18 EG 临界值 1994 响应面 (分文件) | [ ] | |
 | 10.1.19 | D19 Johansen 主录 OL1992 + 双库 diff 前置 | [ ] | |
@@ -505,7 +505,7 @@
 | 11.1.3 | GARCH-M 三变体 | [ ] |
 | 11.1.4 | ARIMA CSS/CSS-ML/innovations | [ ] |
 | 11.1.5 | Granger 4 统计量 + TY + HAC | [ ] |
-| 11.1.6 | VAR + IC + IRF + FEVD 双轨 + DY | [ ] |
+| 11.1.6 | VAR + IC + IRF + FEVD 双轨 + DY | [x] | M2 全量 (50 用例; 滚动/auto-lag/PS 框架) |
 | 11.1.7 | EG + Johansen + VECM + PO | [ ] |
 | 11.1.8 | MIDAS-DL/AR/U-MIDAS + 5 权重族 | [ ] |
 
@@ -582,7 +582,7 @@
 | 15.2 | ZA T=500 断点网格搜索 | < 5 sec | [ ] | |
 | 15.3 | GM T=5000 三变体 | < 10 sec | [ ] | |
 | 15.4 | ARIMA T=1000 CSS-ML 多起始 | < 10 sec | [ ] | |
-| 15.5 | VAR K=5, T=500 + IC 扫描 | < 5 sec | [ ] | |
+| 15.5 | VAR K=5, T=500 + IC 扫描 | < 5 sec | [x] | VarModel.PerfK5T500ICScan (maxlag≈18 全扫描, 实测 < 0.05 sec) |
 | 15.6 | Johansen N=5, T=500 | < 2 sec | [ ] | |
 | 15.7 | MIDAS NLS T=250, m=22 | < 10 sec | [ ] | |
 | 15.8 | 全量 ctest (~2470) | < 45 min | [ ] | 7B 基线 614s + 增量 |

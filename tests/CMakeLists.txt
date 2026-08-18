@@ -657,3 +657,25 @@ gtest_discover_tests(test_midas_weights)
 add_executable(test_midas_model unit/timeseries/test_midas_model.cpp)
 target_link_libraries(test_midas_model PRIVATE cpphub_core GTest::gtest_main)
 gtest_discover_tests(test_midas_model)
+
+# ---- Phase 7C M2: VAR/DY (spec PHASE7C v1.7 §1.2, Eigen3 → cpphub_timeseries_mat) ----
+
+# test_var_model: 逐方程 OLS + IC 五式 + 同样本 select + 稳定性 (20 用例;
+# 基准 var_baseline.inc = statsmodels 0.14.4 主基准 + vars 交叉;
+# V2 Cholesky 下三角 / V4 Σ÷T / V5 offset / V6 FPE / V9 双输出)
+add_executable(test_var_model unit/timeseries/test_var_model.cpp)
+target_link_libraries(test_var_model PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_var_model)
+
+# test_var_irf_fevd: IRF 正交化 + FEVD 双轨 + GFEVD 框架差异 (18 用例;
+# V3 Θ 方向 / V7 行和 / V8 DY vs PS / V12 不稳定拦截 / V13 bootstrap 带)
+add_executable(test_var_irf_fevd unit/timeseries/test_var_irf_fevd.cpp)
+target_link_libraries(test_var_irf_fevd PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_var_irf_fevd)
+
+# test_dy_spillover: TCI/TO/FROM/NET + H 敏感性 + 滚动窗口 (12 用例;
+# 主基准 R Spillover 0.1.1 G.spillover/g.fevd 1e-8; V10 H 可配;
+# §13-a window 必填 > 2·K)
+add_executable(test_dy_spillover unit/timeseries/test_dy_spillover.cpp)
+target_link_libraries(test_dy_spillover PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_dy_spillover)
