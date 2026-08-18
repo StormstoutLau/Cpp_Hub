@@ -163,7 +163,7 @@
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
 | 2.4.1 | M0-M4 全部测试三平台无数值偏差 | [ ] | 部分: M0 (49) + M1/M4 (71) 已三平台全绿一致 (67b5450); M2/M3 待实施后补验 |
-| 2.4.2 | GitHub Actions 全绿 (Windows bash shell + submodules 修复沿用) | [ ] | |
+| 2.4.2 | GitHub Actions 全绿 (Windows bash shell + submodules 修复沿用) | [x] | run #60 (67b5450 代码轮) 4/4 + run #61 (d581f30 文档轮) 4/4 全绿 (Build&Test Ubuntu GCC/Windows MSVC + C ABI ×2); run #60 首次承载 M1∥M4 全量 2327 用例 |
 
 ---
 
