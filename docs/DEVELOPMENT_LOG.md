@@ -2708,6 +2708,18 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 **交付物**: verify_var.py (SM 主基准 JSON) / verify_var.R + dump_var_r_values.R (vars 交叉机器精度 dump) / verify_gfevd.R (Spillover 主基准) / gen_phase7c_m2_inc.py (合并生成 var_baseline.inc) / var_smoke_data.csv / 3 测试套件 51 用例 + var_baseline.inc 入库; checklist §1.1.9-14/§1.2.10-12/§1.3.7-9/§2.1.1/§5 全 18 项/§8.2 V1-V13/§9.3/§10.1.9-16/§11.1.6/§15.5 勾选
 
+**A/B 站 GCC 全量验证 (7d64939, 2026-08-18, checklist §2.2/§2.3 勾选)**:
+
+| 平台 | 方式 | 结果 | 耗时 |
+|------|------|------|------|
+| 主控 MSVC 19.5x | — | **2375/2375** (全量轮) + 3 补充用例单独验证 = 2378 注册 | 823.46s |
+| A 站 GCC 13.3.0 (scott-lau-NEX, 192.168.1.11) | bundle 增量 ff 67b5450→7d64939 + rebuild | **2360/2360** (M2 子集 51/51) | 418.31s |
+| B 站 GCC 13.3.0 (scott-lau-GTR-Pro.local, mDNS) | 同法增量 ff + rebuild | **2360/2360** (M2 子集 51/51) | 412.60s |
+
+- 差额 18 (2378−2360) = 平台专属用例 (7B 期已知口径不变); **M2 新增 51 用例 GCC 双站全数运行**, 三平台零数值偏差
+- 编译警告归属同前: 全部 autodiff 第三方噪声, 自有代码 0 警告
+- §2.4.1 维持 [ ] (M0+M1∥M4+M2 三平台一致, 仅余 M3 未实施 — 全项勾选待 M3 完成后)
+
 ---
 
 
