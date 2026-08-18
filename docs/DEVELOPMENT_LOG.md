@@ -2663,6 +2663,19 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 **交付物**: verify_midas.R (W1-W7: 权重逐点/mls 对齐/U-MIDAS/NLS/AR/hAh, set.seed(42) + reltol=1e-12) / verify_arima.R (R CSS/CSS-ML + forecast drift) / verify_arima.py (statsmodels innovations) / gen_phase7c_inc.py (自动生成 arima+midas baseline .inc) / probe_midas_form.R (start 语义裁决留档) / midas_smoke_data.csv (低频宽表) / 4 测试套件 + 2 .inc 入库
 
+**A/B 站 GCC 全量验证 (67b5450, 2026-08-18, checklist §2.2/§2.3/§2.4.1 勾选)**:
+
+| 平台 | 方式 | 结果 | 耗时 |
+|------|------|------|------|
+| 主控 MSVC 19.5x | — | **2327/2327** | M1∥M4 轮 |
+| A 站 GCC 13.3.0 (scott-lau-NEX, 192.168.1.11) | bundle 增量 ff 8a24993→67b5450 + rebuild | **2309/2309** | 418.47s |
+| B 站 GCC 13.3.0 (scott-lau-GTR-Pro.local, mDNS) | 全新 fresh clone from bundle + eigen/gtest 中继 | **2309/2309** | 412.67s |
+
+- 差额 18 (2327−2309) = 平台专属用例 (7B 期已知口径不变); **M1/M4 新增 71 用例 GCC 全数运行** (ctest -N -R 'Arima|Innovations|Midas' = 71), 三平台零数值偏差
+- 编译警告归属核查 (两站同): 构建日志 10 条 warning 中 9 条 third_party/autodiff (GCC13 C++20 [=] capture deprecation + 1 条由其实例化触发的系统头 stringop-overflow), **自有代码 0 警告零错误**
+- B 站 ⚠️ 复核收口: mDNS 主机名通道两轮验证均正常 (ssh/scp), "IPv4 ping 不通 = 离线"结论作废; B 站前轮 (069264c) 克隆已被清理, 本轮重克隆落点 `~/Cpp_Hub_7C`
+- 中继工件 (主控 build/ 下生成): relay_m1m4.bundle (2.28MB, --all) + eigen_relay.tar.gz (2.71MB) + gtest_relay.tar.gz (0.87MB); A 站 gtest 持久化解包至 `~/gtest-src` (避开 /tmp 清理); 站侧脚本 relay_run_{a,b}.sh (遵循"本地 .sh → scp → bash"铁律, PowerShell 内联转义陷阱不重蹈)
+
 ---
 
 
