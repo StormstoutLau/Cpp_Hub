@@ -2678,4 +2678,36 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### M2: VAR/DY 全链 (2026-08-18)
+
+> `var/{multivariate_data, var_model, var_select, irf, fevd, dy_spillover}.hpp` — 6 头文件 51 用例 **全绿** (主控站 MSVC: test_var_model 21 + test_var_irf_fevd 18 + test_dy_spillover 12); 基准三源: statsmodels 0.14.4 (主) + R vars (交叉) + R Spillover 0.1.1 裁剪装载 (GFEVD/DY 主)
+
+**数值对拍分层 (checklist §5 全 18 项勾选)**:
+
+- VAR 系数/IC 五式/Σ 分层/Cholesky/稳定性 vs statsmodels: **1e-10** (roots=1/eig 双口径; Σ_mle=SSR/T 与 Σ_df 换算关系断言)
+- IRF Ψ_h vs orth_ma_rep (h=0/1/2/10): **1e-12**; Cholesky FEVD (H=1/10) + 行和=1: 1e-10/1e-12
+- GFEVD (DY σ_jj⁻¹) vs Spillover g.fevd: **1e-8**; G.spillover 表/TCI/TO/FROM/NET: 1e-8; raw 行归一恒等 (c=[1.1122,1.2462,1.1468]) 交叉
+- 滚动 w=150 101 窗口 TCI 路径 vs roll.spillover: **1e-6** (R 侧 VAR 默认 p=1 对齐后; 初始 lag=2 对照差 6.5 → 定位 R 默认 p)
+- IC vs vars::VARselect: AIC/SC p=1..4 逐位 1e-8 (FPE 口径差留档不作锚)
+
+**实现要点**:
+
+- Σ 分层 (V4): sigma_u_mle=SSR/T (IC/loglik 用) 与 sigma_u=df 修正 (IRF/FEVD 用) 双输出 — 对齐 statsmodels _chol_sigma_u 与 R covres
+- GFEVD 双框架 (V8): FevdFramework::{Cholesky, GeneralizedDY, GeneralizedPS}; DY 行归一 vs PS 未归一 (归一后差异 >1e-3 断言)
+- DY 滚动: window 必填无默认 (§13-a 裁决), 强制 window>2K; step=1 每窗全重估; lag=0 每窗 IC 自动
+- IRF bootstrap (V13): 中心化残差移动块重抽 (Politis-White 风格块长 ⌈8·(T/100)^{2/9}⌉), (Y,Z) 配对块空间重抽 → y* 递推 → 重估; 带仅结构断言不进容差
+- V12 拦截: 伴随矩阵 max|eig|≥1 时 var_fevd throw (爆炸 ρ=1.05 确定性触发; 随机游走有限样本 ρ̂<1 不触发属合法, 头注留档)
+
+**关键 bug 与基准布局陷阱 (5 处, 全部留档)**:
+
+- **logdet 漏因子 2** (核心 bug): LLT 的 `Σ log(L_ii)` 少乘 2 (det=ΠL_ii²) ⇒ aic/bic/hqic/fpe/loglik 全体偏差 — 手算 det(Σ_mle)≈0.807 反推 ld=−0.214 与 SM 隐含值吻合定位; 一行修复解 IC 全家 12 个失败
+- **基准数组布局**: SM_PARAMS 7×3 回归元主序 (测试须 [3j+i] 读) / R_VARS_COEF 3×7 方程主序 (const 列尾) / R_VARS_CHOL/R_VARS_FEVD/SP_TABLE R dump **列主序** — 三种布局并存, 测试逐数组适配并头注留档
+- **Eigen TriangularView 陷阱**: `llt.matrixL()(i,j)` 直接取元读未引用上三角存储 (恰为原 Σ 值) — 须物化 `const MatrixXd L = llt.matrixL()` 后取元
+- **同文件并行 Edit 竞态再犯**: 4 处并行编辑 test_var_model.cpp 互踩回滚 1 处 (v1.2 spec 教训重蹈) — 确认串行 Edit 铁律
+- **roll.spillover 默认 p=1**: dump 脚本未传 p ⇒ vars::VAR 默认 p=1, C++ lag=2 对照差 6.5; 源码实证 (roll_spillover.R L77-81 `VAR(z,...)` 不透传 n.ahead/p) 后 C++ 侧 lag=1 对齐
+
+**交付物**: verify_var.py (SM 主基准 JSON) / verify_var.R + dump_var_r_values.R (vars 交叉机器精度 dump) / verify_gfevd.R (Spillover 主基准) / gen_phase7c_m2_inc.py (合并生成 var_baseline.inc) / var_smoke_data.csv / 3 测试套件 51 用例 + var_baseline.inc 入库; checklist §1.1.9-14/§1.2.10-12/§1.3.7-9/§2.1.1/§5 全 18 项/§8.2 V1-V13/§9.3/§10.1.9-16/§11.1.6/§15.5 勾选
+
+---
+
 

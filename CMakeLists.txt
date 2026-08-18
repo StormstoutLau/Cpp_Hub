@@ -49,6 +49,15 @@ if(MSVC)
     target_compile_options(cpphub_econometrics INTERFACE /wd4505 /wd4714)
 endif()
 
+# === Phase 7C v1.7 M2/M3: 多变量时序 Eigen 载体 (PHASE7C_SPEC §8.2, ADR-013) ===
+# var/cointegration 头文件专用; 单变量 timeseries 头文件零 Eigen include
+add_library(cpphub_timeseries_mat INTERFACE)
+target_link_libraries(cpphub_timeseries_mat INTERFACE cpphub_core eigen3_interface)
+target_compile_features(cpphub_timeseries_mat INTERFACE cxx_std_20)
+if(MSVC)
+    target_compile_options(cpphub_timeseries_mat INTERFACE /wd4505 /wd4714)
+endif()
+
 # GoogleTest (FetchContent)
 include(FetchContent)
 FetchContent_Declare(
