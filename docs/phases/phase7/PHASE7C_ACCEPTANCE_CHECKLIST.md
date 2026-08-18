@@ -38,9 +38,9 @@
 
 | # | 文件 | 状态 | 备注 |
 |---|------|------|------|
-| 1.1.5 | `include/cpphub/timeseries/arima/arima_model.hpp` | [ ] | CSS + CSS-ML |
-| 1.1.6 | `include/cpphub/timeseries/arima/innovations_mle.hpp` | [ ] | B&D 2016 §5.2 精确 MLE |
-| 1.1.7 | `include/cpphub/timeseries/arima/hannan_rissanen.hpp` | [ ] | HR 起始值 |
+| 1.1.5 | `include/cpphub/timeseries/arima/arima_model.hpp` | [x] | CSS + CSS-ML; d=1 漂移走 forecast::Arima 语义 (AR5), n.cond=d+p 定案 (AR2) |
+| 1.1.6 | `include/cpphub/timeseries/arima/innovations_mle.hpp` | [x] | B&D 2016 §5.2 精确 MLE; arma11 vs statsmodels 逐位 (ll=−416.9317) |
+| 1.1.7 | `include/cpphub/timeseries/arima/hannan_rissanen.hpp` | [x] | HR 起始值; Schwert n_init 默认 + 多起始点集合成员 |
 | 1.1.8 | `include/cpphub/timeseries/arima/granger_test.hpp` | [ ] | F/χ²/LR + TY + HAC-Wald |
 
 **M2 VAR/DY (6 个, 需 Eigen3 → cpphub_timeseries_mat)**
@@ -70,10 +70,10 @@
 
 | # | 文件 | 状态 | 备注 |
 |---|------|------|------|
-| 1.1.22 | `include/cpphub/timeseries/midas/mixed_freq_data.hpp` | [ ] | mls 期末对齐 (C4) |
-| 1.1.23 | `include/cpphub/timeseries/midas/midas_weights.hpp` | [ ] | 5 权重族 + log-sum-exp |
-| 1.1.24 | `include/cpphub/timeseries/midas/midas_model.hpp` | [ ] | DL/AR/U-MIDAS + 集中化 NLS |
-| 1.1.25 | `include/cpphub/timeseries/midas/midas_diagnostics.hpp` | [ ] | 残差诊断 + hAh 检验 |
+| 1.1.22 | `include/cpphub/timeseries/midas/mixed_freq_data.hpp` | [x] | mls 期末对齐 (C4); W-dir 定案 w₁↔h=0 期末 (Form A 恢复 λ*) |
+| 1.1.23 | `include/cpphub/timeseries/midas/midas_weights.hpp` | [x] | 5 权重族 + log-sum-exp; nbetaMT 4 参数实施勘误 (θ₀ 第 4 参) |
+| 1.1.24 | `include/cpphub/timeseries/midas/midas_model.hpp` | [x] | DL/AR/AR*/U-MIDAS + 集中化 NLS (外层 SLSQP θ + 内层 OLS) |
+| 1.1.25 | `include/cpphub/timeseries/midas/midas_diagnostics.hpp` | [x] | 残差诊断 + hAh 检验 (K-Z 2012, prep_hAh 逐字复刻, ~1e-4) |
 
 ### 1.2 基准验证脚本 (19 个) + 临界值表 (6 件, 沿用 7B 全提交惯例)
 
@@ -112,8 +112,8 @@
 | 1.3.1 | `test_ng_perron` | 18 | [x] | M0 (069264c 修复后 60 次循环 0 失败) |
 | 1.3.2 | `test_zivot_andrews` | 15 | [x] | M0 (双库基准 ~1e-13) |
 | 1.3.3 | `test_garch_m_model` | 16 | [x] | M0 (arch 三 form 1e-5~1e-6) |
-| 1.3.4 | `test_arima_model` | 24 | [ ] | M1 |
-| 1.3.5 | `test_innovations_mle` | 12 | [ ] | M1 |
+| 1.3.4 | `test_arima_model` | 24 | [x] | M1 (CSS/CSS-ML vs R 四夹具; θ 谱等价类 arma21 主锚 φ+ll) |
+| 1.3.5 | `test_innovations_mle` | 12 | [x] | M1 (黄金锚 B&D MA(1) 4 位逐位 + arma11 vs statsmodels 逐位) |
 | 1.3.6 | `test_granger_causality` | 16 | [ ] | M1 |
 | 1.3.7 | `test_var_model` | 20 | [ ] | M2 |
 | 1.3.8 | `test_var_irf_fevd` | 18 | [ ] | M2 |
@@ -136,7 +136,7 @@
 |---|--------|------|------|
 | 2.1.1 | CMake 配置成功 (含新 target `cpphub_timeseries_mat`) | [ ] | M0 阶段未建 (M2 Eigen 隔离项); 现有配置全通过 |
 | 2.1.2 | MSVC Release 编译零警告零错误 (`/utf-8` 沿用) | [x] | |
-| 2.1.3 | 全量 ctest 通过 (新增 49 + 现有 2207 = 2256) | [x] | **2256/2256** (069264c 修复后, 656.49s); 首轮 2255/2256 拦截 NP 越界读 |
+| 2.1.3 | 全量 ctest 通过 (新增 49+71 + 现有 2207 = 2327) | [x] | M0 轮 **2256/2256** (656.49s, 首轮 2255 拦截 NP 越界读); M1∥M4 轮 **2327/2327** (67b5450) |
 | 2.1.4 | 无现有测试退化 (Phase 1-7B 全部仍通过) | [x] | 2207 基线无退化 |
 | 2.1.5 | SLSQP 12/12 仍通过 (ADR-018 无退化) | [x] | |
 
@@ -144,10 +144,10 @@
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.2.1 | fresh clone + rebuild (submodules: recursive) | [x] | bundle 中继 (069264c): git bundle + eigen tar + FETCHCONTENT_SOURCE_DIR_GOOGLETEST 本地覆盖, 零外网 |
-| 2.2.2 | GCC 编译零警告零错误 | [x] | |
-| 2.2.3 | ctest 全量通过 | [x] | **2238/2238** (363.70s); 修复前后两轮均全绿 (差额 18 = 平台专属用例, 7B 期已知) |
-| 2.2.4 | 与主控站数值一致 (容差分层 §3-§7) | [x] | M0 49 用例三平台行为一致 (含 NP 概率性 bug 在两平台均不复现于修复后) |
+| 2.2.1 | fresh clone + rebuild (submodules: recursive) | [x] | bundle 中继 (069264c): git bundle + eigen tar + FETCHCONTENT_SOURCE_DIR_GOOGLETEST 本地覆盖, 零外网; M1∥M4 轮 (67b5450) 同法增量 ff 8a24993→67b5450 + rebuild |
+| 2.2.2 | GCC 编译零警告零错误 | [x] | 两轮复核; 67b5450 轮 GCC 13.3.0 自有代码 **0 警告** (日志 10 条 = autodiff 9 + 其触发的系统头 1, 全为第三方噪声) |
+| 2.2.3 | ctest 全量通过 | [x] | **2238/2238** (363.70s, 069264c); **2309/2309** (418.47s, 67b5450 M1∥M4 轮; 差额 18 = 平台专属用例 7B 期已知, M1/M4 新增 71 用例 GCC 全数运行) |
+| 2.2.4 | 与主控站数值一致 (容差分层 §3-§7) | [x] | M0 49 用例三平台行为一致; M1/M4 71 用例三平台同全绿 (67b5450) |
 
 ### 2.3 B 站 (Ubuntu GCC)
 
@@ -162,7 +162,7 @@
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.4.1 | M0-M4 全部测试三平台无数值偏差 | [ ] | |
+| 2.4.1 | M0-M4 全部测试三平台无数值偏差 | [ ] | 部分: M0 (49) + M1/M4 (71) 已三平台全绿一致 (67b5450); M2/M3 待实施后补验 |
 | 2.4.2 | GitHub Actions 全绿 (Windows bash shell + submodules 修复沿用) | [ ] | |
 
 ---
