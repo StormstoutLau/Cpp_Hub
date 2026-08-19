@@ -58,13 +58,13 @@
 
 | # | 文件 | 状态 | 备注 |
 |---|------|------|------|
-| 1.1.15 | `include/cpphub/timeseries/cointegration/engle_granger.hpp` | [ ] | EG 两步法 |
-| 1.1.16 | `include/cpphub/timeseries/cointegration/johansen_test.hpp` | [ ] | 迹/最大特征值, 3 det 情形 |
-| 1.1.17 | `include/cpphub/timeseries/cointegration/phillips_ouliaris.hpp` | [ ] | Pu/Pz 双实现 |
-| 1.1.18 | `include/cpphub/timeseries/cointegration/vecm_model.hpp` | [ ] | 5 情形 + β 双归一 + ECT t |
-| 1.1.19 | `include/cpphub/timeseries/cointegration/osterwald_lenum_cv.hpp` | [ ] | OL1992 表 (urca 转录) |
-| 1.1.20 | `include/cpphub/timeseries/cointegration/mackinnon_coint_cv.hpp` | [ ] | MacKinnon 1994 协整响应面 |
-| 1.1.21 | `include/cpphub/timeseries/cointegration/ericsson_mackinnon_cv.hpp` | [ ] | EM2002 ECT t 临界值 |
+| 1.1.15 | `include/cpphub/timeseries/cointegration/engle_granger.hpp` | [x] | EG 两步法; SM coint 1e-10 全趋势 |
+| 1.1.16 | `include/cpphub/timeseries/cointegration/johansen_test.hpp` | [x] | 迹/最大特征值, 3 det 情形; λ SVD 路径复刻 |
+| 1.1.17 | `include/cpphub/timeseries/cointegration/phillips_ouliaris.hpp` | [x] | Pu/Pz 双实现; urca 1e-8 (12 组合) |
+| 1.1.18 | `include/cpphub/timeseries/cointegration/vecm_model.hpp` | [x] | 5 情形 + β 双归一 + ECT t; llf SVD+非对称 eig 路径对齐 |
+| 1.1.19 | `include/cpphub/timeseries/cointegration/osterwald_lenum_cv.hpp` | [x] | OL1992 表 (urca 转录) + MHM96 双表 |
+| 1.1.20 | `include/cpphub/timeseries/cointegration/mackinnon_coint_cv.hpp` | [x] | MacKinnon 1994 协整响应面 (N≥2, 与 2010 ADF 表分文件) |
+| 1.1.21 | `include/cpphub/timeseries/cointegration/ericsson_mackinnon_cv.hpp` | [x] | EM2002 ECT t 临界值 (响应面 + 渐近锚) |
 
 **M4 MIDAS (4 个, 纯标量无 Eigen)**
 
@@ -91,19 +91,19 @@
 | 1.2.10 | `tests/fixtures/timeseries/verify_var.py` | [x] | statsmodels VAR 系数/IC/IRF/FEVD/select_order, 基准 JSON 入库 |
 | 1.2.11 | `tests/fixtures/timeseries/verify_var.R` | [x] | vars::VAR + VARselect 交叉 (dump_var_r_values.R 机器精度 dump) |
 | 1.2.12 | `tests/fixtures/timeseries/verify_gfevd.R` | [x] | R Spillover g.fevd/G.spillover 主基准 (0.1.1 裁剪装载) |
-| 1.2.13 | `tests/fixtures/timeseries/verify_eg.py` | [ ] | statsmodels coint |
-| 1.2.14 | `tests/fixtures/timeseries/verify_johansen.py` | [ ] | statsmodels coint_johansen |
-| 1.2.15 | `tests/fixtures/timeseries/verify_johansen_diff.R` | [ ] | **M3 前置任务**: 双库 diff 冻结主对照 |
-| 1.2.16 | `tests/fixtures/timeseries/verify_vecm.py` | [ ] | statsmodels VECM (β 投影空间) |
-| 1.2.17 | `tests/fixtures/timeseries/verify_po.R` | [ ] | urca ca.po |
+| 1.2.13 | `tests/fixtures/timeseries/verify_eg.py` | [x] | statsmodels coint (T×4 趋势 × 3 对, 基准入库) |
+| 1.2.14 | `tests/fixtures/timeseries/verify_johansen.py` | [x] | statsmodels coint_johansen (det×k 网格, 基准入库) |
+| 1.2.15 | `tests/fixtures/timeseries/verify_johansen_diff.R` | [x] | **M3 前置任务**: 双库 diff 冻结主对照 (JOHANSEN_DUAL_LIB_DIFF.md + MC 裁决) |
+| 1.2.16 | `tests/fixtures/timeseries/verify_vecm.py` | [x] | statsmodels VECM (β 投影空间); resid_head 语义勘误 ([:4] 前 4 时点) |
+| 1.2.17 | `tests/fixtures/timeseries/verify_po.R` | [x] | urca ca.po (3 对 × Pu/Pz × 3 demean × short/long) |
 | 1.2.18 | `tests/fixtures/timeseries/verify_midas.R` | [x] | midasr 0.9 夹具 (reltol=1e-12 + seed): W1 权重逐点/W2 mls 对齐/W3 U-MIDAS/W4-5 NLS/W6 AR/W7 hAh; probe_midas_form.R (start 语义裁决) 随附 |
 | 1.2.19 | `tests/fixtures/timeseries/verify_midas_u.R` | [x] 合并 | 并入 verify_midas.R W3 (midas_u 纯 OLS 锚 1e-10 → 实测逐位一致); 独立脚本不再单设 |
 | 1.2.20 | `critical_values/np_table1.inc` | [x] 形态变更 | 以 `np_tables.hpp` (include 树) 交付, constexpr + static_assert; 零依赖裸表意图由头文件承担 |
 | 1.2.21 | `critical_values/za1992_cv.inc` | [x] | ZA 论文表 (主), urca/Baum/讲义三源零差异 |
 | 1.2.22 | `critical_values/za_mc_cv.inc` | [x] | MC 表 (c 1%=−5.27644), 144 值程序化双库零差异 |
-| 1.2.23 | `critical_values/ol1992_cv.inc` | [ ] | OL1992 (urca 转录) |
-| 1.2.24 | `critical_values/mackinnon1994_coint.inc` | [ ] | MacKinnon 1994 响应面 (N≥2) |
-| 1.2.25 | `critical_values/em2002_ect_cv.inc` | [ ] | EM2002 ECT t |
+| 1.2.23 | `critical_values/ol1992_cv.inc` | [x] 形态变更 | 以 `osterwald_lenum_cv.hpp` (include 树) 交付, constexpr + static_assert (urca 源码常量转录) |
+| 1.2.24 | `critical_values/mackinnon1994_coint.inc` | [x] 形态变更 | 以 `mackinnon_coint_cv.hpp` (include 树) 交付, 1994 p 响应面 + 2010 cv 响应面 |
+| 1.2.25 | `critical_values/em2002_ect_cv.inc` | [x] 形态变更 | 以 `ericsson_mackinnon_cv.hpp` (include 树) 交付, EM2002 响应面 (PDF 三重验证转录) |
 
 ### 1.3 测试套件 (16 套, ~263 用例)
 
@@ -118,10 +118,10 @@
 | 1.3.7 | `test_var_model` | 20+1 | [x] | M2 (21/21; SM 1e-10 + vars 交叉 1e-8 + §15.5 性能) |
 | 1.3.8 | `test_var_irf_fevd` | 18 | [x] | M2 (18/18; SM orth_ma_rep/fevd 1e-12 + Spillover 1e-8) |
 | 1.3.9 | `test_dy_spillover` | 12 | [x] | M2 (12/12; G.spillover 表/TCI/TO/FROM/NET 1e-8 + roll 1e-6) |
-| 1.3.10 | `test_engle_granger` | 14 | [ ] | M3 |
-| 1.3.11 | `test_johansen_test` | 18 | [ ] | M3 |
-| 1.3.12 | `test_vecm_model` | 16 | [ ] | M3 |
-| 1.3.13 | `test_phillips_ouliaris` | 10 | [ ] | M3 |
+| 1.3.10 | `test_engle_granger` | 14 | [x] | M3 (14/14; SM coint 1e-10, 4 趋势全对) |
+| 1.3.11 | `test_johansen_test` | 18 | [x] | M3 (18/18; SM 1e-10 + urca 网格交叉 1e-8) |
+| 1.3.12 | `test_vecm_model` | 16 | [x] | M3 (16/16; 5 情形 SM 1e-10 含 llf 路径对齐) |
+| 1.3.13 | `test_phillips_ouliaris` | 10 | [x] | M3 (10/10; urca 1e-8, CI12 双向) |
 | 1.3.14 | `test_midas_weights` | 16 | [x] | M4 (16/16, 1e-12 全对) |
 | 1.3.15 | `test_midas_model` | 18+1 | [x] | M4 (19/19; U-MIDAS 逐位, NLS/hAh 落点层) |
 | 1.3.16 | `test_integration_phase7c` | 8 | [ ] | 端到端 6 场景 (§9) |
@@ -136,7 +136,7 @@
 |---|--------|------|------|
 | 2.1.1 | CMake 配置成功 (含新 target `cpphub_timeseries_mat`) | [x] | M2 已建 (Eigen3 INTERFACE 链接); 全量构建通过 |
 | 2.1.2 | MSVC Release 编译零警告零错误 (`/utf-8` 沿用) | [x] | |
-| 2.1.3 | 全量 ctest 通过 (新增 49+71+51 + 现有 2207 = 2378) | [x] | M0 轮 **2256/2256** (656.49s, 首轮 2255 拦截 NP 越界读); M1∥M4 轮 **2327/2327** (67b5450); M2 轮 **2375/2375** (823.46s) + 补充 3 用例单独验证 (合计 2378) |
+| 2.1.3 | 全量 ctest 通过 (新增 49+71+51+58 + 现有 2207 = 2436) | [x] | M0 轮 **2256/2256** (656.49s, 首轮 2255 拦截 NP 越界读); M1∥M4 轮 **2327/2327** (67b5450); M2 轮 **2375/2375** (823.46s) + 补充 3 用例; M3 轮 **2436/2436** (新增 M3 58 用例: EG 14 + Johansen 18 + VECM 16 + PO 10) |
 | 2.1.4 | 无现有测试退化 (Phase 1-7B 全部仍通过) | [x] | 2207 基线无退化 |
 | 2.1.5 | SLSQP 12/12 仍通过 (ADR-018 无退化) | [x] | |
 
@@ -162,7 +162,7 @@
 
 | # | 检查项 | 状态 | 备注 |
 |---|--------|------|------|
-| 2.4.1 | M0-M4 全部测试三平台无数值偏差 | [ ] | 部分: M0 (49) + M1/M4 (71) + **M2 (51)** 三平台全绿一致 (7d64939); 仅余 M3 待实施后补验 |
+| 2.4.1 | M0-M4 全部测试三平台无数值偏差 | [ ] | 部分: M0 (49) + M1/M4 (71) + **M2 (51)** 三平台全绿一致 (7d64939); **M3 (58) 主控站 2436/2436 全绿**, A/B 站 GCC 补验待 M3 提交后增量 ff + rebuild |
 | 2.4.2 | GitHub Actions 全绿 (Windows bash shell + submodules 修复沿用) | [x] | run #60 (67b5450 代码轮) 4/4 + run #61 (d581f30 文档轮) 4/4 全绿 (Build&Test Ubuntu GCC/Windows MSVC + C ABI ×2); run #60 首次承载 M1∥M4 全量 2327 用例 |
 
 ---
@@ -279,32 +279,32 @@
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 6.1.1 | 统计量 vs statsmodels coint | 1e-10 | [ ] | |
-| 6.1.2 | MacKinnon 1994 响应面 (5 系数 4 次, N≥2, 与 2010 ADF 表分文件) | 1e-12 | [ ] | CI1, 决策 18 |
-| 6.1.3 | p 值 (渐近) 与 cv (小样本修正) 分列断言 + API 文档声明不同源 | 流程 | [ ] | CI2 (#4138) |
-| 6.1.4 | 双方向输出差异 | 1e-10 | [ ] | CI3 |
+| 6.1.1 | 统计量 vs statsmodels coint | 1e-10 | [x] | 4 趋势 × 3 对全对 (StatisticAllTrends/DirectionDependence/NoCointegration) |
+| 6.1.2 | MacKinnon 1994 响应面 (5 系数 4 次, N≥2, 与 2010 ADF 表分文件) | 1e-12 | [x] | CI1, 决策 18; 渐近锚 + 有限样本公式手算复现 (MackinnonCVFiniteSampleFormula) |
+| 6.1.3 | p 值 (渐近) 与 cv (小样本修正) 分列断言 + API 文档声明不同源 | 流程 | [x] | CI2 (#4138); PValue/CriticalValues 分列 + trend=n NaN cv 语义 (TrendNNaNcriticalValues) |
+| 6.1.4 | 双方向输出差异 | 1e-10 | [x] | CI3; fwd/rev 双基准 + cv 与方向无关断言 |
 
 ### 6.2 Johansen — vs statsmodels + urca (diff 前置)
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 6.2.1 | **前置: verify_johansen_diff.R 双库 diff 报告冻结主对照** | 流程 | [ ] | 决策 19 第一任务 |
-| 6.2.2 | eig/lr1/lr2 vs coint_johansen (transitory 形式) | 1e-10 | [ ] | CI7 |
-| 6.2.3 | λ̂ 降序 + 有效 T 口径 | 1e-10 | [ ] | CI6 |
-| 6.2.4 | OL1992 表 vs urca 源码常量 (static_assert) | 精确 | [ ] | ol1992_cv.inc |
-| 6.2.5 | statsmodels 内嵌表 (MHM96) 双对照 | 精确 | [ ] | CI5/B1 |
-| 6.2.6 | 3 det 情形 API 边界 (5 情形归 VECM) | 流程 | [ ] | CI4 |
+| 6.2.1 | **前置: verify_johansen_diff.R 双库 diff 报告冻结主对照** | 流程 | [x] | 决策 19 第一任务; JOHANSEN_DUAL_LIB_DIFF.md (参数映射 + MC 裁决 + SM 主基准冻结) |
+| 6.2.2 | eig/lr1/lr2 vs coint_johansen (transitory 形式) | 1e-10 | [x] | CI7; det×k 网格 (det −1/0/1 × k 1/2) |
+| 6.2.3 | λ̂ 降序 + 有效 T 口径 | 1e-10 | [x] | CI6; n_obs = T−1−k + 迹/最大特征值恒等式 (TraceMaxEigIdentity) |
+| 6.2.4 | OL1992 表 vs urca 源码常量 (static_assert) | 精确 | [x] | osterwald_lenum_cv.hpp 表锚 static_assert |
+| 6.2.5 | statsmodels 内嵌表 (MHM96) 双对照 | 精确 | [x] | CI5/B1; cv_source 回显 "MHM96" + OL1992 独立查表 API 双对照 |
+| 6.2.6 | 3 det 情形 API 边界 (5 情形归 VECM) | 流程 | [x] | CI4; det_order ∈ {−1,0,1} 校验 + select_coint_rank |
 
 ### 6.3 VECM + PO — vs statsmodels + urca
 
 | # | 验证点 | 容差 | 状态 | 备注 |
 |---|--------|------|------|------|
-| 6.3.1 | VECM 系数 vs statsmodels (5 情形) | 1e-10 | [ ] | |
-| 6.3.2 | β 对照用投影矩阵 P=β(β'β)⁻¹β' (非逐元素) | 1e-10 | [ ] | CI8 |
-| 6.3.3 | β 双归一 (前 r×r=I_r 默认 / urca 首变量开关) | 1e-10 | [ ] | 决策 21 |
-| 6.3.4 | ECT t 检验 EM2002 查表 | 精确 | [ ] | CI10 |
-| 6.3.5 | Π=αβ' 符号方向 (αᵢ<0 拉回) | 方向性 | [ ] | CI9 |
-| 6.3.6 | Pu (方向依赖) / Pz (方向无关) vs urca ca.po | 1e-8 | [ ] | CI12, 决策 20 |
+| 6.3.1 | VECM 系数 vs statsmodels (5 情形) | 1e-10 | [x] | alpha/beta/gamma/det_coef/sigma_u/llf/resid 全对 (llf 走 SVD+非对称 eig 路径) |
+| 6.3.2 | β 对照用投影矩阵 P=β(β'β)⁻¹β' (非逐元素) | 1e-10 | [x] | CI8; BetaProjectionSpace (r=2) |
+| 6.3.3 | β 双归一 (前 r×r=I_r 默认 / urca 首变量开关) | 1e-10 | [x] | 决策 21; urca 基于未归一 β̃ 缩放 (Π 不变断言, 修复 rank≥2 除零) |
+| 6.3.4 | ECT t 检验 EM2002 查表 | 精确 | [x] | CI10; t vs stderr_alpha 复算 + EM2002 表锚 (ctt n=3 1% T=51 → −5.0860) |
+| 6.3.5 | Π=αβ' 符号方向 (αᵢ<0 拉回) | 方向性 | [x] | CI9; Π 秩 = r (SVD) + 归一消列符号 (前 r 行 = I_r 确定性) |
+| 6.3.6 | Pu (方向依赖) / Pz (方向无关) vs urca ca.po | 1e-8 | [x] | CI12, 决策 20; 12 组合全对 + 方向依赖/无关双向断言 |
 
 ---
 
@@ -378,18 +378,18 @@
 
 | ID | 影响级 | 核查内容 | 容差 | 状态 | 脚本 |
 |----|--------|----------|------|------|------|
-| CI1 | 极高 | 1994 响应面按 N 索引 | 精确/1e-12 | [ ] | .inc + verify_eg.py |
-| CI2 | 高 | p/cv 不同源 (#4138) | - | [ ] | |
-| CI3 | 中 | EG 方向依赖 (双方向输出) | 1e-10 | [ ] | |
-| CI4 | 高 | 3 vs 5 情形 API 边界 | - | [ ] | |
-| CI5 | 高 | statsmodels 一套表 (MHM96) | 精确 | [ ] | verify_johansen_diff.R |
-| CI6 | 极高 | 迹公式+λ降序+有效T | 1e-10 | [ ] | verify_johansen.py |
-| CI7 | 极高 | transitory 对照 urca | 1e-8 | [ ] | |
-| CI8 | 极高 | β 投影空间对照 | 1e-10 | [ ] | verify_vecm.py |
-| CI9 | 中 | Π 符号 (αᵢ<0 拉回) | - | [ ] | |
-| CI10 | 高 | EM2002 查表 | 精确 | [ ] | .inc |
-| CI11 | 低 | 文献出处 (JEDC/JAE) | - | [ ] | 文献冻结 |
-| CI12 | 高 | Pu/Pz 双实现 | 1e-8 | [ ] | verify_po.R |
+| CI1 | 极高 | 1994 响应面按 N 索引 | 精确/1e-12 | [x] | mackinnon_coint_cv.hpp + verify_eg.py; 渐近锚 −3.89644 等表锚 + 手算复现 |
+| CI2 | 高 | p/cv 不同源 (#4138) | - | [x] | 分列断言 (PValue/CriticalValues 分测) + trend=n NaN cv 语义 |
+| CI3 | 中 | EG 方向依赖 (双方向输出) | 1e-10 | [x] | DirectionDependence 双基准 + cv 方向无关 |
+| CI4 | 高 | 3 vs 5 情形 API 边界 | - | [x] | Johansen det_order ∈ {−1,0,1} / VECM det ∈ 5 情形 |
+| CI5 | 高 | statsmodels 一套表 (MHM96) | 精确 | [x] | verify_johansen_diff.R + cv_source "MHM96" 回显 |
+| CI6 | 极高 | 迹公式+λ降序+有效T | 1e-10 | [x] | verify_johansen.py; TraceMaxEigIdentity 恒等式 |
+| CI7 | 极高 | transitory 对照 urca | 1e-8 | [x] | JOHANSEN_DUAL_LIB_DIFF.md 参数映射冻结 (SM 主基准 + urca 网格交叉 1e-8) |
+| CI8 | 极高 | β 投影空间对照 | 1e-10 | [x] | verify_vecm.py; BetaProjectionSpace (r=2 投影矩阵) |
+| CI9 | 中 | Π 符号 (αᵢ<0 拉回) | - | [x] | 归一消列符号 (前 r 行 = I_r 确定性) + Π 秩 SVD 断言 |
+| CI10 | 高 | EM2002 查表 | 精确 | [x] | ericsson_mackinnon_cv.hpp; 表锚 −3.4307 + ctt T=51 → −5.0860 |
+| CI11 | 低 | 文献出处 (JEDC/JAE) | - | [x] | 文献冻结 (头文件锚点注释) |
+| CI12 | 高 | Pu/Pz 双实现 | 1e-8 | [x] | verify_po.R; 12 组合 + PuDirectionDependence/PzDirectionInvariance |
 
 ### 8.4 MIDAS (MD1-MD8)
 

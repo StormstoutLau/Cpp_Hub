@@ -2722,4 +2722,38 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### M3: 协整三件套全链 (2026-08-19)
+
+> `cointegration/{engle_granger, johansen_test, phillips_ouliaris, vecm_model, osterwald_lenum_cv, mackinnon_coint_cv, ericsson_mackinnon_cv}.hpp` — 7 头文件 58 用例 **全绿** (主控站 MSVC: test_engle_granger 14 + test_johansen_test 18 + test_vecm_model 16 + test_phillips_ouliaris 10); 基准三源: statsmodels 0.14.4 (EG/Johansen/VECM 主) + urca 1.3-4 (PO 主 + Johansen 交叉) + 论文表 (OL1992/MHM96/MacKinnon1994/EM2002)
+
+**数值对拍分层 (checklist §6 全 16 项 + §8.3 CI1-CI12 全勾)**:
+
+- EG 统计量/p/cv vs statsmodels coint: **1e-10** (n/c/ct/ctt 4 趋势 × 3 对; p (1994 渐近) 与 cv (2010 响应面, nobs−1 修正) 分列断言 CI2; trend=n → cv=NaN 语义)
+- MacKinnon 1994/2010 响应面: 渐近锚 (N=2 c 1% = −3.89644 等) + 有限样本公式 β∞+β₁/T+β₂/T²+β₃/T³ 手算复现 **1e-12** (CI1)
+- Johansen eig/lr1/lr2 vs statsmodels coint_johansen: **1e-10** (det_order ∈ {−1,0,1} × k ∈ {1,2}; λ 降序 + n_obs = T−1−k + 迹/最大特征值恒等式 CI6)
+- urca ca.jo 网格交叉: **1e-8** (det_order=0 ↔ ecdet="none" 映射, JOHANSEN_DUAL_LIB_DIFF.md 冻结: SM 与 urca 辅助回归 level 项索引不同 (y_{t−k} vs y_{t−1}), MC 裁决两者渐近等价小样本不同 → SM 主基准)
+- VECM alpha/beta/gamma/det_coef/det_coef_coint/sigma_u/llf/resid vs statsmodels: **1e-10** (5 情形 {n,co,ci,lo,li} 全对; ECT t = α/se vs stderr_alpha 复算; EM2002 表锚 ctt n=3 1% T=51 → −5.0860 三重验证 CI10)
+- PO Pu/Pz vs urca ca.po: **1e-8** (3 对 × 2 类型 × 3 demean × short/long = 12 组合全对; Pu 方向依赖 / Pz 方向无关双向断言 CI12)
+
+**实现要点**:
+
+- β 双归一 (决策 21): 默认前 r 行 = I_r (statsmodels "Phillips 归一"); urca 开关基于**未归一 β̃** 缩放 (β_u = β̃·diag(1/β̃[0,j]), Π = α̃β̃' 不变) — 修复 rank≥2 时 β[0,1] ≡ 0 (I₂ 结构元) 作除数必然除零的设计矛盾
+- llf 数值路径逐字对齐 (CI6 延伸): s11⁻¹ᐟ² 走 SVD 路径 (= SM _mat_sqrt + inv) + λ 走非对称 eig (= SM np.linalg.eig) + log|s00| 走 LU determinant — eigh 对称路径的 s11_ 与 SM 差 ~7e-11, 经 λ → log(1−λ₀) → T/(2(1−λ₀)) ≈ 202× 放大破坏 llf 1e-10 对齐 (实测 li 情形差 1.24e-9); 路径替换后探针复现 diff = 1.5e-11
+- EG 第一步回归趋势列 i^j 与 SM add_trend 等价张成; 第二步复用 7B adf_test (nc + Schwert + AIC); 共线性保护 R² ≥ 1−100√ε → t = −∞
+- 临界值表全 constexpr + static_assert 锚: OL1992 (urca 源码常量转录) / MHM96 (statsmodels 内嵌表双对照, cv_source 回显) / MacKinnon 1994+2010 (与 7B ADF 表分文件) / EM2002 (PDF 密码字体解码三重验证转录)
+
+**关键 bug 与修复 (3 处, 全部留档)**:
+
+- **PO x_reg 列数三元式错位 (堆损坏根因)**: `ari3 == 1 ? 2 : ari3` 在 constant 情形给 2 列 (需 3 列 [zr,1])、trend 给 3 列 (需 4 列 [zr,1,trd]) — Eigen 逗号初始化器越界写: debug 断言 "Too many rows/coefficients", **release 静默写穿堆** (249 个 1.0 覆盖相邻分配, Pu constant 差 26.26 且值跨运行稳定但语义全错, 退出码 0xC0000374 堆损坏) — 修复: 列数 = ari3+1, trend trd 置第 4 列 (index 3)
+- **VECM llf 路径差**: 见上 "llf 数值路径逐字对齐" — 三处路径替换 (SVD/非对称 eig/LU det), 探针逐分量二分定位 (s11_ 差 6.6e-11 → λ₀ 差 2e-11 → sumlog 差 3.3e-11 → llf 差 1.24e-9)
+- **测试基准布局误读 2 处**: PO resid_head 实为 statsmodels resid (T×K) 全量 ravel 前 12 值 (verify 脚本 `[:, :4]` 意图前 4 时间点但切的是列 — 修正为 `[:4]` 并重生成); β 第 2 列 K×r 行主序应为 b[2i+1] 而非 b[3+i] (i=2 巧合对齐掩盖 i=0/1 错位)
+- **PzDirectionInvariance 容差**: 数学上精确方向不变, 但双精度求和顺序差 ~5.5e-12 (urca 自身双向基准差 2.45e-12) — 1e-12 绝对容差不可达, 放宽至 1e-9 并头注留档
+- stale build 教训: 3 个套件失败实为 exe 落后于源 (11:59 源 vs 12:02 exe 的 toupper 修复未编入) — 重建即绿, 排障前先核时间戳
+
+**交付物**: verify_eg.py / verify_johansen.py / verify_johansen_diff.R (+JOHANSEN_DUAL_LIB_DIFF.md 双库冻结) / verify_vecm.py / verify_po.R / gen_phase7c_m3_baseline.py (coint_baseline.inc 398 数组) / 4 测试套件 58 用例 + 3 临界值头文件 (include 树交付, 与 np_tables.hpp 形态一致) 入库; checklist §1.1.15-21/§1.2.13-17/§1.2.23-25 形态变更/§1.3.10-13/§2.1.3 (2436)/§6 全 16 项/§8.3 CI1-CI12 勾选; §2.4.1 备注更新 (M3 主控站全绿, A/B 站 GCC 补验待提交后增量 ff)
+
+**主控站全量 (2026-08-19)**: MSVC Release **2436/2436** 全绿 (新增 M3 58 用例; 2207 基线无退化); A/B 站 GCC 验证待 M3 提交推送后 bundle 增量 ff + rebuild (口径同 M2 轮)
+
+---
+
 
