@@ -2750,9 +2750,18 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **PzDirectionInvariance 容差**: 数学上精确方向不变, 但双精度求和顺序差 ~5.5e-12 (urca 自身双向基准差 2.45e-12) — 1e-12 绝对容差不可达, 放宽至 1e-9 并头注留档
 - stale build 教训: 3 个套件失败实为 exe 落后于源 (11:59 源 vs 12:02 exe 的 toupper 修复未编入) — 重建即绿, 排障前先核时间戳
 
-**交付物**: verify_eg.py / verify_johansen.py / verify_johansen_diff.R (+JOHANSEN_DUAL_LIB_DIFF.md 双库冻结) / verify_vecm.py / verify_po.R / gen_phase7c_m3_baseline.py (coint_baseline.inc 398 数组) / 4 测试套件 58 用例 + 3 临界值头文件 (include 树交付, 与 np_tables.hpp 形态一致) 入库; checklist §1.1.15-21/§1.2.13-17/§1.2.23-25 形态变更/§1.3.10-13/§2.1.3 (2436)/§6 全 16 项/§8.3 CI1-CI12 勾选; §2.4.1 备注更新 (M3 主控站全绿, A/B 站 GCC 补验待提交后增量 ff)
+**交付物**: verify_eg.py / verify_johansen.py / verify_johansen_diff.R (+JOHANSEN_DUAL_LIB_DIFF.md 双库冻结) / verify_vecm.py / verify_po.R / gen_phase7c_m3_baseline.py (coint_baseline.inc 398 数组) / 4 测试套件 58 用例 + 3 临界值头文件 (include 树交付, 与 np_tables.hpp 形态一致) 入库; checklist §1.1.15-21/§1.2.13-17/§1.2.23-25 形态变更/§1.3.10-13/§2.1.3 (2436)/§6 全 16 项/§8.3 CI1-CI12/§2.2-§2.4 勾选
 
-**主控站全量 (2026-08-19)**: MSVC Release **2436/2436** 全绿 (新增 M3 58 用例; 2207 基线无退化); A/B 站 GCC 验证待 M3 提交推送后 bundle 增量 ff + rebuild (口径同 M2 轮)
+**三平台全量验证 (c008f46, 2026-08-19, checklist §2.2/§2.3/§2.4.1 全项勾选)**:
+
+| 平台 | 方式 | 结果 | 耗时 |
+|------|------|------|------|
+| 主控 MSVC 19.5x | — | **2436/2436** | 700+s |
+| A 站 GCC 13.3.0 (scott-lau-NEX, 192.168.1.11) | bundle 增量 ff 7d64939→c008f46 + rebuild | **2418/2418** (M3 子集 58/58) | 425.03s |
+| B 站 GCC 13.3.0 (scott-lau-GTR-Pro.local, mDNS) | 同法增量 ff + rebuild | **2418/2418** (M3 子集 58/58) | 434.09s |
+
+- 差额 18 (2436−2418) = 平台专属用例 (7B 期已知口径不变); **M3 新增 58 用例 GCC 双站全数运行**, 三平台零数值偏差
+- 自有代码 0 警告 (口径同 M2 轮); §2.4.1 自 M0 起累计 229 用例 (49+71+51+58) 三平台一致, **全项勾选闭环**
 
 ---
 
