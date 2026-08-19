@@ -679,3 +679,31 @@ gtest_discover_tests(test_var_irf_fevd)
 add_executable(test_dy_spillover unit/timeseries/test_dy_spillover.cpp)
 target_link_libraries(test_dy_spillover PRIVATE cpphub_timeseries_mat GTest::gtest_main)
 gtest_discover_tests(test_dy_spillover)
+
+# ---- Phase 7C M3: 协整三件套 (spec PHASE7C v1.7 §1.2, Eigen3 → cpphub_timeseries_mat) ----
+
+# test_engle_granger: EG 两步法 + MacKinnon 1994 p/2010 cv (14 用例;
+# 基准 coint_baseline.inc = statsmodels 0.14.4 1e-10;
+# CI1 N=2 响应面 / CI2 p-cv 不同源分列 / CI3 方向依赖)
+add_executable(test_engle_granger unit/timeseries/test_engle_granger.cpp)
+target_link_libraries(test_engle_granger PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_engle_granger)
+
+# test_johansen_test: 迹/最大特征值 + 3 det 情形 + rank 逐级检验 (18 用例;
+# statsmodels 1e-10 主基准 + urca det0↔none 交叉 1e-8 (JOHANSEN_DUAL_LIB_DIFF.md);
+# CI5 双表源 (OL1992/MHM96 static_assert) / CI6 λ 降序+有效 T / CI8 evec 列符号)
+add_executable(test_johansen_test unit/timeseries/test_johansen_test.cpp)
+target_link_libraries(test_johansen_test PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_johansen_test)
+
+# test_vecm_model: 5 情形 + β 双归一 (投影空间) + ECT t EM2002 (16 用例;
+# statsmodels VECM ML 1e-10; CI4 5 情形 / CI8 P=β(β'β)⁻¹β' / CI9 Π=αβ' / CI10)
+add_executable(test_vecm_model unit/timeseries/test_vecm_model.cpp)
+target_link_libraries(test_vecm_model PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_vecm_model)
+
+# test_phillips_ouliaris: Pu 方向依赖 / Pz 方向无关 (10 用例;
+# urca ca.po 1e-8; CI12 双实现, Pz 优先)
+add_executable(test_phillips_ouliaris unit/timeseries/test_phillips_ouliaris.cpp)
+target_link_libraries(test_phillips_ouliaris PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_phillips_ouliaris)

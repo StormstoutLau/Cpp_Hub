@@ -1,0 +1,108 @@
+po_y1y2_Pu_none_short	216.16979133324054
+po_y1y2_Pu_none_short_cval	20.3933 25.9711 38.341299999999997
+po_y1y2_Pu_none_short_lmax	5
+po_y1y2_Pu_none_long	175.75233737044468
+po_y1y2_Pu_none_long_cval	20.3933 25.9711 38.341299999999997
+po_y1y2_Pu_none_long_lmax	15
+po_y1y2_Pu_constant_short	216.709597038467
+po_y1y2_Pu_constant_short_cval	27.8536 33.713000000000001 48.002099999999999
+po_y1y2_Pu_constant_short_lmax	5
+po_y1y2_Pu_constant_long	177.64935794068791
+po_y1y2_Pu_constant_long_cval	27.8536 33.713000000000001 48.002099999999999
+po_y1y2_Pu_constant_long_lmax	15
+po_y1y2_Pu_trend_short	216.79750919234121
+po_y1y2_Pu_trend_short_cval	41.248800000000003 48.843899999999998 65.171400000000006
+po_y1y2_Pu_trend_short_lmax	5
+po_y1y2_Pu_trend_long	178.0768304493225
+po_y1y2_Pu_trend_long_cval	41.248800000000003 48.843899999999998 65.171400000000006
+po_y1y2_Pu_trend_long_lmax	15
+po_y1y2_Pz_none_short	227.29907868302834
+po_y1y2_Pz_none_short_cval	33.926699999999997 40.8217 55.191099999999999
+po_y1y2_Pz_none_short_lmax	5
+po_y1y2_Pz_none_long	189.07844031042166
+po_y1y2_Pz_none_long_cval	33.926699999999997 40.8217 55.191099999999999
+po_y1y2_Pz_none_long_lmax	15
+po_y1y2_Pz_constant_short	227.40213381270866
+po_y1y2_Pz_constant_short_cval	47.587699999999998 55.220199999999998 71.927300000000002
+po_y1y2_Pz_constant_short_lmax	5
+po_y1y2_Pz_constant_long	189.48264054958668
+po_y1y2_Pz_constant_long_cval	47.587699999999998 55.220199999999998 71.927300000000002
+po_y1y2_Pz_constant_long_lmax	15
+po_y1y2_Pz_trend_short	226.60119410013175
+po_y1y2_Pz_trend_short_cval	71.958600000000004 81.381200000000007 102.0167
+po_y1y2_Pz_trend_short_lmax	5
+po_y1y2_Pz_trend_long	188.57068559642391
+po_y1y2_Pz_trend_long_cval	71.958600000000004 81.381200000000007 102.0167
+po_y1y2_Pz_trend_long_lmax	15
+po_y2y1_Pu_none_short	207.0157805192257
+po_y2y1_Pu_none_short_cval	20.3933 25.9711 38.341299999999997
+po_y2y1_Pu_none_short_lmax	5
+po_y2y1_Pu_none_long	177.89749036727403
+po_y2y1_Pu_none_long_cval	20.3933 25.9711 38.341299999999997
+po_y2y1_Pu_none_long_lmax	15
+po_y2y1_Pu_constant_short	207.16604821078639
+po_y2y1_Pu_constant_short_cval	27.8536 33.713000000000001 48.002099999999999
+po_y2y1_Pu_constant_short_lmax	5
+po_y2y1_Pu_constant_long	177.26933889816354
+po_y2y1_Pu_constant_long_cval	27.8536 33.713000000000001 48.002099999999999
+po_y2y1_Pu_constant_long_lmax	15
+po_y2y1_Pu_trend_short	206.1677406721895
+po_y2y1_Pu_trend_short_cval	41.248800000000003 48.843899999999998 65.171400000000006
+po_y2y1_Pu_trend_short_lmax	5
+po_y2y1_Pu_trend_long	175.56502536137467
+po_y2y1_Pu_trend_long_cval	41.248800000000003 48.843899999999998 65.171400000000006
+po_y2y1_Pu_trend_long_lmax	15
+po_y2y1_Pz_none_short	227.29907868303079
+po_y2y1_Pz_none_short_cval	33.926699999999997 40.8217 55.191099999999999
+po_y2y1_Pz_none_short_lmax	5
+po_y2y1_Pz_none_long	189.07844031042387
+po_y2y1_Pz_none_long_cval	33.926699999999997 40.8217 55.191099999999999
+po_y2y1_Pz_none_long_lmax	15
+po_y2y1_Pz_constant_short	227.40213381271286
+po_y2y1_Pz_constant_short_cval	47.587699999999998 55.220199999999998 71.927300000000002
+po_y2y1_Pz_constant_short_lmax	5
+po_y2y1_Pz_constant_long	189.48264054958909
+po_y2y1_Pz_constant_long_cval	47.587699999999998 55.220199999999998 71.927300000000002
+po_y2y1_Pz_constant_long_lmax	15
+po_y2y1_Pz_trend_short	226.60119410013527
+po_y2y1_Pz_trend_short_cval	71.958600000000004 81.381200000000007 102.0167
+po_y2y1_Pz_trend_short_lmax	5
+po_y2y1_Pz_trend_long	188.57068559642656
+po_y2y1_Pz_trend_long_cval	71.958600000000004 81.381200000000007 102.0167
+po_y2y1_Pz_trend_long_lmax	15
+po_y1y3_Pu_none_short	7.8706554245935259
+po_y1y3_Pu_none_short_cval	20.3933 25.9711 38.341299999999997
+po_y1y3_Pu_none_short_lmax	5
+po_y1y3_Pu_none_long	7.3227170111157251
+po_y1y3_Pu_none_long_cval	20.3933 25.9711 38.341299999999997
+po_y1y3_Pu_none_long_lmax	15
+po_y1y3_Pu_constant_short	10.86328699531887
+po_y1y3_Pu_constant_short_cval	27.8536 33.713000000000001 48.002099999999999
+po_y1y3_Pu_constant_short_lmax	5
+po_y1y3_Pu_constant_long	10.164433175476178
+po_y1y3_Pu_constant_long_cval	27.8536 33.713000000000001 48.002099999999999
+po_y1y3_Pu_constant_long_lmax	15
+po_y1y3_Pu_trend_short	14.866537146576704
+po_y1y3_Pu_trend_short_cval	41.248800000000003 48.843899999999998 65.171400000000006
+po_y1y3_Pu_trend_short_lmax	5
+po_y1y3_Pu_trend_long	14.278928746936298
+po_y1y3_Pu_trend_long_cval	41.248800000000003 48.843899999999998 65.171400000000006
+po_y1y3_Pu_trend_long_lmax	15
+po_y1y3_Pz_none_short	15.66897135441844
+po_y1y3_Pz_none_short_cval	33.926699999999997 40.8217 55.191099999999999
+po_y1y3_Pz_none_short_lmax	5
+po_y1y3_Pz_none_long	16.298281481849248
+po_y1y3_Pz_none_long_cval	33.926699999999997 40.8217 55.191099999999999
+po_y1y3_Pz_none_long_lmax	15
+po_y1y3_Pz_constant_short	15.129899923034648
+po_y1y3_Pz_constant_short_cval	47.587699999999998 55.220199999999998 71.927300000000002
+po_y1y3_Pz_constant_short_lmax	5
+po_y1y3_Pz_constant_long	15.008727125168297
+po_y1y3_Pz_constant_long_cval	47.587699999999998 55.220199999999998 71.927300000000002
+po_y1y3_Pz_constant_long_lmax	15
+po_y1y3_Pz_trend_short	15.200922572207121
+po_y1y3_Pz_trend_short_cval	71.958600000000004 81.381200000000007 102.0167
+po_y1y3_Pz_trend_short_lmax	5
+po_y1y3_Pz_trend_long	15.22513582030234
+po_y1y3_Pz_trend_long_cval	71.958600000000004 81.381200000000007 102.0167
+po_y1y3_Pz_trend_long_lmax	15
