@@ -2798,7 +2798,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **场景 6 λ 检验力不足**: 夹具数据 λ t=0.59 无区分度; 新增强信号模拟 (T=3000, λ=1.2, φ=0.08/β=0.72) — sandwich t>1.96 + λ 参数恢复 ±0.4
 - **gtest_discover_tests 缓存过期**: exe 内含 6 场景但 ctest 仅注册 1 个 — 删除过期 exe 强制重新链接 + 发现, 6 场景全注册 (CMake 时间戳缓存教训)
 
-**基础设施异常应对**: 本轮收尾期命令执行通道 (RunCommand/MCP bash_exec) 间歇性失效 (`icube.shellExec.runCommand not found`), A/B 站最终轮 (2418→2440, +22 用例) 顺延至通道恢复后执行; 主控站全量构建与 ctest 已先行完成闭环。
+**基础设施异常应对**: 本轮收尾期命令执行通道 (RunCommand/MCP bash_exec) 间歇性失效 (`icube.shellExec.runCommand not found`), A/B 站最终轮一度顺延; **2026-08-20 通道恢复后当日闭环** (见下)。主控站全量构建与 ctest 已先行完成闭环。
 
 **交付物**: granger_test.hpp (GR1-GR7 排幻觉注释逐条落码) / verify_granger.py (四统计量基准 JSON 入库) / test_granger_causality.cpp (16 用例) / test_integration_phase7c.cpp (6 场景) / tests/CMakeLists.txt 注册; checklist §1.1.8/§1.2.9/§1.3.6/§1.3.16/§2.1.3 (最终轮 2458)/§4.2 全 6 项/§8.1 GR1-GR7/§9 全 6 场景/§10.1.4-10.1.6/§10.2 全 9 项/§11.1.5/§12-§16 勾选
 
@@ -2809,7 +2809,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 | 主控 MSVC 19.5x (Release, -j8) | **2458/2458** (新增 Granger 16 + 集成 6; 2207 基线 + 251 7C 新增) | 141.63s |
 
 - 零退化: Phase 1-7B 全部 2207 基线用例仍通过; SLSQP 12/12 (ADR-018) 无退化
-- A/B 站 GCC 最终轮 (bundle 增量 ff c008f46→收尾 commit + rebuild, 预期 2440/2440): 待命令通道恢复后执行, 差额 18 口径不变
+
+**A/B 站收尾轮 + CI 闭环 (2026-08-20, 条件 C-1/C-2 收口)**:
+
+- 收尾轮 commit: `fc35652` (代码 13 文件 3549 行) + `006cec6` (文档 3 文件) 推送 origin
+- **CI run #62 (006cec6) completed success** — 首次承载全量 2458 用例双平台绿 (Build&Test MSVC/GCC + C ABI ×2)
+- **A/B 站 bundle 中继**: `git bundle create main --not c008f46` (73KB 增量) + scp + 站侧 relay_final_7c.sh (沿用"本地 .sh → scp → bash"铁律) → 增量 ff + 全量 rebuild + ctest
+- **A 站 2440/2440 (428.73s) / B 站 2440/2440 (445.17s)** — 预期精确吻合 (2418 + 22 新增), 三平台五轮零数值偏差; 自有代码 0 警告 (10 条 = autodiff 第三方 9 + GCC13 stl_algobase.h 误报 1, 口径与前四轮一致)
+- 过程留档: ① 首建 bundle 误用 `--not 97db906` (两站在其父提交 c008f46) → 站侧 "缺少必备提交 97db906" → 重建 `--not c008f46` 修复 — bundle 排除基点必须取接收方实际 HEAD; ② SSH 免密用户名为 `scott-lau` 非 `scott` (SSH_OPENCODE_SETUP.md §2.3 已有记录, 误用致 publickey 拒绝)
+- **v1.7.0 发布条件全部满足** — checklist §17.2 C-1/C-2 划线闭环, 仅余 C-3 (Stata NP) / C-4 (性能用例) 两项 v1.8 前非阻塞项
 
 ---
 
