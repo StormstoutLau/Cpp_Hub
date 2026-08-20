@@ -643,6 +643,15 @@ add_executable(test_innovations_mle unit/timeseries/test_innovations_mle.cpp)
 target_link_libraries(test_innovations_mle PRIVATE cpphub_core GTest::gtest_main)
 gtest_discover_tests(test_innovations_mle)
 
+# test_granger_causality: 标准 F/χ²/LR + TY 增广 Wald + HAC-Wald (16 用例;
+# 基准 granger_baseline.inc = statsmodels grangercausalitytests 4 统计量
+# 1e-10 + OLS f_test TY + 显式 NW 三明治 1e-8;
+# GR1 df / GR2 df=k / GR3 d_max 外部 / GR4 增广不进约束 / GR5 稳健须自建 /
+# GR6 方向 / GR7 I(1) 水平; White 退化经 detail::hac_wald_statistic)
+add_executable(test_granger_causality unit/timeseries/test_granger_causality.cpp)
+target_link_libraries(test_granger_causality PRIVATE cpphub_core GTest::gtest_main)
+gtest_discover_tests(test_granger_causality)
+
 # ---- Phase 7C M4: MIDAS (spec PHASE7C v1.7 §1.2) ----
 
 # test_midas_weights: 5 权重族逐点 vs midasr 1e-12 (16 用例; MD1 两套索引起点
@@ -707,3 +716,13 @@ gtest_discover_tests(test_vecm_model)
 add_executable(test_phillips_ouliaris unit/timeseries/test_phillips_ouliaris.cpp)
 target_link_libraries(test_phillips_ouliaris PRIVATE cpphub_timeseries_mat GTest::gtest_main)
 gtest_discover_tests(test_phillips_ouliaris)
+
+# ---- Phase 7C 端到端集成 (spec PHASE7C v1.7 §7, Eigen3 → cpphub_timeseries_mat) ----
+
+# test_integration_phase7c: 6 场景全链 (单位根诊断/Granger I(1) 三路径/
+# VAR→DY/协整→VECM/MIDAS 混频/GARCH-M 风险溢价;
+# 复用各模块已锚定 baseline 夹具, 断言通路+方向+统计合理性,
+# 数值精度由各模块单测 1e-10 锚定; 断点/爆炸序列 Philox 确定性生成)
+add_executable(test_integration_phase7c unit/timeseries/test_integration_phase7c.cpp)
+target_link_libraries(test_integration_phase7c PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+gtest_discover_tests(test_integration_phase7c)
