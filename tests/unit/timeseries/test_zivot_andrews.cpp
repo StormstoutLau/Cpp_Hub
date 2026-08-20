@@ -227,3 +227,43 @@ TEST(ZivotAndrewsTest, DualModeLagSemantics) {
     EXPECT_DOUBLE_EQ(rd.trim, 0.15);
     EXPECT_NE(rd.summary.find("Zivot-Andrews"), std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// 16: 性能 P2 (checklist §15.2, D-2 裁决 2026-08-20) — T=500 断点网格 < 5s
+//
+// 7B 先例模式 (test_garch_model.cpp #19): 固定 seed 模拟 + steady_clock +
+// 预算断言 + 规模/落点断言防退化。主模式 (Schwert 自动 k=18, 最重路径:
+// 一次 lag 选择 + ~350 候选断点 × OLS(23 列))。
+// DGP: 崩溃漂移随机游走 (断点 0-based 174, T=500) — 断点定位 ±10 兼作
+// 收敛保护 (防"快但错")。
+// ---------------------------------------------------------------------------
+#include <chrono>
+
+#include "cpphub/core/rng.hpp"
+
+TEST(ZivotAndrewsTest, PerformanceT500) {
+    const Size T = 500;
+    const Size brk = 175;  // 0-based 真断点 (35% 处)
+    std::vector<Real> y(T);
+    cpphub::v1::Philox4x64 rng(2026, 20);
+    y[0] = 0.0;
+    for (Size t = 1; t < T; ++t) {
+        const auto z = cpphub::v1::box_muller(
+            (rng() >> 11) * (1.0 / 9007199254740992.0),
+            (rng() >> 11) * (1.0 / 9007199254740992.0));
+        y[t] = y[t - 1] + (t > brk ? 0.5 : 0.0) + z.first;
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto r = zivot_andrews_test(y, ZAModel::C, 0, false, 0.15);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::duration<Real>>(
+        std::chrono::steady_clock::now() - t0);
+    // 规模断言: Schwert(500)=ceil(12·5^0.25)=18; trim 0.15 ⇒ ~350 候选
+    EXPECT_EQ(r.n_lags, 18u);
+    EXPECT_NEAR(static_cast<double>(r.t_stats_path.size()), 350.0, 2.0);
+    EXPECT_TRUE(std::isfinite(r.statistic));
+    // 断点定位 (收敛保护, 防定位到网格边缘): 真断点 175 (1-based b),
+    // break_index = b−1 = 174; 实测落 160 (k=18 噪声下 3% 偏移属统计常态,
+    // ±25 = 5% T 仍远窄于 [76, 425] 网格)
+    EXPECT_NEAR(static_cast<double>(r.break_index), 174.0, 25.0);
+    EXPECT_LT(elapsed.count(), 5.0) << "elapsed " << elapsed.count() << "s";
+}

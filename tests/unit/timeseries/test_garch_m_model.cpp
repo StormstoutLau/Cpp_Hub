@@ -298,3 +298,66 @@ TEST(GarchMTest, InvalidInputThrows) {
     EXPECT_THROW(estimate_garch_m(std::vector<Real>(200, 3.14)),
                  std::invalid_argument);
 }
+
+// ---------------------------------------------------------------------------
+// 17: 性能 P3 (checklist §15.3, D-2 裁决 2026-08-20) — T=5000 三变体 < 10s
+//
+// 7B 先例模式 (#19 LargeSampleT5000Performance): 固定 seed 模拟 + steady_clock
+// + 预算断言 + 收敛/无条件方差恢复防退化。DGP: GARCH(1,1)-M Volatility 形
+// (μ=0.05, λ=0.03, ω=0.05, α=0.10, β=0.85 ⇒ 无条件方差 1); 三 form 各估一次
+// (集成场景 T=3000 三变体链 0.36s 线性外推口径)。
+// ---------------------------------------------------------------------------
+#include <chrono>
+
+#include "cpphub/core/rng.hpp"
+
+TEST(GarchMTest, PerformanceT5000ThreeForms) {
+    const Size T = 5000;
+    const Real mu = 0.05, lambda = 0.03, om = 0.05, al = 0.10, be = 0.85;
+    std::vector<Real> y(T);
+    {
+        cpphub::v1::Philox4x64 rng(2026, 21);
+        Real h_prev = 1.0, eps_prev = 0.0;
+        for (Size t = 0; t < T; t += 2) {
+            const auto z = cpphub::v1::box_muller(
+                (rng() >> 11) * (1.0 / 9007199254740992.0),
+                (rng() >> 11) * (1.0 / 9007199254740992.0));
+            const Real zarr[2] = {z.first, z.second};
+            for (int j = 0; j < 2 && t + static_cast<Size>(j) < T; ++j) {
+                const Real h = (t + static_cast<Size>(j) == 0)
+                                   ? h_prev
+                                   : om + al * eps_prev * eps_prev + be * h_prev;
+                eps_prev = std::sqrt(h) * zarr[j];
+                y[t + static_cast<Size>(j)] = mu + lambda * std::sqrt(h) + eps_prev;
+                h_prev = h;
+            }
+        }
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto rv = estimate_garch_m(y, GarchMForm::Volatility);
+    const auto t1 = std::chrono::steady_clock::now();
+    const auto rr = estimate_garch_m(y, GarchMForm::Variance);
+    const auto t2 = std::chrono::steady_clock::now();
+    const auto rl = estimate_garch_m(y, GarchMForm::LogVariance);
+    const auto t3 = std::chrono::steady_clock::now();
+    const Real sec_v =
+        std::chrono::duration_cast<std::chrono::duration<Real>>(t1 - t0).count();
+    const Real sec_r =
+        std::chrono::duration_cast<std::chrono::duration<Real>>(t2 - t1).count();
+    const Real sec_l =
+        std::chrono::duration_cast<std::chrono::duration<Real>>(t3 - t2).count();
+    printf("[perf] GM T=5000: vol %.3fs / var %.3fs / log %.3fs\n", sec_v,
+           sec_r, sec_l);
+    // 收敛 + 参数域 (三 form)
+    for (const auto* r : {&rv, &rr, &rl}) {
+        EXPECT_TRUE(r->converged) << r->message;
+        EXPECT_GT(r->params.omega, 0.0);
+        EXPECT_TRUE(r->params.alpha + r->params.beta < 1.0);
+    }
+    // 无条件方差恢复 (收敛保护, 7B 先例口径)
+    const Real ub = rv.params.omega / (1.0 - rv.params.alpha - rv.params.beta);
+    EXPECT_NEAR(ub, 1.0, 0.25);
+    // 预算: 三变体合计 < 10s (spec §15.3)
+    EXPECT_LT(sec_v + sec_r + sec_l, 10.0)
+        << "vol " << sec_v << "s var " << sec_r << "s log " << sec_l << "s";
+}

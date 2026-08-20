@@ -388,18 +388,10 @@ inline ArimaResult arima_fit(const std::vector<Real>& data,
         out.loglik = -0.5 * (Tn * std::log(kTwoPi * out.params.sigma2)
                              + Tn + pc.sum_logv);
         out.aic = -2.0 * out.loglik + 2.0 * static_cast<Real>(k + 1);
-        // 残差 = innovations u_t (z − drift 序列)
-        {
-            std::vector<Real> ar(1, 1.0);
-            for (Real p : out.params.phi) ar.push_back(-p);
-            std::vector<Real> ma(1, 1.0);
-            for (Real t : out.params.theta) ma.push_back(t);
-            const auto gamma = detail::arma_acovf(ar, ma, 1.0, Tz);
-            std::vector<std::vector<Real>> th;
-            std::vector<Real> v;
-            detail::innovations_algo(gamma, Tz, th, v);
-            out.residuals = detail::innovations_filter(zd, th);
-        }
+        // 残差 = innovations u_t (z − drift 序列) — 快速路径 (D-4)
+        out.residuals =
+            detail::arma_innovations_uv(zd, out.params.phi,
+                                        out.params.theta).first;
         out.converged = conv;
         out.n_iterations = niter;
         out.message = msg + " [CSS-ML]";
