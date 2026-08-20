@@ -1,5 +1,6 @@
 // =============================================================================
-// test_arima_model.cpp - M1 ARIMA 估计测试 (24 用例, spec §1.2 测试矩阵)
+// test_arima_model.cpp - M1 ARIMA 估计测试 (27 用例, spec §1.2 测试矩阵
+// + D-4: #16a 黄金锚 / #16b fast-vs-general 交叉验证 / #25 性能 T=1000)
 //
 // 基准: arima_baseline.inc
 //   - R stats::arima CSS/CSS-ML (verify_arima.R 2026-08-18)
@@ -16,10 +17,13 @@
 //     C++ include_drift=false 的合法对照; 漂移正解走 forecast
 // =============================================================================
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
 
+#include "cpphub/core/rng.hpp"
 #include "cpphub/core/types.hpp"
 #include "cpphub/timeseries/arima/arima_model.hpp"
 #include "arima_baseline.inc"
@@ -168,14 +172,18 @@ TEST(ArimaModel, CssMlArma22MatchesR) {
     EXPECT_NEAR(r.loglik, bl::CSSML_ARMA22[5], 0.5);
 }
 
-// 12. arma21 CSS-ML — φ 逐位层 + loglik 逐位层; θ 谱等价类不唯一
-//    (实测: C++ (θ,σ²)=(−0.805,0.822) vs R (−0.581,0.975) 同 ll 同 φ —
-//     ARMA(2,1) 似然面在 (θ,σ²) 上的平坦脊, 参数化路径依赖;
-//     主锚 = φ + loglik, θ 仅断言方向)
+// 12. arma21 CSS-ML — φ/θ/σ²/loglik 全量对照 (D-4 修复后收紧)
+//    v1.7 注记更正: 原注 "θ 谱等价类不唯一/似然面平坦脊" 实为
+//    arma_acovf A 矩阵组装 bug (γ_bug = c(φ,θ)·γ_correct(θ*) 缩放
+//    重参数化 — 集中化似然缩放不变 ⇒ loglik/φ̂ 恰好正确, θ̂/σ̂² 落在
+//    重参数化像 (−0.805,0.822) vs R (−0.581,0.975)); 修复后 (θ,σ²)
+//    恢复与 R 同落点, 断言从 "θ 仅方向" 收紧为数值层
 TEST(ArimaModel, CssMlArma21MatchesR) {
     const auto& r = cssml(2);
     EXPECT_NEAR(r.params.phi[0], bl::CSSML_ARMA21[0], 1e-3);
     EXPECT_NEAR(r.params.phi[1], bl::CSSML_ARMA21[1], 1e-3);
+    EXPECT_NEAR(r.params.theta[0], bl::CSSML_ARMA21[2], 5e-3);
+    EXPECT_NEAR(r.params.sigma2, bl::CSSML_ARMA21[3], 5e-3);
     EXPECT_NEAR(r.loglik, bl::CSSML_ARMA21[4], 1e-6);
     EXPECT_LT(r.params.theta[0], 0.0);
 }
@@ -225,15 +233,101 @@ TEST(ArimaModel, InnovArma11MatchesStatsmodels) {
     EXPECT_NEAR(r.loglik, bl::SM_ARMA11[3], 0.5);
 }
 
-// 16. Innovations arma21 — φ/loglik 逐位层 (θ 谱等价, 同 12 号注释)
+// 16. Innovations arma21 — φ/θ/σ²/loglik 全量对照 (D-4 修复后收紧,
+//     v1.7 "θ 谱等价" 误诊更正见 12 号注释)
 TEST(ArimaModel, InnovArma21MatchesStatsmodels) {
     const auto r = am::arima_fit(col(bl::ARMA21, bl::T),
                                  am::ArimaSpec{2, 0, 1},
                                  am::ArimaMethod::Innovations);
     EXPECT_NEAR(r.params.phi[0], bl::SM_ARMA21[0], 1e-3);
     EXPECT_NEAR(r.params.phi[1], bl::SM_ARMA21[1], 1e-3);
+    EXPECT_NEAR(r.params.theta[0], bl::SM_ARMA21[2], 5e-3);
+    EXPECT_NEAR(r.params.sigma2, bl::SM_ARMA21[3], 5e-3);
     EXPECT_NEAR(r.loglik, bl::SM_ARMA21[4], 1e-6);
     EXPECT_LT(r.params.theta[0], 0.0);
+}
+
+// 16a. 通用 innovations 黄金锚 (B&D 2016 ITSF §5.2 MA(1) θ=−0.9,
+// test_stattools.py L1315-1321): acov=[1.81,−0.9] → θ 行 [−0.4972,
+// −0.6606, −0.7404], v=[1.81, 1.3625, 1.2155, 1.1436] — 通用版自 v1.7 起
+// 为交叉验证参照 (D-4), 此锚锁死其正确性; fast 路径 v 须逐位同值
+TEST(ArimaModel, InnovationsGoldenAnchorBdMa1) {
+    const std::vector<Real> acov = {1.81, -0.9};
+    std::vector<std::vector<Real>> th;
+    std::vector<Real> v;
+    am::detail::innovations_algo(acov, 4, th, v);
+    ASSERT_EQ(v.size(), 4u);
+    EXPECT_NEAR(v[0], 1.81, 5e-5);
+    EXPECT_NEAR(v[1], 1.3625, 5e-5);
+    EXPECT_NEAR(v[2], 1.2155, 5e-5);
+    EXPECT_NEAR(v[3], 1.1436, 5e-5);
+    ASSERT_EQ(th.size(), 4u);
+    EXPECT_NEAR(th[1][0], -0.4972, 5e-5);
+    EXPECT_NEAR(th[2][0], -0.6606, 5e-5);
+    EXPECT_NEAR(th[3][0], -0.7404, 5e-5);
+    // fast 路径 (MA(1) θ=−0.9, σ²=1 同模型): v 须与通用版逐位一致
+    const std::vector<Real> z4 = {0.3, -1.2, 0.8, 0.1};
+    const auto uv = am::detail::arma_innovations_uv(
+        z4, std::vector<Real>{}, std::vector<Real>{-0.9});
+    ASSERT_EQ(uv.second.size(), 4u);
+    for (Size i = 0; i < 4; ++i) {
+        EXPECT_NEAR(uv.second[i], v[i], 1e-12) << "i=" << i;
+    }
+}
+
+// 16b. 快速带状 vs 通用 innovations 交叉验证 (D-4 防快但错)
+// 两条路径数学等价 (带状精确性: Cov(W_t,y_s)=0 for s≤t−q−1 ⇒ θ 列≥q
+// 恒零); 差异仅浮点消元次序 — v 逐位级 (探针 T=150 实测 ≤9e-16),
+// u 经滤波反馈缓增 (≤6e-8), 按实测×100+ 安全余量定容差
+TEST(ArimaModel, FastVsGeneralCrossCheck) {
+    const Size T = 120;
+    std::vector<Real> z(T);
+    {
+        cpphub::v1::Philox4x64 rng(2026, 23);
+        for (Size t = 0; t < T; t += 2) {
+            const auto w = cpphub::v1::box_muller(
+                (rng() >> 11) * (1.0 / 9007199254740992.0),
+                (rng() >> 11) * (1.0 / 9007199254740992.0));
+            z[t] = w.first;
+            if (t + 1 < T) z[t + 1] = w.second;
+        }
+    }
+    // (p,q) 扫描: 白噪声/纯 AR/纯 MA/混合 (含 p>q 与 q>p 双向)
+    const std::vector<std::vector<Real>> phis = {
+        {}, {0.5}, {}, {0.5}, {0.5, -0.3}, {0.5}, {0.5, -0.3}};
+    const std::vector<std::vector<Real>> thetas = {
+        {}, {}, {0.4}, {0.4}, {0.4}, {0.4, 0.2}, {0.4, 0.2}};
+    const std::vector<const char*> names = {
+        "(0,0)", "(1,0)", "(0,1)", "(1,1)", "(2,1)", "(1,2)", "(2,2)"};
+    for (Size c = 0; c < phis.size(); ++c) {
+        // 通用参照 (O(T³), 全长 acov) — arma_acovf A 矩阵修复后
+        // p≥2 组合恢复有效 ARMA γ, 通用算法不再抛 v 非正
+        std::vector<Real> ar(1, 1.0);
+        for (Real p : phis[c]) ar.push_back(-p);
+        std::vector<Real> ma(1, 1.0);
+        for (Real t : thetas[c]) ma.push_back(t);
+        const auto gamma = am::detail::arma_acovf(ar, ma, 1.0, T);
+        std::vector<std::vector<Real>> thg;
+        std::vector<Real> vg;
+        am::detail::innovations_algo(gamma, T, thg, vg);
+        const auto ug = am::detail::innovations_filter(z, thg);
+        // 快速路径 (O(T·(p+q)²))
+        const auto uv = am::detail::arma_innovations_uv(z, phis[c], thetas[c]);
+        const auto& uf = uv.first;
+        const auto& vf = uv.second;
+        Real max_du = 0.0, max_dv = 0.0, d_suv = 0.0, d_logv = 0.0;
+        for (Size t = 0; t < T; ++t) {
+            max_du = std::max(max_du, std::abs(uf[t] - ug[t]));
+            max_dv = std::max(max_dv, std::abs(vf[t] - vg[t]));
+            d_suv += std::abs(uf[t] * uf[t] / vf[t]
+                              - ug[t] * ug[t] / vg[t]);
+            d_logv += std::abs(std::log(vf[t]) - std::log(vg[t]));
+        }
+        EXPECT_LT(max_dv, 1e-12) << names[c] << " max_dv=" << max_dv;
+        EXPECT_LT(max_du, 1e-5) << names[c] << " max_du=" << max_du;
+        EXPECT_LT(d_suv, 1e-3) << names[c] << " d_suv=" << d_suv;
+        EXPECT_LT(d_logv, 1e-10) << names[c] << " d_logv=" << d_logv;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -320,4 +414,55 @@ TEST(ArimaModel, MultiStartConfig) {
                                  am::ArimaMethod::CSS, cfg);
     EXPECT_TRUE(r.converged);
     EXPECT_NEAR(r.params.phi[0], bl::CSS_ARMA11[0], 2e-3);
+}
+
+// 25. 性能 P4 (checklist §15.4, D-2 裁决 2026-08-20) — T=1000 CSS-ML 多起始 < 10s
+//
+// 7B 先例模式 + §2.3 对策: n_starting_points=2 (成本近减半仍覆盖多起始
+// 路径, #24 先例) + 收敛/参数落点断言防"快但错"。DGP: ARMA(2,1)
+// φ=(0.5,−0.3), θ=0.4, σ=1, burn-in 200 (Philox 固定 seed)。
+// 成本结构 (D-4 修正): 似然评估 O(T·(p+q)²) 带状快速算法 (探针证伪了
+// v1.2 报告 "SLSQP 主导" 的预估 — 通用 O(T³) 算法实测 158.9s 击穿预算
+// 16×, 移植后 0.04s); 预算 < 10s = 250× 安全余量 (CI 2-3× 慢径无忧)。
+// ---------------------------------------------------------------------------
+TEST(ArimaModel, PerformanceT1000CssMl) {
+    const Size T = 1000, BURN = 200;
+    const Real phi1 = 0.5, phi2 = -0.3, theta1 = 0.4;
+    std::vector<Real> y;
+    y.reserve(T + BURN);
+    {
+        cpphub::v1::Philox4x64 rng(2026, 22);
+        Real y1 = 0.0, y2 = 0.0, e_prev = 0.0;
+        for (Size t = 0; t < T + BURN; ++t) {
+            const auto z = cpphub::v1::box_muller(
+                (rng() >> 11) * (1.0 / 9007199254740992.0),
+                (rng() >> 11) * (1.0 / 9007199254740992.0));
+            const Real e = z.first;
+            const Real yt = phi1 * y1 + phi2 * y2 + e + theta1 * e_prev;
+            y2 = y1;
+            y1 = yt;
+            e_prev = e;
+            y.push_back(yt);
+        }
+        y.erase(y.begin(), y.begin() + BURN);  // burn-in 丢弃
+    }
+    am::ArimaConfig cfg;
+    cfg.use_hannan_rissanen = false;
+    cfg.n_starting_points = 2;
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto r = am::arima_fit(y, am::ArimaSpec{2, 0, 1},
+                                 am::ArimaMethod::CSS_ML, cfg);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::duration<Real>>(
+        std::chrono::steady_clock::now() - t0);
+    printf("[perf] ARIMA T=1000 CSS-ML (2 starts): %.3fs\n", elapsed.count());
+    // 收敛 + 参数落点 (防"快但错", 跨优化器宽松容差)
+    EXPECT_TRUE(r.converged) << r.message;
+    ASSERT_EQ(r.params.phi.size(), 2u);
+    ASSERT_EQ(r.params.theta.size(), 1u);
+    EXPECT_NEAR(r.params.phi[0], phi1, 0.15);
+    EXPECT_NEAR(r.params.phi[1], phi2, 0.15);
+    EXPECT_NEAR(r.params.theta[0], theta1, 0.15);
+    EXPECT_TRUE(std::isfinite(r.loglik));
+    // 预算: < 10s (spec §15.4; 主控站实测见 printf, CI 2-3× 慢径余量)
+    EXPECT_LT(elapsed.count(), 10.0) << "elapsed " << elapsed.count() << "s";
 }

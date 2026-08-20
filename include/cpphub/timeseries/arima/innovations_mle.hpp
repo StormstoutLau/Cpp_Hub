@@ -37,6 +37,18 @@
 //   (其 TODO L137-139 明示未集中化); 本实现解析集中化 — θ/u/v 与 σ² 无关
 //   (γ/σ² 归一化后 σ² 只进入 log 因子), σ̂² = (Σu²/v)/T 解析最优,
 //   同一似然面的最优落点等价, 落点差在优化器容差层 (实测落档)
+//
+// v1.8 M0 快速路径 (D-4 裁决 2026-08-20, PHASE7C_RESIDUAL §2.6): 似然评估
+//   改走 statsmodels tsa/innovations/_arma_innovations.pyx 的 ARMA 带状快速
+//   算法 (transformed_acovf_fast / innovations_algo_fast / filter_fast,
+//   0.14.4 sdist 一手实录) — B&D TSTM §3.3/§5.2.7:
+//   W_t = φ(B)y_t 对 t > m 为纯 MA(q), 且 Cov(W_t, y_s) = 0 (s ≤ t−q−1,
+//   W 仅含 ε_{t−q..t}) ⇒ θ 列 ≥ q 精确为零 (非截断近似), 复杂度
+//   O(T·(p+q)²) vs 全长 acov 通用版的 O(T³)。通用 innovations_algo 保留作
+//   交叉验证参照 (test_arima_model FastVsGeneralCrossCheck); Kalman 仲裁
+//   (T=300): fast−KF 2.6e-8 vs general−KF 1.2e-6 — 带状路径数值更优
+//   (消元链短)。statsmodels innovations_mle L222 生产路径即快速版,
+//   通用版仅其 L67 初始化使用 (nobs=ma_order+1)
 // =============================================================================
 
 #pragma once
@@ -133,9 +145,15 @@ inline std::vector<Real> arma_acovf(const std::vector<Real>& ar,
         for (Size c = 0; c <= k; ++c) {
             A[k][c] = tmp_ar[k - c];
         }
-        // A[k, 1:m−k] += tmp_ar[k+1:m]
-        for (Size c = k + 1; c < m; ++c) {
-            A[k][c] += tmp_ar[c];
+        // A[k, 1:m−k] += tmp_ar[k+1:m] (列 c 得 tmp_ar[k+c]; 病灶修复
+        // D-4: v1.7 误写为列 c∈[k+1,m) 得 tmp_ar[c] — B&D 3.3.8 第 k 行
+        // 方程 γ(k)−Σφᵢγ(k−i) 中 k−i<0 项经对称 γ(i−k) 落列 i−k=k+c,
+        // p≥2 时产生错位 γ_bug = c(φ,θ)·γ_correct(θ*) 缩放重参数化 —
+        // 集中化似然对缩放不变 ⇒ loglik/φ̂ 恰好正确掩盖 θ̂/σ̂² 全错
+        // (v1.7 实测 ARMA(2,1): θ̂ −0.8049 vs statsmodels −0.5844,
+        //  误诊为"谱等价"); p≤1 时 tmp_ar[k+c] 越过 p 全零故无感)
+        for (Size c = 1; c + k < m; ++c) {
+            A[k][c] += tmp_ar[k + c];
         }
         // b[k] = σ²·Σ_{j=0}^{q−k} ma[k+j]·ψ[j]
         Real s = 0.0;
@@ -231,6 +249,184 @@ inline std::vector<Real> innovations_filter(
     return u;
 }
 
+// ================= ARMA 带状快速 innovations (B&D TSTM §3.3/§5.2.7) =========
+// statsmodels _arma_innovations.pyx 逐字移植 (0.14.4 sdist 实录);
+// 与通用版数值等价 (带状是精确数学事实), O(T·(p+q)²)。
+// 带宽依据: Cov(W_t, y_s) = 0 for s ≤ t−q−1 (W_t 仅含 ε_{t−q..t})
+// ⇒ innovations 系数 θ[i, j] 对 j ≥ q 精确为零 (含过渡行, 实测 −0.0)
+
+/// 变换过程自协方差 (py sarma_transformed_acovf_fast 逐字):
+/// 混合序列 (y_0..y_{m−1}, W_m..W_{T−1}) 的协方差结构 —
+/// acovf (m2×m2): 前 m×m 为 γ(|i−j|) Toeplitz 块 (y 段), 交叉块
+///   [i,j] = γ(i−j) − Σ_r φ_r·γ(|r−(i−j)|) (Cov(W_{i+1}, y_{j+1}));
+///   仅前 m 行/列有效, acovf[m:][m:] 恒零不可用
+/// acovf2 (T−m): 稳态 MA(q) 自协方差 acovf2[i] = Σ_r ma[r]·ma[r+i]
+///   (σ²=1 口径, 与 arma_acovf(…, 1.0, …) 归一化一致; i > q 时为 0)
+inline void arma_transformed_acovf_fast(
+        const std::vector<Real>& ar,   ///< (1, −φ₁, …) 含零滞后
+        const std::vector<Real>& ma,   ///< (1, θ₁, …) 含零滞后
+        const std::vector<Real>& arma_acovf,
+        std::vector<std::vector<Real>>& acovf,
+        std::vector<Real>& acovf2) {
+    const Size nobs = arma_acovf.size();
+    const Size p = ar.size() - 1;
+    const Size q = ma.size() - 1;
+    const Size m = std::max(p, q);
+    const Size m2 = 2 * m;
+    acovf.assign(m2, std::vector<Real>(m2, 0.0));
+    acovf2.assign(nobs > m ? nobs - m : 0, 0.0);
+    // stoeplitz(m, 0, 0): 前 m×m 块 = γ(|i−j|), 对称填充
+    for (Size i = 0; i < m; ++i) {
+        for (Size j = 0; j <= i; ++j) {
+            acovf[i][j] = arma_acovf[i - j];
+            if (i != j) acovf[j][i] = arma_acovf[i - j];
+        }
+    }
+    if (nobs > m) {
+        // 交叉块: i ∈ [m, 2m), j < m (i > j 恒成立)
+        for (Size j = 0; j < m; ++j) {
+            for (Size i = m; i < m2; ++i) {
+                Real val = arma_acovf[i - j];
+                for (Size r = 1; r <= p; ++r) {
+                    const Size h = i - j;
+                    const Size tmp = (r > h) ? (r - h) : (h - r);
+                    val -= (-ar[r]) * arma_acovf[tmp];  // = +φ_r·γ(|r−h|)
+                }
+                acovf[i][j] = val;
+            }
+        }
+        // 对称转置: acovf[:m, m:] = acovf[m:, :m]ᵀ
+        for (Size i = 0; i < m; ++i) {
+            for (Size j = m; j < m2; ++j) {
+                acovf[i][j] = acovf[j][i];
+            }
+        }
+        // 稳态: acovf2[i] = Σ_{r<q+1−i} ma[r]·ma[r+i] (i > q 时空)
+        for (Size i = 0; i + m < nobs; ++i) {
+            if (q + 1 > i) {
+                for (Size r = 0; r < q + 1 - i; ++r) {
+                    acovf2[i] += ma[r] * ma[r + i];
+                }
+            }
+        }
+    }
+}
+
+/// 带状 innovations 算法 (py sarma_innovations_algo_fast 逐字):
+/// theta (T×(m+1)) 仅前 q 列非零 (i ≥ m 行); v 为一步预测方差序列
+/// (i < m 段 = y-innovation, i ≥ m 段 = W-innovation — 混合序列口径)
+inline void arma_innovations_algo_fast(
+        Size nobs, const std::vector<Real>& ar_params,  ///< φ (正号)
+        const std::vector<Real>& ma_params,              ///< θ (正号)
+        const std::vector<std::vector<Real>>& acovf,
+        const std::vector<Real>& acovf2,
+        std::vector<std::vector<Real>>& theta, std::vector<Real>& v) {
+    const Size p = ar_params.size();
+    const Size q = ma_params.size();
+    const Size m = std::max(p, q);
+    const Size m2 = 2 * m;
+    theta.assign(nobs, std::vector<Real>(m + 1, 0.0));
+    v.assign(nobs, 0.0);
+    if (nobs == 0) return;
+    if (m > 0) {
+        v[0] = acovf[0][0];
+    } else {
+        v[0] = acovf2[0];  // p=q=0 退化为白噪声
+    }
+    for (Size n = 0; n + 1 < nobs; ++n) {
+        const Size rn = n + 1;  // py _n (行索引)
+        const Size start = (n < m) ? 0 : (n + 1 - q);
+        for (Size k = start; k <= n; ++k) {
+            // n ≥ m 行: n−k ≥ q 的系数精确为零, 跳过
+            if (n >= m && n - k >= q) continue;
+            if (n + 1 < m2 && k < m) {
+                theta[rn][n - k] = acovf[n + 1][k];
+            } else {
+                theta[rn][n - k] = acovf2[n + 1 - k];
+            }
+            const Size start2 = (n < m) ? 0 : (n - m);
+            for (Size j = start2; j < k; ++j) {
+                if (n - j < m + 1) {
+                    theta[rn][n - k] -= theta[k][k - j - 1]
+                                        * theta[rn][n - j] * v[j];
+                }
+            }
+            theta[rn][n - k] /= v[k];
+        }
+        if (n + 1 < m) {
+            v[n + 1] = acovf[n + 1][n + 1];  // y 段: Var(y)
+        } else {
+            v[n + 1] = acovf2[0];            // W 段: Var(W)
+        }
+        const Size start_v = (n >= m) ? (n - m + 1) : 0;  // py max(0, n−m+1)
+        for (Size i = start_v; i <= n; ++i) {
+            v[n + 1] -= theta[rn][n - i] * theta[rn][n - i] * v[i];
+        }
+    }
+}
+
+/// 带状 innovations 滤波 (py sarma_innovations_filter 逐字):
+/// i < m: u_i = z_i − Σ_{j<i} θ[i,j]·u_{i−1−j} (y-innovation)
+/// i ≥ m: u_i = z_i − Σ_{r<p} φ_r·z_{i−r} − Σ_{j<q} θ[i,j]·u_{i−1−j}
+///   (W-innovation; 变换 W_i = z_i − Σφ_r z_{i−r} 的 Jacobian = 1 ⇒ 似然不变)
+inline std::vector<Real> arma_innovations_filter_fast(
+        const std::vector<Real>& z, const std::vector<Real>& ar_params,
+        const std::vector<Real>& ma_params,
+        const std::vector<std::vector<Real>>& theta) {
+    const Size p = ar_params.size();
+    const Size q = ma_params.size();
+    const Size m = std::max(p, q);
+    const Size T = z.size();
+    std::vector<Real> u(T, 0.0);
+    if (T == 0) return u;
+    u[0] = z[0];
+    for (Size i = 1; i < T; ++i) {
+        Real hat = 0.0;
+        if (i < m) {
+            for (Size j = 0; j < i; ++j) {
+                hat += theta[i][j] * u[i - j - 1];
+            }
+        } else {
+            for (Size j = 0; j < p; ++j) {
+                hat += ar_params[j] * z[i - j - 1];
+            }
+            for (Size j = 0; j < q; ++j) {
+                hat += theta[i][j] * u[i - j - 1];
+            }
+        }
+        u[i] = z[i] - hat;
+    }
+    return u;
+}
+
+/// 快速路径统一入口: {u (innovations), v (一步预测方差)}
+/// (Innovations/CSS-ML 似然评估与收尾残差的共用原语)
+inline std::pair<std::vector<Real>, std::vector<Real>> arma_innovations_uv(
+        const std::vector<Real>& z, const std::vector<Real>& phi,
+        const std::vector<Real>& theta) {
+    const Size T = z.size();
+    std::vector<Real> ar(1, 1.0);
+    for (Real p : phi) ar.push_back(-p);
+    std::vector<Real> ma(1, 1.0);
+    for (Real t : theta) ma.push_back(t);
+    const std::vector<Real> gamma = arma_acovf(ar, ma, 1.0, T);
+    std::vector<std::vector<Real>> acf;
+    std::vector<Real> acf2;
+    arma_transformed_acovf_fast(ar, ma, gamma, acf, acf2);
+    std::vector<std::vector<Real>> th;
+    std::vector<Real> v;
+    arma_innovations_algo_fast(T, phi, theta, acf, acf2, th, v);
+    for (Size i = 0; i < T; ++i) {
+        if (!(v[i] > 0.0) || !std::isfinite(v[i])) {
+            throw std::runtime_error(
+                "arma_innovations_uv: non-positive/non-finite prediction "
+                "variance (non-stationary/invertibility violation)");
+        }
+    }
+    const std::vector<Real> u = arma_innovations_filter_fast(z, phi, theta, th);
+    return {u, v};
+}
+
 /// ARMA 精确 loglik 逐观测值 (归一化 γ 口径: σ² 由外部单独进入)
 /// γ_norm = arma_acovf(φ,θ,σ²=1); θ/v 由 γ_norm 决定 (σ² 无关);
 /// ℓ = −0.5·Σ_t [log(2π·σ²·v_t) + u_t²/(σ²·v_t)]
@@ -240,15 +436,10 @@ inline LoglikePieces arma_innovations_pieces(
         const std::vector<Real>& z, const std::vector<Real>& phi,
         const std::vector<Real>& theta) {
     const Size T = z.size();
-    std::vector<Real> ar(1, 1.0);
-    for (Real p : phi) ar.push_back(-p);
-    std::vector<Real> ma(1, 1.0);
-    for (Real t : theta) ma.push_back(t);
-    const std::vector<Real> gamma = arma_acovf(ar, ma, 1.0, T);
-    std::vector<std::vector<Real>> th;
-    std::vector<Real> v;
-    innovations_algo(gamma, T, th, v);
-    const std::vector<Real> u = innovations_filter(z, th);
+    // 快速路径 (D-4): 通用版逐位等价但 O(T³), 见文件头
+    const auto uv = arma_innovations_uv(z, phi, theta);
+    const std::vector<Real>& u = uv.first;
+    const std::vector<Real>& v = uv.second;
     LoglikePieces pc;
     for (Size t = 0; t < T; ++t) {
         pc.s_uv += u[t] * u[t] / v[t];
@@ -390,18 +581,8 @@ inline InnovationsResult innovations_mle(const std::vector<Real>& z_input,
     constexpr Real kTwoPi = 6.283185307179586476925286766559;
     res.loglik = -0.5 * (Tn * std::log(kTwoPi * res.sigma2)
                          + Tn + pc.sum_logv);
-    // innovations (一步预测误差) 输出
-    {
-        std::vector<Real> ar(1, 1.0);
-        for (Real p : res.phi) ar.push_back(-p);
-        std::vector<Real> ma(1, 1.0);
-        for (Real t : res.theta) ma.push_back(t);
-        const auto gamma = detail::arma_acovf(ar, ma, 1.0, T);
-        std::vector<std::vector<Real>> th;
-        std::vector<Real> v;
-        detail::innovations_algo(gamma, T, th, v);
-        res.innovations = detail::innovations_filter(z, th);
-    }
+    // innovations (一步预测误差) 输出 — 快速路径 (D-4)
+    res.innovations = detail::arma_innovations_uv(z, res.phi, res.theta).first;
     return res;
 }
 
