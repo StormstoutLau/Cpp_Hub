@@ -2819,6 +2819,12 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - 过程留档: ① 首建 bundle 误用 `--not 97db906` (两站在其父提交 c008f46) → 站侧 "缺少必备提交 97db906" → 重建 `--not c008f46` 修复 — bundle 排除基点必须取接收方实际 HEAD; ② SSH 免密用户名为 `scott-lau` 非 `scott` (SSH_OPENCODE_SETUP.md §2.3 已有记录, 误用致 publickey 拒绝)
 - **v1.7.0 发布条件全部满足** — checklist §17.2 C-1/C-2 划线闭环, 仅余 C-3 (Stata NP) / C-4 (性能用例) 两项 v1.8 前非阻塞项
 
+**v1.7.0 正式发布 (2026-08-20)**:
+
+- annotated tag `v1.7.0` 打于 `0564ff6` (仓库首个正式版本 tag), 已推送 origin; tag 消息含完整发布说明 (25 头文件/251 测试/五里程碑/6 集成场景/质量口径)
+- 发布状态验证: 远程 `refs/tags/v1.7.0` 剥离指向 `0564ff6`; tag 内容与 CI run #62 (006cec6, 全量 2458 双平台绿) 仅差文档
+- CI 无 tag 触发工作流 (ci.yml 仅 branch push/PR), 版本构建验证由 run #62 承担, 无缺口
+
 ---
 
 
