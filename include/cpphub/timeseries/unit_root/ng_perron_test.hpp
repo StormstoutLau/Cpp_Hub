@@ -205,7 +205,12 @@ inline NgPerronResult ng_perron_test(const std::vector<Real>& data,
             betas[k] = beta;
             continue;
         }
-        sigma2[k] = ssr / (n_r - 1.0);  // spec Step2.2: SSR/(T−k_max−1)
+        sigma2[k] = ssr / n_r;  // spec Step2.2: SSR/(T−k_max−1) ≡ SSR/n_r
+                                // (坐标勘误遗留: 2026-08-18 窗口 n: T−k_max →
+                                //  T−1−k_max 修正时本行未同步, 曾为 ssr/(n_r−1);
+                                //  Stata 18 装机实证 2026-08-20: SSR 逐位一致,
+                                //  分母 = n_r (Number of obs), 修后逐 k RMSE/MAIC
+                                //  与 dfgls 1e-15 级一致, verify_np_stata.py 管线)
         const Real tau_T =
             beta[0] * beta[0] * sum_y2 / sigma2[k];  // NP2 4 源裁决形
         maic[k] = std::log(sigma2[k]) + 2.0 * (tau_T + static_cast<Real>(k)) / n_r;
