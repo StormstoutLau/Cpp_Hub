@@ -1,12 +1,15 @@
 // =============================================================================
-// test_ng_perron.cpp - Ng-Perron M 检验族测试 (18 用例, spec §1.2/§9.5)
+// test_ng_perron.cpp - Ng-Perron M 检验族测试 (20 用例, spec §1.2/§9.5)
 //
 // 基准 (NP6 对照生态): 无开源库输出 M 族 ⇒ 原文公式钉死 + 恒等式自检 +
 //   np_tables 临界值精确相等 + 模拟方向断言 (Philox 确定性数据, §8.6 位一致)
-//   Stata dfgls 逐 k MAIC 1e-10 对照: verify_np_stata.py 占位, 环境可用后补
+//   Stata dfgls 逐 k MAIC/σ̂² 1e-10 硬断言: #19/#20 (Stata 18 MP 装机实测
+//   2026-08-20, np_stata_baseline.inc; C-3 关闭 — verify_np_stata.py 管线)
 //
 // 容差:
 //   - MZt ≡ MZα×MSB 恒等式: 1e-12 (spec §1.3)
+//   - Stata 对照: MAIC 1e-10 / σ̂² 1e-14 (实测差 MAIC ≤ 8e-14, RMSE ≤ 3e-16;
+//     σ̂² 分母修正 ng_perron_test.hpp 2026-08-20 后达机器精度)
 //   - 临界值: EXPECT_DOUBLE_EQ (np_table1 双源转录)
 //   - 方向/结构断言: 精确或宽松
 //
@@ -308,12 +311,59 @@ TEST(NgPerronTest, SummaryContent) {
 TEST(NgPerronTest, PerformanceT1000) {
     const auto y = gen_rw(1000, 7);
     const auto t0 = std::chrono::steady_clock::now();
-    const auto r = ur::ng_perron_test(y, "ct");  // k_max = Schwert(1000) = 21
+    const auto r = ur::ng_perron_test(y, "ct");  // k_max = Schwert(1000) = 22
     const auto t1 = std::chrono::steady_clock::now();
     const double sec =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() /
         1000.0;
     EXPECT_LT(sec, 1.0);
-    EXPECT_GT(r.maic.size(), 10u);  // Schwert(1000)=ceil(12·10^0.25)=21
+    EXPECT_GT(r.maic.size(), 10u);  // Schwert(1000)=ceil(12·10^0.25)=22
     (void)r;
+}
+
+// ---------------------------------------------------------------------------
+// 19-20: Stata 18 dfgls 逐 k MAIC/σ̂² 硬断言 (spec §1.3, C-3 关闭)
+//
+// 基准: np_stata_baseline.inc (Stata 18.0 MP 装机实测 2026-08-20,
+//   verify_np_stata.py 管线: --emit-dofile → stata-mp -b → --emit-inc)
+// 场景: #19 smoke (RandomState(42) T=200, "c", kmax=14) — 逐 k 14 行;
+//       #20 手册例 lutkepohl2 ln_inv (T=92, "ct", kmax=11) — Stata 手册
+//       Example 1 实机复现 (Min MAIC = -6.136692 at lag 1)
+// 口径: Stata r(results) 无 k=0 行 → 对照 k=1..kmax; argmin 断言取
+//   k≥1 子集 (C++ selected_lag 含 k=0 行, 边界语义差非算法差)
+// ---------------------------------------------------------------------------
+#include "np_stata_baseline.inc"
+
+namespace nps = cpphub::v1::timeseries::np_stata_baseline::v1;
+
+TEST(NgPerronTest, StataDfglsSmokeT200) {
+    const std::vector<Real> y(std::begin(nps::SMOKE_Y),
+                              std::end(nps::SMOKE_Y));
+    ASSERT_EQ(y.size(), nps::T_SMOKE);
+    const auto r = ur::ng_perron_test(y, "c", nps::KMAX_SMOKE);
+    for (Size k = 1; k <= nps::KMAX_SMOKE; ++k) {
+        EXPECT_NEAR(r.maic[k], nps::SMOKE_MAIC[k - 1], 1e-10) << "k=" << k;
+        const Real s2 = nps::SMOKE_RMSE[k - 1] * nps::SMOKE_RMSE[k - 1];
+        EXPECT_NEAR(r.sigma2_k[k], s2, 1e-14) << "k=" << k;
+    }
+    // argmin over k>=1 (Stata 语义, 无 k=0 行): Min MAIC at lag 1
+    Size kstar = 1;
+    for (Size k = 2; k <= nps::KMAX_SMOKE; ++k) {
+        if (r.maic[k] < r.maic[kstar]) kstar = k;
+    }
+    EXPECT_EQ(kstar, 1u);
+}
+
+TEST(NgPerronTest, StataDfglsManualExample) {
+    const std::vector<Real> y(std::begin(nps::LN_INV), std::end(nps::LN_INV));
+    ASSERT_EQ(y.size(), nps::T_MANUAL);
+    const auto r = ur::ng_perron_test(y, "ct", nps::KMAX_MANUAL);
+    for (Size k = 1; k <= nps::KMAX_MANUAL; ++k) {
+        EXPECT_NEAR(r.maic[k], nps::MANUAL_MAIC[k - 1], 1e-10) << "k=" << k;
+        const Real s2 = nps::MANUAL_RMSE[k - 1] * nps::MANUAL_RMSE[k - 1];
+        EXPECT_NEAR(r.sigma2_k[k], s2, 1e-14) << "k=" << k;
+    }
+    // 手册例: Min MAIC = -6.136692 at lag 1 — k*=1 (k=0 行也在场且不更优)
+    EXPECT_EQ(r.selected_lag, 1u);
+    EXPECT_NEAR(r.maic[1], -6.136691529562533, 1e-10);
 }
