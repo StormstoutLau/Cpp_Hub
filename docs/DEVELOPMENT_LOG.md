@@ -2765,4 +2765,52 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### M1 收尾 + 端到端集成: Granger 因果 + 6 场景全链 (2026-08-19)
+
+> `arima/granger_test.hpp` (F/χ²/LR 四统计量 + TY 增广 Wald + HAC-Wald) + `test_integration_phase7c.cpp` (端到端 6 场景) — 16+6 用例**全绿** (主控站 MSVC); 基准: statsmodels 0.14.4 `grangercausalitytests` (四统计量主锚, 基准 JSON 入库); 集成场景复用全模块已锚定 baseline 夹具
+
+**Granger 数值对拍 (checklist §4.2 六项全勾)**:
+
+- 4 统计量 (ssr_ftest/ssr_chi2test/lrtest/params_ftest) vs statsmodels: **1e-10** (真实因果/反向/独立零假设三态; params_ftest 走 Wald 路径与 ssr_ftest 数学等价但数值独立分录断言, 4.2.1)
+- 显式 (cause, effect) 方向复现: statsmodels 二维输入第二列 cause 第一列 — GR6 排幻觉注释落码 + DirectionExplicitCauseEffect 断言 (4.2.2)
+- F df 公式 m=p, k_u=2p+1 手算对照: df2 = T−p−(2p+1) 内部一致 (GR1, 4.2.3)
+- TY 增广 Wald df=k (GR2/GR4): 增广阶不进约束矩阵, 约束仅前 k 阶; k+d_max 估计 (4.2.4)
+- HAC-Wald (GR5): NW vcov 复用 v1.5 hac — 三态 (显式带宽/默认 Schwert 规则/White 退化) + HacVsStandardDifference (4.2.5)
+- GR7 失效场景入集成场景 2 (I(1) 水平标准 F 伪显著三路对照, 4.2.6)
+
+**端到端集成 6 场景 (checklist §9 全勾, spec §7)**:
+
+| # | 场景 | 链路要点 |
+|---|------|---------|
+| 1 | 单位根诊断全链 | RW 水平 (ADF/DF-GLS/NP/ZA 不拒绝) → 差分拒绝 → ARIMA 残差 LB 白噪声; 断点→分段平稳 (~1.0s) |
+| 2 | Granger 因果链 | I(1) 双序列三路: 水平 F 伪显著 / 差分 F 不显著 (真无短期因果) / 水平 TY 增广 Wald 真显著 (GR7) |
+| 3 | VAR→DY 溢出 | IC 选阶→稳定→IRF/FEVD 双轨→DY 静态+滚动; DY2012 恒等式 ΣTO=ΣFROM=TCI + NET=TO−FROM; V12 爆炸 VAR (ρ=1.05) 拦截 |
+| 4 | 协整→VECM | 夹具 EG 筛选→Johansen rank→VECM→ECT→β 投影空间 + 真实拉回 DGP 对照 (ECT t < cv 5% 双方程, α 双负) |
+| 5 | MIDAS 混频预测 | 月-日混频对齐 (mls 期末) + DL/U-MIDAS 估计 + 预测收敛性 (MD3 期初起窗) |
+| 6 | GARCH-M 风险溢价 | 三变体 + 强信号模拟 (T=3000, λ=1.2): sandwich t>1.96 + λ 恢复 ±0.4 + vs 无 M 模型 AIC |
+
+**实施期问题与修复 (6 处, 全部留档)**:
+
+- **场景 2 TY 断言方向错误**: 初版断言水平 TY p>0.05 — 与协整系统中真实存在水平因果的 DGP 预期相反; 修正为 p<0.05, 三路对照叙事理顺 (伪显著/真不显著/真显著)
+- **场景 3 DY 恒等式错误**: 初版断言 TO[j]+FROM[j] = 2·TCI/100·… 混淆恒等式; 实际为 ΣⱼTO = ΣⱼFROM = TCI, 逐项 NET=TO−FROM 1e-12
+- **场景 3 爆炸 VAR 共线**: 初版双列同噪声源 → 协方差非正定抛 "info_criteria: sigma not PD"; 改独立双噪声源 (seed 77/78) 后 VAR 估计正常 + V12 拦截断言通过
+- **场景 4 ECT 显著性检验力**: 夹具 DGP 无误差修正拉回 → ECT t 断言必然失败; 改两段式: 夹具链断言统计量/临界值有限性 + 新增真实拉回 DGP (α=(−0.30,−0.20), T=250) 对照断言显著负
+- **场景 6 λ 检验力不足**: 夹具数据 λ t=0.59 无区分度; 新增强信号模拟 (T=3000, λ=1.2, φ=0.08/β=0.72) — sandwich t>1.96 + λ 参数恢复 ±0.4
+- **gtest_discover_tests 缓存过期**: exe 内含 6 场景但 ctest 仅注册 1 个 — 删除过期 exe 强制重新链接 + 发现, 6 场景全注册 (CMake 时间戳缓存教训)
+
+**基础设施异常应对**: 本轮收尾期命令执行通道 (RunCommand/MCP bash_exec) 间歇性失效 (`icube.shellExec.runCommand not found`), A/B 站最终轮 (2418→2440, +22 用例) 顺延至通道恢复后执行; 主控站全量构建与 ctest 已先行完成闭环。
+
+**交付物**: granger_test.hpp (GR1-GR7 排幻觉注释逐条落码) / verify_granger.py (四统计量基准 JSON 入库) / test_granger_causality.cpp (16 用例) / test_integration_phase7c.cpp (6 场景) / tests/CMakeLists.txt 注册; checklist §1.1.8/§1.2.9/§1.3.6/§1.3.16/§2.1.3 (最终轮 2458)/§4.2 全 6 项/§8.1 GR1-GR7/§9 全 6 场景/§10.1.4-10.1.6/§10.2 全 9 项/§11.1.5/§12-§16 勾选
+
+**主控站最终轮全量验证 (2026-08-19, checklist §2.1.3 收口)**:
+
+| 平台 | 结果 | 耗时 |
+|------|------|------|
+| 主控 MSVC 19.5x (Release, -j8) | **2458/2458** (新增 Granger 16 + 集成 6; 2207 基线 + 251 7C 新增) | 141.63s |
+
+- 零退化: Phase 1-7B 全部 2207 基线用例仍通过; SLSQP 12/12 (ADR-018) 无退化
+- A/B 站 GCC 最终轮 (bundle 增量 ff c008f46→收尾 commit + rebuild, 预期 2440/2440): 待命令通道恢复后执行, 差额 18 口径不变
+
+---
+
 
