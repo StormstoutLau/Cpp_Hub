@@ -2837,6 +2837,30 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **交付物**: verify_np_stata.py (占位→实际管线, --emit-dofile/--parse/--emit-inc 三段式) / np_stata_baseline.inc (自动生成, 数值字符串原样透传无损, CI 无 Stata 依赖) / test_ng_perron.cpp +2 用例 / ng_perron_test.hpp σ̂² 修复 (含 069264c 遗留注记) / np_dfgls.do + 基准 CSV ×4 (fixtures/timeseries)
 - **方法论留档**: "探针先行, 断言后写"完整示范 — 若按 v1.1 预判"口径分歧"直接设计换算断言, 分母 bug 将被永久掩盖; 探针差值结构分解 ((σ̂ratio)² = n_r/(n_r−1) 精确匹配) 把"疑似口径差"降维为"可证伪的实现-spec 不一致", spec 字面公式一锤定音。另: v1.1 审计预判"分母差 2"实为差 1 (Stata rmse² 分母 = n_r = T−1−kmax, 手册公式记号 T 实指 T−1) — 手册公式记号与实现的对照须以实测为准
 
+### MATLAB R2018b 装机登记 + ssm/Kalman 批处理探针 (2026-08-20)
+
+> v1.8 Kalman 模块验证生态预研; 对 7C 遗留项 (C-3 已闭环/C-4 无关/3.1.5 无 M 族输出) 零影响
+
+- **装机**: MATLAB R2018b (MATLAB 9.5) 全工具箱版 (`C:\Program Files\MATLAB\R2018b\bin\matlab.exe`) — Econometrics Toolbox 5.1 / Statistics & ML 11.4 / Optimization 8.2 / System Identification 9.9 / Control System 10.5 / Financial 5.12 全在场
+- **批处理链路验证**: `-wait -nodesktop -nosplash -minimize -r "script"` + diary 落盘 — 可编程访问确认 (R2018b 无 `-batch`, 需旧 `-r` 接口; PowerShell 调用退出码可捕获)
+- **ssm 冒烟探针** (matlab_probe_kalman.m, 局部水平模型 T=100): ssm/estimate/filter/smooth 全链路在场, 全精度数值锚雏形落地 (`%.17g`)
+- **R2018b 语法坑 (对照管线须注意)**: ① `ssm/estimate` 必须显式传 `params0` 初值 (新版可省, R2018b 报 "Starting parameter values are needed"); ② estimate 对 NaN 参数默认**无约束**优化 — 探针中观测噪声方差收敛至 −3.3e-7 负值 (边界退化解), C++ 侧若用正性约束优化落点将不同, v1.8 对照须两侧对齐 (lb/ub 或参数化变换); ③ filter/smooth 有默认 Display 输出, 管线解析日志须 'Display','off' 统一抑制
+- **v1.8 生态评估**: Kalman 对照价值高 (ssm = 学界权威实现之一, 与 R dlm/KFAS 构成双源); ARDL 官方 `ardl` 函数 R2019b+ 引入, **R2018b 无** — ARDL/PSS 对照仍走 R 生态 (ardl/pssbounds); 协整 (egcitest/jcitest) 与 VAR (vgxvarx) 可作可选第三源, 非必需
+
+### C-4 闭环: 三性能用例补设 + innovations O(T³) 修复 + arma_acovf γ bug 修复 (2026-08-20)
+
+> [PHASE7C_RESIDUAL_C3_C4_RESEARCH.md](./research/PHASE7C_RESIDUAL_C3_C4_RESEARCH.md) v1.3 (§2.6 全发现链); checklist §15.2-15.4 翻绿 / §17.1 统计 325/331 → **328/331 (99.1%)** / §17.2 C-4 划线闭环 — Phase 7C 遗留条件至此全部清零
+
+- **D-2 裁决 (Scott): (a) 补设三用例** — 弃 "N/A-级放行"; 三用例按 7B 先例模式 (模拟数据固定 seed + steady_clock + 预算断言 + 收敛/参数落点断言防"快但错")
+- **三用例落地实测**: ZA T=500 = **0.035s** (预算 5s, 143× 余量; Schwert(500)=18 + ~350 候选 + 断点定位 ±25); GM T=5000 三变体合计 = **0.72s** (预算 10s, 14×; vol 0.28/var 0.15/log 0.29 + 无条件方差恢复); ARIMA T=1000 CSS-ML = 探针实测 **158.9s 击穿 10s 预算 16×** (收敛/参数断言全过) — §2.2 "SLSQP 主导" 成本假设被证伪, 触发 D-4
+- **D-4 裁决 (Scott): 移植 statsmodels 带状快速算法** — 取证发现 C++ 逐字复刻的是 statsmodels **通用** `innovations_algo` (O(T³)), 而 statsmodels 生产路径 (`estimators/innovations.py` L222 → `arma_loglike`) 走 `_arma_innovations.pyx` 的 AR 变换带状快速算法 (B&D TSTM §3.3/§5.2.7): W_t = φ(B)y_t 对 t>m 为纯 MA(q) 且 Cov(W_t,y_s)=0 (s≤t−q−1) ⇒ θ 列 ≥ q **精确为零** (数学事实非截断), O(T·(p+q)²)。**Kalman 仲裁**: T=300 时 fast−KF = 2.6e-8 vs general−KF = 1.2e-6 — 快速路径数值上还精确 40× (消元链短)
+- **移植**: 三函数 (`arma_transformed_acovf_fast` / `arma_innovations_algo_fast` / `arma_innovations_filter_fast`, statsmodels 0.14.4 sdist 一手实录) + 统一入口 `arma_innovations_uv`; `arma_innovations_pieces` 与两处收尾残差块重接 (Innovations + CSS-ML 双路径受益); 通用版保留作交叉验证参照; u 序词语义验证: W-innovation ≡ y-innovation (AR 部分在条件期望中相消)
+- **arma_acovf A 矩阵 bug (本轮最重要发现, v1.7 隐藏正确性缺陷)**: 移植后新增 `FastVsGeneralCrossCheck` (7 组 (p,q) 扫描) 翻车 — 通用算法在 (2,1)/(2,2) 抛 "v 非正" 而 statsmodels 同模型 v 全正 → γ 探针: C++ 给 [2.0286,...] vs statsmodels [1.8929,...] (纯 AR(2) Yule-Walker 手推证实后者对) → 逐行 diff 定位: A 矩阵第 k≥1 行错译 statsmodels 切片 `A[k,1:m−k] += tmp_ar[k+1:m]` (列 c 应得 **tmp_ar[k+c]**, C++ 误写列 c∈[k+1,m) 得 tmp_ar[c]); p≤1 时错位项全零无感, **仅 p≥2 中毒**
+- **伪装机制 (为何 v1.7 全绿)**: γ_bug = c(φ,θ)·γ_correct(θ*) 纯缩放×重参数化 (三 γ 分量比值恒 1.185) — 集中化似然对 γ 缩放不变 ⇒ 似然族等价 ⇒ **loglik/φ̂ 恰好正确** (ARMA(2,1): loglik 差 1e-12, φ̂ 差 1e-8) 而 **θ̂/σ̂² 全错** (−0.8049/0.8221 vs statsmodels −0.5844/0.9742); v1.7 测试只断言 φ̂/loglik, test #12 "θ 谱等价类不唯一/似然面平坦脊" 注释为**误诊** (真可逆等价 1/θ=−1.711 ≠ −0.8049, 且真等价不会同 φ 同 ll)
+- **修复效果**: ① A 矩阵列循环改正; ② 交叉验证 7 组全过 (v 逐位 1e-12 / u ≤1e-5 / 似然分量 ≤1e-3); ③ **θ̂/σ̂² 恢复与 R/statsmodels 同落点** — test #12/#16 断言从 "θ 仅方向" 收紧至 θ̂@5e-3+σ̂²@5e-3 全过; ④ 性能 T=1000 CSS-ML: **158.9s → 0.042s (3783×, 预算 250× 余量)**; ⑤ 新增黄金锚 #16a (B&D MA(1) θ=−0.9 四位逐字复现, v1.7 文档有锚无测试的缺口一并补上); ⑥ 16 个 timeseries 套件 **257 用例全绿零破坏** (arima 24→27 / garch_m 16→17 / zivot 15→16)
+- **方法论留档**: "探针先行" 第二次完整胜利 (第一次 = C-3 σ̂² 分母 bug) — 若按预案 GTEST_SKIP 或降规模放行, O(T³) 与 γ bug 双双永埋; 若移植后只调基线容差不做 fast-vs-general 交叉验证, γ bug 的 "主锚恰好匹配" 伪装会继续以 "谱等价" 名义合法存在。**教训: "主锚恰好匹配 + 副锚系统性偏移" 不是参数化歧义, 是 bug 的签名** — 与 C-3 的 (σ̂ratio)² = n_r/(n_r−1) 恒比值同构: 先找差值的代数结构, 再定罪
+- **交付物**: innovations_mle.hpp (快速三函数 + arma_innovations_uv + A 矩阵修复 + 文件头锚点更新) / arima_model.hpp (CSS-ML 残差块重接) / test_arima_model.cpp (+3 用例: #16a/#16b/#25, #12/#16 断言收紧) / test_garch_m_model.cpp (+1) / test_zivot_andrews.cpp (+1) / 探针 probe_sm_innovations.py (fixtures)
+
 ---
 
 
