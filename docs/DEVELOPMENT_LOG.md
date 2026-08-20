@@ -2825,6 +2825,18 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - 发布状态验证: 远程 `refs/tags/v1.7.0` 剥离指向 `0564ff6`; tag 内容与 CI run #62 (006cec6, 全量 2458 双平台绿) 仅差文档
 - CI 无 tag 触发工作流 (ci.yml 仅 branch push/PR), 版本构建验证由 run #62 承担, 无缺口
 
+### C-3 提前闭环: Stata 18 装机 NP MAIC 全量对照 + σ̂² 分母 bug 修复 (2026-08-20)
+
+> [PHASE7C_RESIDUAL_C3_C4_RESEARCH.md](./research/PHASE7C_RESIDUAL_C3_C4_RESEARCH.md) v1.2 (深度审计 v1.1 → 装机实录 v1.2); checklist §3.1.1/§17.2 C-3 划线闭环, §17.1 统计 324/331 → 325/331 (98.2%)
+
+- **前提变化**: Stata 18 MP 装机 (`C:\Program Files\Stata18\StataMP-64.exe`) — C-3 从"v1.8 前待 Stata" 提前当日闭环, 调研报告 D-1 (三路径) / D-3 (容差) 决策点自动消解, 仅余 D-2 (C-4 性能用例)
+- **探针一手取证** (占位脚本从运行过的第一手): `dfgls ln_inv` 手册例实机逐字复现 (Min MAIC = -6.136692@lag1, Stata 18 = r18/r19 手册值); r(results) 列名 `k MAIC SIC RMSE DFGLS` / **行序降序 k=11..1** / 行名全 `r1` (无意义, 对照必须按 k 列值匹配); Number of obs = 80 = T−1−kmax (固定样本口径实机验证)。手册例锚顺带升级为逐 k 11 行全轨迹 (v1.1 报告原方案仅为单点三数值)
+- **占位管线 5 处潜伏问题全修复** (verify_np_stata.py): v1.1 审计已识别 2 处 (rename sd → RMSE / Schwert 注释 13 → 显式 maxlag 14) + 实跑新暴露 3 处: ③ dfgls 需 tsset (合成数据 generate t=_n + tsset t); ④ keep ln_inv 误删 tsset 依赖的 qtr; ⑤ lutkepohl2 ln_inv 为 **float 存储** — export 默认 8 位截断, C++ 读入值与 Stata 内部 float→double 提升值差 ~5e-9 对 1e-10 致命 → recast double + format %21.0g 全精度导出。教训: 占位脚本未经运行验证 = 潜伏 bug 温床 (5 处中 3 处只有实跑才能暴露)
+- **σ̂² 分母实现 bug (本轮最重要发现)**: C++ 探针对照实测逐 k 差 MAIC 3e-3~1.2e-2, 差值结构精确分解: (C++σ̂/Stataσ̂)² = n_r/(n_r−1) 六位匹配 (场景 B 80/79, 场景 A 185/184) ⇒ 回归窗口与 SSR 两侧逐位一致, 唯一差异 = σ̂² 分母 (Stata SSR/n_r vs 实现 SSR/(n_r−1))。对照 spec §2.1 Step2.2 字面 `SSR/(T−k_max−1)` (T=原始长度 ⇒ ≡ SSR/n_r): **实现偏离 spec 字面** — 069264c 坐标勘误 (窗口 n: T−k_max → T−1−k_max) 时分母未同步, n_r−1 是旧窗口 "n−1" 残留。修复: `ssr/(n_r−1)` → `ssr/n_r` (ng_perron_test.hpp)
+- **修复后收敛**: C++ vs Stata 逐 k MAIC 差 ≤ 8e-14 / RMSE 差 ≤ 3e-16 (机器精度), argmin 双侧一致 (k≥1 子集); 既有 18 用例零破坏 + integration_phase7c 6/6 全绿 + **test_ng_perron 20/20** (18→20: 新增 #19 StataDfglsSmokeT200 / #20 StataDfglsManualExample, 逐 k MAIC@1e-10 + σ̂²@1e-14 硬断言)
+- **交付物**: verify_np_stata.py (占位→实际管线, --emit-dofile/--parse/--emit-inc 三段式) / np_stata_baseline.inc (自动生成, 数值字符串原样透传无损, CI 无 Stata 依赖) / test_ng_perron.cpp +2 用例 / ng_perron_test.hpp σ̂² 修复 (含 069264c 遗留注记) / np_dfgls.do + 基准 CSV ×4 (fixtures/timeseries)
+- **方法论留档**: "探针先行, 断言后写"完整示范 — 若按 v1.1 预判"口径分歧"直接设计换算断言, 分母 bug 将被永久掩盖; 探针差值结构分解 ((σ̂ratio)² = n_r/(n_r−1) 精确匹配) 把"疑似口径差"降维为"可证伪的实现-spec 不一致", spec 字面公式一锤定音。另: v1.1 审计预判"分母差 2"实为差 1 (Stata rmse² 分母 = n_r = T−1−kmax, 手册公式记号 T 实指 T−1) — 手册公式记号与实现的对照须以实测为准
+
 ---
 
 
