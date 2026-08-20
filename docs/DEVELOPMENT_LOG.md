@@ -2860,6 +2860,8 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **修复效果**: ① A 矩阵列循环改正; ② 交叉验证 7 组全过 (v 逐位 1e-12 / u ≤1e-5 / 似然分量 ≤1e-3); ③ **θ̂/σ̂² 恢复与 R/statsmodels 同落点** — test #12/#16 断言从 "θ 仅方向" 收紧至 θ̂@5e-3+σ̂²@5e-3 全过; ④ 性能 T=1000 CSS-ML: **158.9s → 0.042s (3783×, 预算 250× 余量)**; ⑤ 新增黄金锚 #16a (B&D MA(1) θ=−0.9 四位逐字复现, v1.7 文档有锚无测试的缺口一并补上); ⑥ 16 个 timeseries 套件 **257 用例全绿零破坏** (arima 24→27 / garch_m 16→17 / zivot 15→16)
 - **方法论留档**: "探针先行" 第二次完整胜利 (第一次 = C-3 σ̂² 分母 bug) — 若按预案 GTEST_SKIP 或降规模放行, O(T³) 与 γ bug 双双永埋; 若移植后只调基线容差不做 fast-vs-general 交叉验证, γ bug 的 "主锚恰好匹配" 伪装会继续以 "谱等价" 名义合法存在。**教训: "主锚恰好匹配 + 副锚系统性偏移" 不是参数化歧义, 是 bug 的签名** — 与 C-3 的 (σ̂ratio)² = n_r/(n_r−1) 恒比值同构: 先找差值的代数结构, 再定罪
 - **交付物**: innovations_mle.hpp (快速三函数 + arma_innovations_uv + A 矩阵修复 + 文件头锚点更新) / arima_model.hpp (CSS-ML 残差块重接) / test_arima_model.cpp (+3 用例: #16a/#16b/#25, #12/#16 断言收紧) / test_garch_m_model.cpp (+1) / test_zivot_andrews.cpp (+1) / 探针 probe_sm_innovations.py (fixtures)
+- **提交推送 + 三平台验证**: `a8ee98f` (代码) + `28e3028` (文档) 推送 origin; A/B 站 bundle 中继 (006cec6→28e3028, 44KB 增量, B 站 origin 误指 /tmp/relay_m1m4.bundle 旧路径顺手修正) — **A 站 2447/2447 (42.31s) / B 站 2447/2447 (39.81s)** (2440 + C-3 轮 2 + C-4 轮 5 精确吻合); 主控 MSVC 16 套件 257 用例全绿
+- **CI flaky 取证与根治 (run #69/#71)**: #71 (28e3028) C ABI (windows) 栽于 `GoogleTestAddTests.cmake "Error running test executable"` (test_lr_greeks, 与提交零关联); 拉日志确认 + #69 (db29d6e, docs-only 提交) 在 Build&Test windows 已有同类先例 ⇒ 基建级 flaky — CI Windows runner 冷启动慢 + 默认 TEST_DISCOVERY_TIMEOUT=5s 间歇超时; 本地 cmake 4.4 并行构建可复现同类发现竞态 (ParseTestList JSON 解析错, 每次栽不同目标, 单跑 discovery 脚本均正常)。修复: `dc3e4f2` — tests/CMakeLists.txt 包装 `cpphub_discover_tests()` 统一 DISCOVERY_TIMEOUT 60 (68 处调用)。C ABI 构建实质本地验证: build_capi 全目标编译链接成功 + CApi 测试 **18/18 全绿**
 
 ---
 
