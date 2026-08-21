@@ -27,6 +27,9 @@
 | ADR-015 | 证伪统计量模块边界 (通用 vs 模块特定) | Accepted | 2026-08-12 | Phase 7A |
 | ADR-016 | 金融时间序列实施边界 (18 项) | Accepted | 2026-08-15 | Phase 7B |
 | ADR-017 | 时序模块命名空间 (`cpphub::v1::timeseries`) | Accepted | 2026-08-15 | Phase 7B |
+| ADR-018 | SLSQP 优化器实现边界 | Accepted | 2026-08-15 | Phase 7B |
+| ADR-019 | v1.7 多变量时序与混频实施边界 (26+3 项) | Accepted | 2026-08-17 | Phase 7C |
+| ADR-020 | v1.8 ARDL/PSS 边限检验与 Kalman 状态空间实施边界 (12 项) | Accepted | 2026-08-21 | Phase 8 |
 
 ---
 
@@ -1135,3 +1138,37 @@ v1.7 扩展多变量时序 (VAR/IRF/FEVD/DY/协整三件套) 与混频回归 (MI
 - **复核 pilot**: [ADR019_REVIEW_PILOT.md](../research/ADR019_REVIEW_PILOT.md) v1.1
 - **门禁规范**: [ASSERTION_EVIDENCE_FRAMEWORK.md](../ASSERTION_EVIDENCE_FRAMEWORK.md) v1.1
 - **后续**: PHASE7C_SPEC 编写 (R 清零 → spec 冻结 → 实施 → G 清零 → 合并)
+
+---
+
+## ADR-020: v1.8 ARDL/PSS 边限检验与 Kalman 状态空间实施边界 (12 项)
+
+**状态**: Accepted
+**日期**: 2026-08-21
+**版本归属**: v1.8 (Phase 8)
+**关联 Phase**: 8 (M1/M2)
+**完整文档**: [ADR-020_V18_ARDL_KALMAN_BOUNDARY.md](ADR-020_V18_ARDL_KALMAN_BOUNDARY.md)
+**调研依据**: [PHASE8_RESEARCH.md](../research/PHASE8_RESEARCH.md) v1.1 (双 agent 并行域调研 + 审计二轮通过)
+**Scope 依据**: [PHASE8_SCOPE_RESEARCH.md](../research/PHASE8_SCOPE_RESEARCH.md) v1.3 (D-1 已裁决: 双免费午餐)
+**前置 ADR**: [ADR-019](#adr-019-v17-多变量时序与混频实施边界-263-项) 决策 1/20 (本 ADR 兑现)
+
+### 背景
+
+Phase 7C 闭环后按 D-1 裁决执行"双免费午餐": M1 ARDL/PSS + M2 Kalman/statespace (兑现 ADR-019 决策 1 "Kalman 留 v1.8") + M3 战略选项 (D-2 另行裁决)。调研报告经审计二轮复验 (3 处修正: Chandrasekhar v0.12.0 版本归属一手实证 / statsmodels nsim 文档 bug 实锤 / Narayan k≤7 边界降级 B-), 12 项建议中 10 项依据一手来源。
+
+### 决策 (12 项, 摘要)
+
+- **M1 ARDL/PSS (A1-A7)**: CV 走 statsmodels 响应面多项式路线 (PSS 原表 static_assert 锚); 模型限 ARDL(p,q) 单方程 (ardlverse 全排除); 阶数 IC 网格搜索; t 检验仅 Case I/III/V (表存在的边界); 小样本靠响应面按 T 插值 (不做 Narayan 分档/MC 模拟); UECM 含同期项; 仅 nonrobust 协方差
+- **M2 Kalman (K1-K5)**: SSModel 基类 + 常规 KF + 平稳/approximate diffuse (κ=1e6) 初始化 + ARMA Harvey 形 + ARIMA 精确似然 MLE + innovations 常驻互检; exact diffuse/平滑器/缺失/多元/Chandrasekhar 全部推迟 v1.9+; 优化器复用 ADR-018; σ² 非集中化 (loglik 主锚); Eigen 载体 `timeseries/statespace/` 镜像 var 隔离模式
+
+### 后果
+
+- **正向**: M1 纯复用先行热身, M2 兑现 ADR-019 遗留; innovations 仲裁升级常驻互检; M1/M2 正交可并行
+- **负向**: 响应面系数转录需逐键锚 + verify 全量 diff; Lyapunov 负方差静默失效为最高风险 (守卫强制)
+- **开放问题**: bounds_test p 值返回 / trend 枚举语义 / loglikelihood_burn 默认值 (spec 阶段裁决)
+
+### 关联
+
+- **完整文档**: [ADR-020_V18_ARDL_KALMAN_BOUNDARY.md](ADR-020_V18_ARDL_KALMAN_BOUNDARY.md)
+- **调研报告**: [PHASE8_RESEARCH.md](../research/PHASE8_RESEARCH.md) v1.1
+- **后续**: PHASE8_SPEC 编写 (M0) → M1 → M2 → M3 (D-2 待裁决)

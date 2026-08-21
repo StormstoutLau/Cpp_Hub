@@ -2875,4 +2875,16 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### Phase 8 双域调研 + 审计二轮 + ADR-020 定稿 (2026-08-21)
+
+> [PHASE8_RESEARCH.md](./research/PHASE8_RESEARCH.md) v1.1 / [ADR-020_V18_ARDL_KALMAN_BOUNDARY.md](./decisions/ADR-020_V18_ARDL_KALMAN_BOUNDARY.md) (Accepted)
+
+- **双域调研** (PHASE8_RESEARCH.md v1.0, 双 agent 并行): 域 A ARDL/PSS (UECM 理论核心 + 五 Case 四方一致 + PSS 2001 原文逐表提取 + Narayan/KS 2020 临界值谱系 + statsmodels≥0.13/R ARDL 0.2.5/pssbounds 生态比对 + 9 条实施陷阱) / 域 B Kalman/statespace (DK 记号 SSModel + 初始化四法 + ARIMA Harvey 形 T 矩阵方向陷阱 + statsmodels 位掩码生态 + 复杂度/稳态捷径/平滑边界 + 本地 innovations 仲裁协议 T=300 (2.6e-8/1.2e-6) 复用映射 + 10 条幻觉点); 幻觉点核查总清单 19 条就绪
+- **审计二轮 (v1.1, 3 处修正)**: ① Chandrasekhar 版本归属 **v0.12.0** (原误记 v0.14; 三方一手实证: 官方 release notes + GitHub tag 2020-08-27 + Chad Fulton 作者博客/PR #6411); ② statsmodels 稳定版文档 **nsim 说明 bug 实锤** (写 "Only used if asymptotic is True" 与 asymptotic/seed 语义自相矛盾, 源码逻辑为准); ③ Narayan 2005 **k≤7 边界降级 B-** (Case II-V 覆盖与 T=30-80 分档核实, k 上限两轮未获一手来源) → 直接支撑 A5 不采 Narayan 分档表; 另 Statalist Kripfganz 帖子独立印证 PSS Case III k=1 锚点 (F 4.94/5.73, t −2.86/−3.22, 与 statsmodels crit_vals 吻合)
+- **ADR-020 定稿** (Scott 裁决: 12 项全部按建议直接定稿, 2026-08-21 Accepted): M1 ARDL/PSS 7 项 (A1 响应面多项式 CV 路线 + PSS 原表 static_assert 锚 / A2 单方程限界 ardlverse 全排除 / A3 IC 网格 / A4 t 检验仅 Case I/III/V / A5 响应面按 T 插值不做 Narayan 不做 MC / A6 含同期项 / A7 仅 nonrobust) + M2 Kalman 5 项 (K1 SSModel+常规 KF+平稳/diffuse(κ=1e6)+Harvey 形+ARIMA 精确似然+innovations 常驻互检 / K2 exact diffuse/平滑/缺失/多元/Chandrasekhar 全推迟 v1.9+ / K3 复用 ADR-018 / K4 σ² 非集中化 loglik 主锚 / K5 `timeseries/statespace/` 挂 cpphub_timeseries_mat); 12 项中 10 项一手来源依据, 无阻断性问题; ADR_INDEX 补 ADR-020 表行+条目
+- **落档联动**: PHASE8_SCOPE_RESEARCH.md v1.3 状态行刷新 (下游 v1.1 + ADR-020 Accepted); 开放问题 3 项 (bounds_test p 值返回 / trend 枚举语义 / loglikelihood_burn 默认) 留 spec 阶段裁决; D-2 (M3 战略选项) 仍待裁决, 不阻塞
+- **下一步**: PHASE8_SPEC 编写 (M0) → M1 ARDL/PSS → M2 Kalman (M1∥M2 可并行, 7C M1∥M4 模式)
+
+---
+
 
