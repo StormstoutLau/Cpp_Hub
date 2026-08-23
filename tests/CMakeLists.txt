@@ -735,3 +735,65 @@ cpphub_discover_tests(test_phillips_ouliaris)
 add_executable(test_integration_phase7c unit/timeseries/test_integration_phase7c.cpp)
 target_link_libraries(test_integration_phase7c PRIVATE cpphub_timeseries_mat GTest::gtest_main)
 cpphub_discover_tests(test_integration_phase7c)
+
+# ---- Phase 8 M1: ARDL/PSS (spec PHASE8 v1.8 §2, Eigen3 → cpphub_timeseries_mat) ----
+
+# test_ardl_model: 设计矩阵/OLS/A8 计账镜像 (14 用例;
+# 基准 ardl_baseline.inc = statsmodels 0.14.6 ARDL.fit 1e-10 主基准 +
+# ctt 手工 numpy 基准; A6 causal=false / A8 n_acct=T−hb_early 计账 /
+# PSS8 hold_back 默认 / trend 列全样本 1-based)
+add_executable(test_ardl_model unit/timeseries/test_ardl_model.cpp)
+target_link_libraries(test_ardl_model PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+cpphub_discover_tests(test_ardl_model)
+
+# test_ardl_select: IC 网格阶数选择 (10 用例; 基准 ardl_baseline.inc
+# SEL_* = statsmodels 0.14.6 ardl_select_order 1e-10; A3 同一样本统一 hb /
+# 网格 vs refit 双口径 (n = T−hb_grid vs T−p_best + A8 计账) /
+# statsmodels 域含变量排除候选 (maxorder+2)^k ⊃ 本库域)
+add_executable(test_ardl_select unit/timeseries/test_ardl_select.cpp)
+target_link_libraries(test_ardl_select PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+cpphub_discover_tests(test_ardl_select)
+
+# test_uecm_bounds: UECM 重参数化 + PSS 边限检验 (18 用例;
+# 基准 ardl_baseline.inc UECM_*/BOUNDS_*/DANISH_* = statsmodels 0.14.6
+# UECM.from_ardl/bounds_test 1e-10 主基准 + R ARDL 0.2.5 bounds_f/t_test
+# 交叉 1e-8; t CV 表 pss_t_bounds.inc = PSS 2001 Table CII (R ARDL 转录);
+# A4 t 仅 I/III/V / PSS6 k=force 数 / PSS7 F=Wald/q / PSS8 样本口径 /
+# PSS9 F/t 表档位对偶 / PSS10 danish k 偏移回归 / case-trend 相容)
+add_executable(test_uecm_bounds unit/timeseries/test_uecm_bounds.cpp)
+target_link_libraries(test_uecm_bounds PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+cpphub_discover_tests(test_uecm_bounds)
+
+# ---- Phase 8 M2: Kalman/statespace (spec PHASE8 v1.8 §3, Eigen3 → cpphub_timeseries_mat) ----
+
+# test_statespace: StateSpaceModel + 常规 KF (16 用例; 全部手推黄金锚 —
+# AR(1) 两步递推/loglik 字面量 1e-12 + ARMA(1,1) Harvey 形 Lyapunov 闭式
+# [[σ²(1+2φθ+θ²)/(1−φ²), σ²θ],[σ²θ, σ²θ²]] + m=2 两步分数锚 (92/139,
+# 3619/3475) + SS4 守卫 (φ=1.01 非正定 / φ=1.0 奇异 throw) + SS6 F≤0
+# throw + SS1 κ=1e6 首期 F=κ + Stationary→Diffuse 非静默回退 + SS8 log 2π
+# 常数 + burn=贡献求和起点 (innovations 全长一致); probe_sarimax.py
+# manual_kf 镜像, statsmodels llf 1e-8 对照属 test_arima_statespace)
+add_executable(test_statespace unit/timeseries/test_statespace.cpp)
+target_link_libraries(test_statespace PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+cpphub_discover_tests(test_statespace)
+
+# test_arima_statespace: ARIMA Harvey 形 + 嵌入差分 + 精确似然 MLE (14 用例;
+# ss_baseline.inc = gen_phase8_ss_inc.py statsmodels 0.14.6 对照): 黄金锚
+# llf 五组 1e-8 (ARMA11/ARIMA111 embedded/ARIMA011+drift 混合初始化/simple
+# 双口径/burn0 diffuse 伪贡献) + 嵌入布局手推矩阵 (d=1/d=2 probe 冻结) +
+# Monahan 变换锚 + MA 负号 + MLE 四组 vs SARIMAX (llf 1e-5, 参数落点差
+# 宽松) + K1 互检 gap 回归锚 (d=0 恒等 1e-8 / d=1 O(1/κ) 1e-6) + 非平稳
+# 全 diffuse 切换 + 混合初始化结构 (P₀=diag(κ,P_ARMA))
+add_executable(test_arima_statespace unit/timeseries/test_arima_statespace.cpp)
+target_link_libraries(test_arima_statespace PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+cpphub_discover_tests(test_arima_statespace)
+
+# test_integration_phase8: 6 场景全链 (spec §5: ARDL select→UECM→bounds
+# F+t / ARIMA 三路径精确似然 CSS-ML vs innovations vs statespace / ADF
+# 预检→混合 I(0)+I(1) 边限工作流 + I(2) 前置拒绝 / KF innovations→LB/JB
+# 诊断 + OLS 残差同接口 / 双差分口径 gap 显式记录 (SS5) / Lyapunov 守卫
+# throw + diffuse 回退逐位正确; 场景 2/5/6 复用 ss_baseline.inc, 其余
+# Philox 确定性生成; 断言通路+方向+统计合理性, 精度由模块单测锚定)
+add_executable(test_integration_phase8 unit/timeseries/test_integration_phase8.cpp)
+target_link_libraries(test_integration_phase8 PRIVATE cpphub_timeseries_mat GTest::gtest_main)
+cpphub_discover_tests(test_integration_phase8)

@@ -98,3 +98,5 @@ tests/fixtures/hfe/v142_source_dump.txt
 *.tmp
 *.bak
 *.orig
+# 临时 scratch 目录 (verify/probe 中间产物, 不入库)
+tmp/

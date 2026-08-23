@@ -2887,4 +2887,82 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### PHASE8_SPEC.md v1.0 冻结 (2026-08-21)
+
+> [PHASE8_SPEC.md](./phases/phase8/PHASE8_SPEC.md) — v1.8 M0-M3 全量执行规格书 (M0 = ADR-020 定稿 + spec 编写, 本日完成)
+
+- **结构** (7C v1.2 模板同构): §0 门禁记录 (审计二轮模式声明: 人工清点 ≈40 断言全量复验 vs 7C 机读 126 条抽样, 残余 B- 转 probe 前置) / §1 交付物 (6 新头文件: ardl×4 + statespace×2, 全挂 cpphub_timeseries_mat **零新增 target**; 6 测试套件 ~80 用例, 累计 ~2527; 数值基准 15 行容差分层) / §2-§3 M1/M2 逐模块 (接口签名 + 算法步骤 + 幻觉点映射 + 测试要点) / §4 M3 占位 (D-2 待裁决不阻塞) / §5 集成 6 场景 / §6 工程约束 (6.4 零破坏: 仅 tests/CMakeLists.txt 可触碰; 性能预算 P1-P5) / §7 幻觉点 19 编号 (PSS1-9 + SS1-10) / §8 G 门禁 / §9 风险 8 项 / §10 顺序 (两 probe 前置钉风险 #1/#3) / §11 开放问题 6 项全处置
+- **spec 阶段三裁决** (ADR-020 遗留开放问题): ① bounds_test **含 p_values** (I(0)/I(1) 双 null 近似对, 算法 probe 冻结); ② trend 用**字符串** "n"/"c"/"ct"/"ctt" (statsmodels 直译) + PssCase enum, "ctt" 不支持 bounds, case-trend 相容校验镜像 R ARDL 报错; ③ loglikelihood_burn **默认 = d** (嵌入差分口径), statsmodels None 公式 probe_sarimax.py 探明后镜像或声明差异
+- **接口设计要点**: K1 "SSModel 基类" 落地为**聚合体载体** StateSpaceModel (非继承, §1.4-1 惯例); Wald 二次型**内联实现**不复用 econometrics wald_test (其 χ²/F p 值对非标准 PSS 分布无意义 + 避免 timeseries→econometrics 新依赖); t 检验拒绝域在**负侧** (与 F 正侧相反, 方向显式冻结); 结论 alpha 限四档 {10,5,1,0.1}% 无插值语义; ArimaSSResult 含 innovations_loglik/gap 常驻互检字段 (告警线 1e-5, T=300 实测 2.6e-8)
+- **probe 前置双任务** (7C "Johansen 双库 diff 前置" 同款制度): probe_pss_cv.py (M1 第一任务: pss_critical_values.py 系数布局 + 求值语义 + 全量 diff 500+ 数字) / probe_sarimax.py (M2 第一任务: 嵌入差分 T/R/Z 布局 + burn 默认公式 + 变换语义) — 报告冻结后才冻结对应实现
+- **环境前置**: R ARDL 0.2.5 未装 (7C 清单无) → readiness 同模式补装 F:\R 镜像路径; 未装则该交叉基准降级不阻断
+
+---
+
+### M1 开工: probe_pss_cv.py 前置任务完成 + PSS10 新幻觉点 (2026-08-21)
+
+> [probe_pss_cv.py](../tests/fixtures/timeseries/probe_pss_cv.py) (本地, .gitignore 不入库) / PHASE8_SPEC.md 升 v1.1
+
+- **[A] 布局冻结**: 4 张表 × 100 键 (k=1..10 × case 1..5 × I1×2) — large_p (4 系数, 3 阶) / small_p (3 系数, 2 阶) / stat_star (标量) / crit_vals (4 档); **转录总量 1200 数字** (调研估 ~500 偏低 2.4×); **无 k=0 键** (spec 原 "k=0 纯 AR 允许" 修正: 拟合允许但 bounds 拒绝)
+- **[B] 求值冻结** (数值自证 diff ≤ 1e-16): crit_vals = **表常量直查** (非多项式求值); p = 1 − Φ(Σ cᵢ·log(stat)ⁱ), 系数按 **stat > stat_star ? small_p : large_p** 切换 (阈值用原始 stat 比较) — spec 开放问题 #1 就此冻结
+- **[C] UECM 参数布局**: `[const/trend, y.L1, x₁.L1..x_k.L1, D.y.L1..L(p−1), D.x.L0..L(q−1)]` — spec §2.3 冻结列序与 statsmodels 逐位一致
+- **[D] t 检验存在性**: statsmodels **无 bounds_t_test** (仅 F) — t 对照源改 R ARDL bounds_t_test + PSS Table CII 原文值; t 检验 p_values NaN 化 + has_p=false (无 t 响应面)
+- **[E] 核心发现 — PSS10 新幻觉点**: **statsmodels bounds_test 查表 k 偏移 +1** — 其表键语义 = PSS k ((1,3)=4.9229/5.7217 ≈ PSS k=1 的 4.94/5.73, Statalist Kripfganz 旁证), 但内部 k = nvar = len(ardl_order) = 1+k_PSS (danish 实测: k_PSS=3 → 用键 (4,3) CV 2.8772/4.0105, 而 PSS 论文 danish 案例 Table 7 用 k=3 行); R ARDL 0.2.5 文档 null.value 实录 k = number of independent variables (PSS 语义) — 三方中 statsmodels 调用层是异类
+- **[F] 裁决落档 (Scott 确认推荐项)**: 本库 k 查表口径 = **PSS 语义** (k = force 变量数) — 依据 ADR-016 原则 (2) 理论正确性优先 + PSS6 定义 + R ARDL 实证; 对照矩阵调整: stat vs statsmodels 1e-10 (Wald 不用 k 键, 不受影响) / CV+p vs R ARDL 1e-8 + vs statsmodels **表键直查** (精确) / statsmodels bounds_test 返回 CV/p 不逐值对照 (文档声明偏移) + danish 案例回归断言 (本库 CV = 键 (3,3), 防止未来误镜像)
+- **spec v1.1 修订 5 处**: §2.1 k=0 修正 / §2.3 Step5 k 口径 + has_p 字段 / §2.4 接口与算法全冻结 (1200 数字 + p 值公式) / §1.3 基准表 7 行重构 (t 检验行改 R ARDL) / §7.1 +PSS10 (19→20 编号) / §10 M1 probe 划线 → Step 1 (.inc 转录) 为当前位置
+
+---
+
+### M1 Step 1: pss_critical_values.hpp + pss_response_surface.inc 落地 (2026-08-21)
+
+> include/cpphub/timeseries/ardl/ 首两个文件; PHASE8_SPEC.md v1.1 §10 Step 1 划线
+
+- **gen_phase8_pss_inc.py** (生成器, 7C gen_mackinnon_tables.py 同款): 直接读本地 statsmodels 0.14.6 pss_critical_values 四表, 机器转录 (非手抄) 为扁平 constexpr 数组 — 键 (k,case,I1) → idx=(k−1)·10+(case−1)·2+i1; 生成时内嵌断言 (1200 数字计数 + 双锚值) 全过
+- **pss_response_surface.inc** (运行时表, mackinnon_tables.inc 同款惯例落 include/ 而非 spec 原列的 tests/fixtures — §1.1 勘误): PSS_LARGE_P[100][4] / PSS_SMALL_P[100][3] / PSS_STAT_STAR[100] / PSS_CRIT_VALS[100][4], repr() 最短往返表示保证逐位一致
+- **pss_critical_values.hpp**: `pss_crit_values(k, case, i1)` (表直查, k∈[1,10] 越界 throw) + `pss_pvalue_bounds(stat, k, case)` (1−Φ(Σcᵢ·log(stat)ⁱ), stat_star 切换 large/small, stat≤0/NaN throw); **5 个 static_assert 编译期锚** (spec 双锚 + stat_star/large_p/small_p 各一辅锚, 四张表全覆盖); normal_cdf 局部实现 (0.5·erfc 同式, 避免拉入 unit_root_common 全头)
+- **验证三层**: ① 编译期 5 static_assert (MSVC 14.50 通过) ② tmp/pss_check.cpp 运行检查 **30/30 全过** — CV 8 值 (Case III k=1 双行全四档 1e-12) + p 值 14 值 (**含 probe [B] 未覆盖的 large_p 分支** stat=0.5/0.7 跨三键位, 参考 statsmodels _pss_pvalue 12 位) + throw 8 路径 ③ probe_pss_cv.py 新增 **[G] 段全量 diff**: .inc 文本回读 (regex 解析) vs statsmodels 逐键逐值 **0/1200 不一致** — 风险 #1 (转录错误) 钉死
+- **工程注**: .inc 初版在 namespace 外 include 致 Real 未定义编译错 — 修正为 mackinnon_cv.hpp 同款 namespace detail 内 include (惯例再确认); probe/gen 脚本按 7C 实际惯例入库 (git ls-files 证实 gen_*/probe_* 均被跟踪, spec "不入版本控制" 表述已勘误)
+- **当前进度**: M1 前置 + Step 1 完成; 下一步 Step 2 ardl_model.hpp (设计矩阵 + OLS) + verify_ardl.py
+
+---
+
+### M1 Step 2-4: ARDL 模型/选阶/UECM 边限检验落地 + A8 计账 quirk (2026-08-22)
+
+> [ardl_model.hpp](../../include/cpphub/timeseries/ardl/ardl_model.hpp) / [ardl_select.hpp](../../include/cpphub/timeseries/ardl/ardl_select.hpp) / [uecm_bounds.hpp](../../include/cpphub/timeseries/ardl/uecm_bounds.hpp) + [verify_ardl.py](../tests/fixtures/timeseries/verify_ardl.py) ([S1]/[S2] 语义自证 1e-15) → [ardl_baseline.inc](../tests/unit/timeseries/ardl_baseline.inc) (数据+基准全嵌, 测试自包含)
+
+- **Step 2 verify_ardl.py 语义三探明** (statsmodels 0.14.6 一手源码 + 手工重建逐值对拍):
+  ① **order 语义**: int = 最大阶全展开 (range(0,q)); list = 同一**显式滞后列表**套所有变量 (非逐变量最大阶!); 逐变量阶数必须 dict — spec A3 的 per-variable 语义因此只走本库 `q` 向量, 不镜像 statsmodels list 陷阱
+  ② **trend 列**: 全样本 1-based 再切 hold_back (t = hb+1..T), 与 statsmodels VAR 的估计样本内重编号不同 — 跨模块陷阱, S1 实证
+  ③ **A8 计账 quirk (新幻觉点, 精确机制)**: statsmodels res.nobs/llf/sigma2/IC 用 n_acct = T − hb_early, hb_early 在 AutoReg.__init__ _check_lags 阶段固化 = 显式 hb 或 max(y_lags)=p (**仅 y 滞后, exog 滞后不并入**), 之后不回写 → max(q_j) > p 或显式 hb > p 时 n_acct ≠ n_act (T=250, p=1, q=2 实测 nobs 249 vs 真实 248); llf/sigma2/IC 逐式镜像 (IC 惩罚恒 K+1, σ² 计入); bse 用真实 df (n_act−K) — OLS 结果固化, 与 nobs 覆盖无关
+- **"ctt" 扩展**: statsmodels ARDL 不支持 ctt (仅 n/c/t/ct) — 本库支持 (SPEC 裁决 #2), 基准走手工 numpy OLS 构造式直接保证; bounds 拒绝 ctt (case-trend 相容校验)
+- **Step 3 ardl_select.hpp**: IC 网格 (maxlag+1)×(maxorder+1)^k 联合候选, hold_back 全网格统一 = max(maxlag, maxorder) (A3 同一样本); 10 用例含网格维度回显/argmin/同一 n_obs_used 断言
+- **Step 4 uecm_bounds.hpp**: B 变换重参数化 (π_y = Σφ−1 仿射 b0=−1; π_j = Σθ_{j,·}; ψ/γ 滞后块聚合) + Wald F (PSS7 二次型/约束数) + t (π_y/SE, 仅 Case I/III/V, A4) + 三值结论 (F 正侧/t 负侧方向显式冻结); **t 临界值表**: R ARDL 0.2.5 crit_val_bounds_pss2001$t 转录 = PSS 2001 Table CII 原文 (export_pss2001_t_bounds.R → pss2001_t_bounds.csv → gen_phase8_pss_t_inc.py 机器转录), ⚠️ t 表档位 {10,5,2.5,1}% ≠ F 表 {10,5,1,0.1}% (PSS9 对偶面, bounds_t_test alpha 域独立); **三方交叉**: B 变换 vs UECM.from_ardl ≤4.5e-15 / F vs statsmodels+R ARDL ≤8.5e-14 / t vs R ARDL ≤7.1e-15 (probe_r_ardl.R + gen_r_ardl_bounds.R → r_ardl_bounds.csv); **PSS10 回归断言锁死**: danish 案例 k_PSS=3 → 本库 CV = 键 (3,3) [3.2290,4.3223] ≠ statsmodels bounds_test 返回 (键 (4,3) [2.8772,4.0105]), 防未来误镜像
+- **测试落点**: test_ardl_model 14 + test_ardl_select 10 + test_uecm_bounds 18 (MSVC 全绿); M1 收官, 累计新测试 42
+
+---
+
+### M2: probe_sarimax 前置 + ss_model/arima_statespace 落地 (2026-08-22/23)
+
+> [probe_sarimax.py](../tests/fixtures/timeseries/probe_sarimax.py) (2026-08-22 全绿) / [ss_model.hpp](../../include/cpphub/timeseries/statespace/ss_model.hpp) / [arima_statespace.hpp](../../include/cpphub/timeseries/statespace/arima_statespace.hpp) + [probe_d2_const.py](../tests/fixtures/timeseries/probe_d2_const.py) / [verify_drift_init.py](../tests/fixtures/timeseries/verify_drift_init.py) / [gen_phase8_ss_inc.py](../tests/fixtures/timeseries/gen_phase8_ss_inc.py) → [ss_baseline.inc](../tests/unit/timeseries/ss_baseline.inc)
+
+- **probe_sarimax.py 五项冻结** (SPEC §3.2 Step 1 四任务全落): ① [A] 嵌入差分布局黄金锚 ARIMA(1,1,1) 逐元素 dT=dR=0: Z=[1,1,0], T=[[1,1,0],[0,φ,1],[0,0,0]], R=[0,1,θ]' (差分块 triu 全 1 + 链接列 T[:d,d]=1 + ARMA companion, Harvey 形 hamilton=False); ② [B] burn = d 八组全验 (101/200/001/111/212/011/021/321); enforce_stationarity=False → burn = k_states (全 diffuse); ③ [C] MA 变换**负号**实锤 θ = −constrain(u) (小值区 θ≈+u), 往返 5.55e-17; ④ [D] DK 更新形 KF vs statsmodels 数值等价 (ARMA(1,1) llf diff 2.81e-9 @T=120; burn = 贡献求和起点非丢观测, diff 3.7e-14); ⑤ [E] 初始化 P1 = diag(κ=1e6, 差分块) ⊕ Lyapunov(ARMA 块), a1 = 0 (approximate diffuse 无 Pinf 标记); [D2] concentrate_scale=True 时 k_params=p+q (params[-1] 是 θ!) — 对拍必须同口径 (K4)
+- **常数注入两口径** (probe_d2_const [P1]/[P2]): d=0 趋势项直入 state_intercept[0] (llf diff 5.68e-14); d≥1 drift = 差分方程常数经 c[d] 注入 (非观测截距 d_t); verify_drift_init 混合初始化 a₁^ARMA = (I−T_sub)⁻¹c_sub 实证
+- **ss_model.hpp**: StateSpaceModel 聚合体 (DK 记号 Z/T/R/Q/H/d/c + SSInitSpec 三法) + kalman_filter (DK Ch4 更新形 P_{t+1} = T P_t (T−K_t Z)' + RQR') + stationary_cov (Lyapunov 解 + **守卫**: 对称化 + LLT 正定校验, 非正定 throw — SS4); Stationary 且 T 特征值 ≥1 → 内部转 ApproximateDiffuse + message (非静默); F_t ≤ 0 throw
+- **arima_statespace.hpp**: make_arma_statespace (Harvey 形) + make_arima_statespace (嵌入差分, simple_differencing=true 对照口径) + arima_statespace_mle (Monahan 双变换 + SLSQP 多起始 {innovations 解, CSS 解} + σ² 非集中化 K4 + innovations 常驻互检 gap 告警线 1e-5); AIC = −2llf + 2(p+q+drift+1)
+- **基准**: gen_phase8_ss_inc.py → ss_baseline.inc (gen_arma11 seed=88, T=120/300 双长度; 口径注释内嵌: concentrate_scale=False / burn=d / embedded vs simple 时间平移等价 gap=O(1/κ) / burn=0 含 diffuse 伪贡献不可混比)
+- **测试落点**: test_statespace 16 (AR(1) 手推黄金锚 1e-12 / Lyapunov 精确解 / φ=1.01 守卫 throw / κ 首期 F 量级 / loglik 常数项) + test_arima_statespace 14 (嵌入布局 / MLE vs SARIMAX / innovations 互检 / 双差分口径显式不混比 / 变换域往返); M2 收官, 累计新测试 72
+
+---
+
+### Phase 8 集成测试 + 全量回归: 六场景全绿 (2026-08-23)
+
+> [test_integration_phase8.cpp](../tests/unit/timeseries/test_integration_phase8.cpp) — SPEC §5 六场景端到端 (spec §5 断言通路+方向+统计合理性, 精度由模块单测锚定)
+
+- **六场景**: ① ARDL 完整链 select→fit→UECM→bounds F+t (k=2 双 force 协整 DGP → LevelRelation, F 正侧 + t 负侧双结论); ② ARIMA 精确似然三路径 CSS-ML/innovations/statespace (同数据 loglik+参数 1e-6 三方对拍 + K1 互检 gap<1e-5); ③ ADF 预检→混合 I(0)/I(1) 边限工作流 + I(2) 前置拒绝; ④ KF innovations→LB/JB 诊断 (residual_diagnostics 同接口); ⑤ 双差分口径 gap 显式记录 (SS5 不混比); ⑥ Lyapunov 守卫 throw + diffuse 回退逐位正确
+- **两处断言修正** (首跑失败→订正, 均为测试侧非实现侧): ① 场景 1 aic_grid.size() 9→27 ((maxlag+1)·(maxorder+1)^k = 3·3² 联合网格); ② 场景 2 θ 邻域 0.15→0.3 — θ 方向弱识别 (statsmodels 同 DGP seed=88 族 T=120 SARIMAX MLE θ̂=0.6199, 本库 T=300 落 0.567 向真值收敛, 偏离系样本性质非实现偏差; 正确性由三路径 1e-6 对拍 + K1 互检锚定)
+- **全量回归**: 六套件 test_ardl_model(14)/test_ardl_select(10)/test_uecm_bounds(18)/test_statespace(16)/test_arima_statespace(14)/test_integration_phase8(6) MSVC Release 全绿, **新增 78 测试** (spec 预估 ~80); 三平台验证 + FINAL_ACCEPTANCE 待收尾
+- **工程收尾**: 7C 两文件 (gen_phase7c_m3_baseline.py / test_variance_ratio_test.cpp) 疑似改动经 `git diff --ignore-cr-at-eol` 判定为纯换行符变动 (内容零差异) → 已 checkout 还原, §6.5 additive-only 保持; .gitignore 补 tmp/ scratch 目录条目
+
+---
+
 
