@@ -6,7 +6,7 @@
 > **覆盖范围**:
 >   - M1: ARDL(p,q) 单方程 OLS + IC 网格阶数选择 + UECM 重参数化 + PSS bounds F/t 检验 (五 Case) + 响应面临界值
 >   - M2: StateSpaceModel (DK 记号) + 常规 Kalman 滤波 + 平稳/approximate diffuse 初始化 + ARMA Harvey 形 + ARIMA 嵌入差分精确似然 MLE + innovations 常驻互检
->   - M3: 战略选项 (D-2 待裁决, 占位不阻塞)
+>   - M3: 战略选项 (~~D-2 待裁决, 占位不阻塞~~ → **已裁决 2026-08-23: (b) KDE/KNN + KSG/TE, 载体 v1.9 (Phase 9)** — 不回填 Phase 8, 见 §4)
 > **前置**:
 >   - Phase 7C (v1.7.1) 已闭环: 2447 测试三平台 + CI run #72/#73 全绿 (tag v1.7.1 @ 9771dd6)
 >   - 可复用: SLSQP (ADR-018) + ArimaSpec/ArimaConfig (arima_model.hpp) + innovations_mle (互检对手) + cpphub_timeseries_mat 载体 + mackinnon_tables .inc 管线惯例 + residual_diagnostics (7A)
@@ -528,13 +528,13 @@ Step 6: AIC = −2·loglik + 2·(p+q+d_drift+1) (口径与 statsmodels 对齐, v
 
 ---
 
-## 4. M3: 战略选项 (D-2 待裁决, 占位)
+## 4. M3: 战略选项 (✅ D-2 已裁决, 不回填 Phase 8)
 
-> [PHASE8_SCOPE_RESEARCH.md](../../research/PHASE8_SCOPE_RESEARCH.md) §6 D-2: (a) BVAR/TVP-VAR R 桥 [DSGE 衔接] / (b) KDE/KNN + TE [信息论铺路] — 取决于 Research OS 主线紧迫性
+> [PHASE8_SCOPE_RESEARCH.md](../../research/PHASE8_SCOPE_RESEARCH.md) §5.2/§6 D-2: **已裁决 (2026-08-23, Scott): (b) KDE/KNN + KSG/TE, 载体 v1.9 (Phase 9)** (弃 (a) BVAR/TVP-VAR — 主线卡点证据缺失 + TVP-VAR 压在 K2 已推迟的平滑器/MCMC 基础设施上)
 
-- **状态**: 待 Scott 裁决; 排期最晚, 不阻塞 M1/M2 实施与验收
-- **占位约束**: M1/M2 收尾验收 (§8) 不含 M3; D-2 裁决后另立 spec 增补 (v1.1) 或入 v1.9
-- **依赖预扫**: (a) 路线需 R 桥基础设施 (BVAR 1.0.5 / bvarsv, 7C 开放问题 e 已预扫); (b) 路线需 KDE/KNN 估计器 + 传递熵 (SEMIPARAMETRIC_LANDSCAPE.md 已预扫)
+- **状态**: 裁决闭环; Phase 8 以 M1+M2+集成收官 (tag v1.8.0), M3 不回填
+- **处置**: (b) 路线入 v1.9 作 Phase 9 M1 (阶段 0 域调研 → 双 probe → spec 按标准流程另立); BVAR 解析后验降为 v1.9 候选池条目; TVP-VAR 挂靠 RTS 平滑器前置后 v1.9+ 评估
+- **依赖预扫**: (b) 路线需 KDE/KNN 估计器 + 传递熵 (SEMIPARAMETRIC_LANDSCAPE.md 已预扫); 三层验证锚 = sklearn/scipy KDE 逐位 + KSG vs Gaussian 解析 MI + Gaussian TE ≡ Granger (Barnett-Seth 2014, 本库 7C Granger 现成内部锚)
 
 ---
 
@@ -688,7 +688,7 @@ cpphub_discover_tests(test_ardl_model)
 ### 8.5 Scope 边界 (不做清单)
 - [x] 未实现: panel/quantile/Fourier/NARDL / glob 搜索 / Narayan 分档 / MC 模拟路径 / HC/HAC Wald / causal ARDL / exact diffuse / 平滑器 / 缺失数据 / 多元 statespace / Chandrasekhar / SARIMA 季节
 - [x] 单变量纯标量头 (arima/garch/unit_root/midas) 零 ardl/statespace 反向 include (grep 断言)
-- [x] M3 未实现且不阻塞验收 (D-2 待裁决声明)
+- [x] M3 未实现且不阻塞验收 (D-2 已裁决 2026-08-23: (b) KDE/KNN + KSG/TE → v1.9, 不回填 Phase 8)
 
 ---
 
@@ -732,7 +732,7 @@ M2 Kalman/statespace (与 M1 后半可并行, 正交)
   ├── Step 2: arima_statespace.hpp (Harvey 形 + 嵌入差分 + MLE) ✅ 已完成 (2026-08-23)
   └── Step 3: innovations 常驻互检接线 + verify_statespace.py ✅ 已完成 (2026-08-23:
         gen_phase8_ss_inc.py → ss_baseline.inc; 互检字段常驻 + 集成场景 2 K1 锚)
-M3: D-2 裁决后排期 (不阻塞)
+M3: D-2 已裁决 (2026-08-23): (b) KDE/KNN + KSG/TE → v1.9 (Phase 9), 不回填
 收尾: test_integration_phase8 (6 场景) ✅ 已完成 (2026-08-23, 78 新测试 MSVC 全绿)
   + 三平台验证 ✅ 已完成 (2026-08-23: 2543 MSVC / 2525×2 GCC 全绿,
     bundle 中继 28e3028→351ac98 增量 ff; CI run #76 双平台绿)
@@ -750,7 +750,7 @@ M3: D-2 裁决后排期 (不阻塞)
 | 1 | bounds_test 返回结构是否含 p 值 | ✅ **已裁决 + probe 冻结**: F 含 (响应面正态近似 p = 1−Φ(poly(log stat)), stat_star 切换 large/small, probe [B] 数值自证 ≤1e-16); **t 不含** (NaN + has_p=false, 无 t 响应面, probe [D]) | §2.3/§2.4 |
 | 2 | ARDL trend 参数枚举 vs 字符串 | ✅ **已裁决 (本 spec)**: 字符串 "n"/"c"/"ct"/"ctt" (statsmodels 直译, §1.4-4 惯例); PSS Case 用 `enum class PssCase`; "ctt" 不支持 bounds (throw); case-trend 相容校验镜像 R ARDL 报错 | §2.1/§2.3 |
 | 3 | loglikelihood_burn 默认值 | ✅ **已裁决 (本 spec)**: 默认 = d (嵌入式差分口径), 显式参数可覆盖; statsmodels None 默认公式 probe_sarimax.py 探明 — 一致则镜像, 不一致则文档声明差异 + 双 burn 测试 | §3.2 |
-| 4 | D-2 (M3 战略选项: BVAR/TVP-VAR R 桥 vs KDE/KNN+TE) | ⏳ 待 Scott 裁决 | 不阻塞 M1/M2 (§4 占位) |
+| 4 | D-2 (M3 战略选项: BVAR/TVP-VAR R 桥 vs KDE/KNN+TE) | ✅ **已裁决 (2026-08-23, Scott): (b) KDE/KNN + KSG/TE, 载体 v1.9 (Phase 9)** | 不回填 Phase 8 (§4); BVAR 解析后验降 v1.9 候选池, TVP-VAR 挂靠平滑器前置; 支撑材料 SCOPE_RESEARCH §5.2 |
 | 5 | Narayan k≤7 边界 (调研 B-) | ✅ 已消解: A5 不采 Narayan 分档表 — 无实现面; 调研报告留档 | §2.4 |
 | 6 | statsmodels nsim 文档 bug | ✅ 已消解: A5 不做 MC 路径; probe 留档 (风险 #8) | §9 |
 

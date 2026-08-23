@@ -2977,4 +2977,15 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### D-2 裁决: (b) KDE/KNN + KSG/TE, 载体 v1.9 (Phase 9) (2026-08-23)
+
+> [PHASE8_SCOPE_RESEARCH.md](./research/PHASE8_SCOPE_RESEARCH.md) v1.4 §5.2 (裁决支撑材料) — M3 战略选项闭环, Phase 8 文档链全部收口
+
+- **裁决 (Scott)**: 弃 (a) BVAR/TVP-VAR R 桥, 取 **(b) KDE/KNN + KSG/TE**, 载体 **v1.9 (Phase 9)** — 不回填 Phase 8 (v1.8.0 已 tag, 新模块塞回会污染版本语义)
+- **支撑要点**: (b) 是双重记录的阻塞项 (roadmap 两次跳过 + v2.0 信息论前置缺口) 且 `conduction_metrics.hpp` 接口已预留; (a) 无主线卡点证据 (DSGE 未因缺 BVAR 停摆) 且 TVP-VAR 战略主体压在 v1.8 K2 刚推迟的 RTS 平滑器 + Gibbs 基础设施上 (时序倒挂); (b) 三层验证锚 (sklearn/scipy KDE 逐位 + KSG vs Gaussian 解析 MI + **Gaussian TE ≡ Granger** (Barnett-Seth 2014) — 本库 7C Granger 现成内部锚, 与 v1.8 innovations vs Kalman K1 互检同构)
+- **(a) 内部异质性拆解**: BVAR 解析后验 (共轭, 纯线性代数) = 半个免费午餐 → 降 v1.9 候选池条目; TVP-VAR = 真全押 → 挂靠平滑器前置后 v1.9+ 评估; SVAR A/B/AB 无战略价值
+- **Phase 9 启动前置**: 阶段 0 域调研 (R 门禁双 agent: KDE/带宽生态 + KSG/TE 估计器陷阱) → 双 probe (probe_sklearn_kde.py / probe_ksg.py) → spec; 风险预登记 5 项 (带宽选择语义三不同物 / KSG Chebyshev 距离 / k-d tree P2 暴力先行 / TE 偏差修正版分叉 / TE-GC 因子约定)
+
+---
+
 

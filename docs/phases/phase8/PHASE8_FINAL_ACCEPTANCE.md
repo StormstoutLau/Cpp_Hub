@@ -211,10 +211,10 @@ ardl_baseline.inc (2142 行, 数据+基准全嵌) + ss_baseline.inc (180 行) �
 
 | # | 项 | 状态 | 处置 |
 |---|----|------|------|
-| 1 | D-2 (M3 战略选项: BVAR/TVP-VAR R 桥 vs KDE/KNN+TE) | ⏳ 待 Scott 裁决 | 排期不阻塞 v1.8 验收 |
-| 2 | v1.9 候选池 | 已登记 | causal ARDL / glob 搜索 / HC/HAC Wald / exact diffuse / 平滑器 / 多元 statespace / Narayan 重评 (一手来源出现时) |
+| 1 | D-2 (M3 战略选项: BVAR/TVP-VAR R 桥 vs KDE/KNN+TE) | ✅ **已裁决 (2026-08-23, Scott): (b) KDE/KNN + KSG/TE, 载体 v1.9 (Phase 9)** | 不回填 Phase 8; 支撑材料 SCOPE_RESEARCH §5.2; BVAR 解析后验降 v1.9 候选池, TVP-VAR 挂靠平滑器前置 |
+| 2 | v1.9 候选池 | 已登记 | **KDE/KNN + KSG/TE (D-2 裁决, Phase 9 M1)** + causal ARDL / glob 搜索 / HC/HAC Wald / exact diffuse / 平滑器 / 多元 statespace / BVAR 解析后验 / Narayan 重评 (一手来源出现时) |
 | 3 | A8 计账 quirk 上游反馈 | 可选 | statsmodels issue 候选 (nobs 与真实估计样本不一致), 低优先 |
-| 4 | tag v1.8.0 | CI 绿后 | 打于 351ac98 并推送 |
+| 4 | tag v1.8.0 | ✅ 已完成 (2026-08-23) | 打于 351ac98 并推送 (本地+远程); CI run #76 四 job success |
 
 ## 10. 验收结论
 
