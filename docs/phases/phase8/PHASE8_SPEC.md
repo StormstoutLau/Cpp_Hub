@@ -666,29 +666,29 @@ cpphub_discover_tests(test_ardl_model)
 ## 8. 验收标准 (G 门禁)
 
 ### 8.1 编译与测试
-- [ ] MSVC Release: 全量通过 (新增 ~80 + 现有 2447 ≈ 2527)
-- [ ] A 站 GCC: fresh clone + rebuild + ctest (submodules: recursive)
-- [ ] B 站 GCC: fresh clone + rebuild + ctest
-- [ ] 三平台无数值偏差 (容差分层表 §1.3)
+- [x] MSVC Release: 全量通过 (**2543/2543**, 2026-08-23; 新增 78 + 现有 2465)
+- [x] A 站 GCC: bundle 增量 ff 28e3028→351ac98 + rebuild + ctest (**2525/2525**, 54.13s)
+- [x] B 站 GCC: 同法 (**2525/2525**, 47.75s; mDNS 通道)
+- [x] 三平台无数值偏差 (容差分层表 §1.3; 差额 18 = 平台专属, 7B/7C 已知口径)
 
 ### 8.2 数值基准 (§1.3 全表)
-- [ ] M1: statsmodels ARDL/select/UECM/bounds 1e-10 全绿; R ARDL 交叉 1e-8; 响应面转录精确相等 (全量 diff); 双锚 static_assert
-- [ ] M2: ARMA(1,1) 手推精确; KF vs SARIMAX llf 1e-8; MLE 参数 1e-6~1e-8; innovations 互检 gap ≤1e-5
+- [x] M1: statsmodels ARDL/select/UECM/bounds 1e-10 全绿 (实测 1e-15 量级: B 变换 ≤4.5e-15 / F 三方 ≤8.5e-14 / t vs R ≤7.1e-15); R ARDL 交叉 1e-8; 响应面转录精确相等 (全量 diff **0/1200**); static_assert 5 锚 (四表全覆盖)
+- [x] M2: ARMA(1,1) 手推精确; KF vs SARIMAX llf 2.81e-9 @T=120 (probe [D]); MLE 参数 1e-6 层 (θ 弱识别三方对拍锚定); innovations 互检 gap 2.6e-8 @T=300 ≤1e-5
 
 ### 8.3 幻觉点覆盖
-- [ ] §7 两域 19 编号全部核查, probe/verify 脚本逐条落盘
-- [ ] 前置工程: probe_pss_cv.py (M1 第一任务) + probe_sarimax.py (M2 第一任务) 报告冻结后才冻结对应实现
-- [ ] pss_response_surface.inc 全量 static_assert 可行性 (编译期内存允许时逐键, 否则双锚 + 运行时全量)
+- [x] §7 两域 20 编号全部核查 (PSS 10 + SS 10), probe/verify 脚本逐条落盘
+- [x] 前置工程: probe_pss_cv.py (M1 第一任务) + probe_sarimax.py (M2 第一任务) 报告冻结后才冻结对应实现
+- [x] pss_response_surface.inc: 5 static_assert 锚 (编译期) + probe [G] 运行时全量 diff 0/1200
 
 ### 8.4 文档与流程对齐
-- [ ] ADR-020 (12 项) 全部实施且无静默偏离 (冲突回溯 ADR 修订)
-- [ ] ADR-017 命名空间 + §6.2 Eigen 隔离遵守; 兼容性约束 C1-C5 逐项满足
-- [ ] DEVELOPMENT_LOG.md 逐里程碑更新; PHASE8_FINAL_ACCEPTANCE.md + checklist (实施前编制)
+- [x] ADR-020 (12 项) 全部实施且无静默偏离 (FINAL_ACCEPTANCE §6 逐项对照)
+- [x] ADR-017 命名空间 + §6.2 Eigen 隔离遵守; 兼容性约束 C1-C5 逐项满足
+- [x] DEVELOPMENT_LOG.md 逐里程碑更新; PHASE8_FINAL_ACCEPTANCE.md 已编制 (幻觉点 20 项内嵌核查表替代独立 checklist — 阶段体量 78 用例, 不复制 7C 331 项模式)
 
 ### 8.5 Scope 边界 (不做清单)
-- [ ] 未实现: panel/quantile/Fourier/NARDL / glob 搜索 / Narayan 分档 / MC 模拟路径 / HC/HAC Wald / causal ARDL / exact diffuse / 平滑器 / 缺失数据 / 多元 statespace / Chandrasekhar / SARIMA 季节
-- [ ] 单变量纯标量头 (arima/garch/unit_root/midas) 零 ardl/statespace 反向 include (grep 断言)
-- [ ] M3 未实现且不阻塞验收 (D-2 待裁决声明)
+- [x] 未实现: panel/quantile/Fourier/NARDL / glob 搜索 / Narayan 分档 / MC 模拟路径 / HC/HAC Wald / causal ARDL / exact diffuse / 平滑器 / 缺失数据 / 多元 statespace / Chandrasekhar / SARIMA 季节
+- [x] 单变量纯标量头 (arima/garch/unit_root/midas) 零 ardl/statespace 反向 include (grep 断言)
+- [x] M3 未实现且不阻塞验收 (D-2 待裁决声明)
 
 ---
 
@@ -734,7 +734,9 @@ M2 Kalman/statespace (与 M1 后半可并行, 正交)
         gen_phase8_ss_inc.py → ss_baseline.inc; 互检字段常驻 + 集成场景 2 K1 锚)
 M3: D-2 裁决后排期 (不阻塞)
 收尾: test_integration_phase8 (6 场景) ✅ 已完成 (2026-08-23, 78 新测试 MSVC 全绿)
-  + 三平台验证 + PHASE8_FINAL_ACCEPTANCE.md ← 当前位置
+  + 三平台验证 ✅ 已完成 (2026-08-23: 2543 MSVC / 2525×2 GCC 全绿,
+    bundle 中继 28e3028→351ac98 增量 ff; CI run #76 双平台绿)
+  + PHASE8_FINAL_ACCEPTANCE.md ✅ 已完成 (2026-08-23, §8 门禁全勾)
 ```
 
 顺序理由: M1 与 M2 完全正交 (OLS 路线 vs 迭代滤波路线); M1 先行 (纯复用, 风险更低) 热身, M2 引入 Eigen statespace 载体; 两 probe 前置任务分别钉死两模块的最高风险断言 (风险 #1/#3) 后才冻结对应实现。

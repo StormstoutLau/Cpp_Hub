@@ -2965,4 +2965,16 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### Phase 8 三平台验证 + v1.8 验收闭环 (2026-08-23)
+
+> [PHASE8_FINAL_ACCEPTANCE.md](./phases/phase8/PHASE8_FINAL_ACCEPTANCE.md) — §8 门禁全勾; bundle 中继 28e3028→351ac98 (0.18MB)
+
+- **MSVC 全量**: 2543/2543 全绿 (2465 基线 + 78 新增; §8.1 门禁)
+- **A/B 站 GCC 13.3**: bundle 增量 ff 28e3028→351ac98 + rebuild + ctest — **A 站 2525/2525 (54.13s) / B 站 2525/2525 (47.75s)**; 差额 18 = 平台专属 (7B/7C 已知口径); v1.7.1 遗留订正 (9771dd6 250×→238×) 随 bundle 一并送抵 (两站此前止于 28e3028)
+- **CI run #76** (351ac98): 双平台 + C ABI 四 job success — 首次承载全量 2543 用例 CI 绿 (前置 #75 e80617d 亦绿)
+- **验收报告**: SPEC §1.3 数值基准全表实测达成 (4 项精确相等含 1200 数字 diff 0); 幻觉点 20 编号全覆盖 + 实施期新发现 6 项 (A8 计账/order list 陷阱/trend 跨模块/t 表档位/MA 负号/concentrate_scale) 逐条落盘; ADR-020 12 项零偏离; §8.5 不做清单 grep 验证; v1.7.1 零破坏 (唯一实质触碰 = 9771dd6 注释订正, 计划内)
+- **Phase 8 v1.8 闭环**: M1 (42 测试) + M2 (30) + 集成 (6) = 78; 遗留 D-2 (M3) 待裁决不阻塞; tag v1.8.0 打于 351ac98
+
+---
+
 
