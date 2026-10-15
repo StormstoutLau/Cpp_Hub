@@ -82,6 +82,12 @@ third_party/*/build/
 docs/discoveries/
 # 研究调研 / 基础设施配置 (含 A/B 站主机名等)
 docs/research/
+# 设计草稿 / 演示幻灯片 (含未发表论文定位细节)
+design-demos/
+# 多 Agent 远程任务过程产物 (含过程 prompt/中间产物)
+agent-out/
+# Agent 跨站同步配置 (含本地路径等基础设施信息)
+.agentsync
 # 多 Agent 远程任务过程产物 (A/B 站生成代码, 非最终代码)
 validation_results/
 # 任务派发脚本 (含 SSH 主机名等基础设施信息)

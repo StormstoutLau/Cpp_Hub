@@ -1514,7 +1514,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 2. ρ→-1 极限 (2 测试): cf 可计算 + 无分支切割
 3. σ_v→0 退化 (2 测试): Heston→BS 极限 (确定性方差积分 ∫v ds = θτ + (v0-θ)(1-e^{-κτ})/κ) + cf 连续
 4. τ→0 短到期 (2 测试): cf→S0^{iu} (非 1, 修正原假设) + 无分支切割
-5. Feller 违反 (3 测试): δ_F<0 仍可计算 + 无分支切割 + 边界 soft crossover (内部研究 Prop.3)
+5. Feller 违反 (3 测试): δ_F<0 仍可计算 + 无分支切割 + 边界 soft crossover (内部研究结论)
 6. 跨极端参数连续性 (3 测试): ρ/σ_v/τ 扫描无突变
 7. 概率积分校验 (2 测试): φ(0)=1 + |φ(u)|≤1
 8. 复平面虚部位移 (2 测试): Carr-Madan P1 u-i 位移稳定 (容差 1e-7)
@@ -1528,7 +1528,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 **验证**: 22/22 测试通过 (MSVC 2022 Release, 0.42s)
 
-**与 内部研究 关联**: 验证了 Albrecher (2007) Little Trap 实现在 内部研究 (内部研究) 标定相关的全参数空间内数值稳定, Feller 边界确为 soft crossover (Proposition 3), 不构成 Discovery 002 所述的裂缝。
+**与内部研究关联**: 验证了 Albrecher (2007) Little Trap 实现在相关标定参数空间内数值稳定, Feller 边界确为 soft crossover, 不构成 Discovery 002 所述的裂缝。
 
 ### P3: Hull-White 完整短期利率模型
 
@@ -1589,7 +1589,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 1. **scp 替代 push 合并**: 远程工作站用 HTTPS remote (主站 HTTPS 超时), 改用 scp 拉取文件到主站, 主站重新 commit。保留远程 commit message 风格。
 2. **分 commit 提交**: P3/P4 虽同时验收, 但分属不同模块 (IR vs Credit), 分两个 commit 保持原子性。
-3. **P5 主站执行**: Discovery 002 与 内部研究 (内部研究) 直接相关, 需主站精确控制测试逻辑 (BS 极限公式修正、τ→0 极限修正), 不委托副线。
+3. **P5 主站执行**: Discovery 002 与内部研究直接相关, 需主站精确控制测试逻辑 (BS 极限公式修正、τ→0 极限修正), 不委托副线。
 4. **deepseek-v4-flash-free 质量再次确认**: A/B 站均一次通过 (各 12 分钟), 跨平台验证 (GCC+MSVC) 成功, 与 Batch 10b/11/12 表现一致。
 
 ---

@@ -355,7 +355,7 @@ docs/discoveries/
 
 - 总发现数: 7
 - RESOLVED: 2 (001 BH-FDR 反例; 007 断言分级审计框架)
-- PARTIAL_RESOLVED: 1 (002, Feller 边界已由用户 内部研究 解决)
+- PARTIAL_RESOLVED: 1 (002, Feller 边界已由内部研究解决)
 - OPEN: 4
 - 潜在论文: 6 (4 篇期刊 + 1 篇技术报告 + 1 篇 arXiv 方法论)
 

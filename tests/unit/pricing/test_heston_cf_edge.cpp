@@ -1,16 +1,16 @@
 // SOURCE: Discovery 002 — Heston 特征函数分支切割在极端参数下失效
 // SOURCE: Albrecher et al. (2007) "The little Heston trap" (主分支选择)
-// SOURCE: 内部研究  "内部数值稳定性研究"
-//         — Feller 边界 δ_F = 2κθ - σ_v² 已证明为 soft crossover (Proposition 3)
+// SOURCE: 内部数值稳定性研究 (未发表工作稿) — Heston 特征函数极端参数行为
+//         — Feller 边界 δ_F = 2κθ - σ_v² 已验证为 soft crossover
 //
 // 测试目标 (Discovery 002 修正后):
 //   - ρ → ±1: 接近 "no moment explosion" 边界 2κ = ρσ_v
 //   - σ_v → 0: Heston 退化为 Black-Scholes
 //   - τ → 0: 短到期 Riccati 解的渐近行为
-//   - δ_F < 0: Feller 违反区域 (内部研究 明确排除, 但实际标定可能进入)
+//   - δ_F < 0: Feller 违反区域 (内部研究明确排除, 但实际标定可能进入)
 //
 // 关键: 当前实现使用 log-of-ratio form (Albrecher 2007 Little Trap), 避免分支切割不连续
-//       内部研究 Proposition 3 已证明 Feller 边界是 soft crossover, 不构成裂缝
+//       内部研究已证明 Feller 边界是 soft crossover, 不构成裂缝
 //       本测试聚焦其他极端参数是否产生数值不稳定
 //
 // 容差: 1e-10 (常规), 1e-8 (极端参数)
@@ -57,7 +57,7 @@ Real cf_continuity_residual(Complex u, Real tau, Real S0, const HestonCFParams& 
 // ============================================================================
 // 1. ρ → +1 极限 (接近 "no moment explosion" 边界 2κ = ρσ_v)
 // ============================================================================
-// 内部研究 Assumption 2: 2κ > ρσ_v 限制了 ρ 的上界
+// 内部研究假设: 2κ > ρσ_v 限制了 ρ 的上界
 // 当 ρ → +1, 边界条件 2κ > σ_v 接近违反 (需 κ > σ_v/2)
 // 测试: cf 在 ρ → +1 时是否仍连续可计算
 
@@ -231,7 +231,7 @@ TEST(HestonCFEdgeCases, ShortMaturityNoBranchCutDiscontinuity) {
 // ============================================================================
 // 5. Feller 违反区域 (δ_F < 0)
 // ============================================================================
-// 内部研究 明确排除此区域 (Assumption 2: δ_F > 0)
+// 内部研究明确排除此区域 (δ_F > 0)
 // 但实际标定可能进入此区域, 测试 cf 是否仍可计算 (Albrecher 2007 算法仍适用)
 // δ_F = 2κθ - σ_v²; 违反时 δ_F < 0
 
@@ -262,7 +262,7 @@ TEST(HestonCFEdgeCases, FellerViolationNoBranchCutDiscontinuity) {
 }
 
 TEST(HestonCFEdgeCases, FellerBoundarySoftCrossover) {
-    // 内部研究 Proposition 3: Feller 边界 δ_F = 0 是 soft crossover
+    // 内部研究: Feller 边界 δ_F = 0 是 soft crossover
     // 测试: δ_F 从 +0.01 → 0 → -0.01, cf 应连续变化 (无突变)
     Real tau = 1.0;
     Real S0 = 100.0;
