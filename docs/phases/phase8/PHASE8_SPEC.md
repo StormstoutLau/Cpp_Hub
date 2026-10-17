@@ -534,7 +534,7 @@ Step 6: AIC = −2·loglik + 2·(p+q+d_drift+1) (口径与 statsmodels 对齐, v
 
 - **状态**: 裁决闭环; Phase 8 以 M1+M2+集成收官 (tag v1.8.0), M3 不回填
 - **处置**: (b) 路线入 v1.9 作 Phase 9 M1 (阶段 0 域调研 → 双 probe → spec 按标准流程另立); BVAR 解析后验降为 v1.9 候选池条目; TVP-VAR 挂靠 RTS 平滑器前置后 v1.9+ 评估
-- **依赖预扫**: (b) 路线需 KDE/KNN 估计器 + 传递熵 (SEMIPARAMETRIC_LANDSCAPE.md 已预扫); 三层验证锚 = sklearn/scipy KDE 逐位 + KSG vs Gaussian 解析 MI + Gaussian TE ≡ Granger (Barnett-Seth 2014, 本库 7C Granger 现成内部锚)
+- **依赖预扫**: (b) 路线需 KDE/KNN 估计器 + 传递熵 (SEMIPARAMETRIC_LANDSCAPE.md 已预扫); 三层验证锚 = sklearn/scipy KDE 逐位 + KSG vs Gaussian 解析 MI + Gaussian TE ≡ Granger (Barnett-Seth 2009, PRL 103, 238701, 本库 7C Granger 现成内部锚)
 
 ---
 
