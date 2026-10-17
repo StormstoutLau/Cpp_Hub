@@ -3,7 +3,7 @@
 ---
 id: MCP-SERVER-DESIGN
 type: design
-version: 1.0
+version: 1.1
 status: draft
 date: 2026-10-18
 depends: [MCP-SERVER-RESEARCH, MCP-SERVER-DECISION-MATRIX, ADR-009, ADR-010, ADR-015]
@@ -11,7 +11,7 @@ upstream: null
 ---
 
 > **Feature**: mcp-server（Cpp_Hub 对外 MCP 接口层）
-> **状态**: draft — Step 4 Review 待独立 pass
+> **状态**: draft — Step 4 独立 pass 已完成（v1.1 修订，见 §9.4）
 > **Spec 步骤**: Step 3–4
 > **基于调研**: [RESEARCH.md](./RESEARCH.md) · 裁定依据: [DECISION_MATRIX.md](./DECISION_MATRIX.md)
 
@@ -126,8 +126,8 @@ int cpphub_v1_tool_call(const char* tool_name,
                         char* out_json, size_t* out_len);
 ```
 
-- 缓冲语义沿用现有约定：`out_len` 入参 = 缓冲容量、出参 = 实际长度；不足时返回 `CPPHUB_ERR_BUFFER_TOO_SMALL` 并回填所需长度。
-- 错误码复用既有 `CPPHUB_OK` / `CPPHUB_ERR_INVALID_ARG` / `CPPHUB_ERR_RUNTIME` / `CPPHUB_ERR_UNKNOWN`；细节经 `cpphub_v1_get_last_error()`。
+- 缓冲语义为 JSON 扩展**新增约定**（独立复核 E1 探针证实：现有 6 符号均为调用方分配的标量/批量 double 数组接口，无 buffer-query 先例）：`out_len` 入参 = 缓冲容量、出参 = 实际长度；不足时返回 `CPPHUB_ERR_BUFFER_TOO_SMALL` 并回填所需长度。
+- 错误码：**复用**既有 `CPPHUB_OK` / `CPPHUB_ERR_INVALID_ARG` / `CPPHUB_ERR_RUNTIME` / `CPPHUB_ERR_UNKNOWN`，并**新增** `CPPHUB_ERR_BUFFER_TOO_SMALL` (-4)——独立复核证实该码现有头文件中不存在，须随本 feature 定义；细节经 `cpphub_v1_get_last_error()`。
 
 ### 4.3 Python 薄壳（B1）
 
@@ -201,23 +201,43 @@ class DiagnosticEnvelope:
 
 ## 9. 幻觉抑制审查（Step 4 Review）
 
-> ⚠️ **RULE-1 标注**：下列勾选与本设计正文**同一次生成**，故全部标记 `[自查·并发]`，**不计为独立复核**；独立 pass 后方可升级为 `[已复核]`。
+> ⚠️ **RULE-1 标注**：§9.1–9.3 原始勾选与正文同一次生成（`[自查·并发]`）；**2026-10-18 已由独立 pass 复核**（异基座会话，不采信自查声明、全部 E1 探针重放），通过项升级为 `[已复核·独立pass]`，发现项经修正后升级——全过程见 §9.4。
 
 ### 9.1 设计基于已验证的调研结论
 
-- [ ] `[自查·并发]` 所有设计决策可追溯到 RESEARCH / DECISION_MATRIX（见 §2.1 映射表）
-- [ ] `[自查·并发]` 无未经验证的假设（遗留待核项已入 §11 未决项）
-- [ ] `[自查·并发]` 无论证驱动的归因扭曲（未采用已失效声明 H-2「25k tokens」）
+- [x] `[已复核·独立pass]` 所有设计决策可追溯到 RESEARCH / DECISION_MATRIX（§2.1 映射表 7 行锚点全部解析命中：RESEARCH §3.1.1/§3.1.2/§3.6/K3/A19/A21，MATRIX E-1/E-3/E-7/E-8/E-9/E-10/E-11/E-12）
+- [x] `[已复核·独立pass]` 无未经验证的假设（FastMCP 签名已标 ⚠️ 待核；遗留待核项已入 §11 U-4/U-5/U-6 四元块）
+- [x] `[已复核·独立pass]` 无论证驱动的归因扭曲（已失效声明 H-2「25k tokens」未被引用；**复核发现 2 处仓库事实归因失实 F1/F2，已于 v1.1 修正**）
 
 ### 9.2 替代方案审查
 
-- [ ] `[自查·并发]` 列出 2 个替代方案（§5.2 / §5.3）
-- [ ] `[自查·并发]` 每个替代方案有明确否决理由
+- [x] `[已复核·独立pass]` 列出 2 个替代方案（§5.2 C++ 原生 / §5.3 逐函数直绑）
+- [x] `[已复核·独立pass]` 每个替代方案有明确否决理由（均绑定页面级锚点 E-7/E-9/E-10/E-11）
 
 ### 9.3 职责边界审查
 
-- [ ] `[自查·并发]` 职责边界清晰（§2.3：协议壳/注册表/序列化/校验 vs 数值算法）
-- [ ] `[自查·并发]` 不越界吞并其他研究范式（不承载研究 IP、不做远端鉴权服务）
+- [x] `[已复核·独立pass]` 职责边界清晰（§2.3：协议壳/注册表/序列化/校验 vs 数值算法；§10.1 「不改动 C++ 内核数值路径」可执行）
+- [x] `[已复核·独立pass]` 不越界吞并其他研究范式（不承载研究 IP、不做远端鉴权服务）
+
+### 9.4 独立 pass 复核记录（2026-10-18）
+
+> 复核者：异基座独立会话（与起草会话不同模型）。输入 = 本文档 v1.0 + 仓库代码 + E1 探针重放；**不采信**起草侧自查声明。
+
+**E1 探针与结果**（第三方可原样重放）：
+
+| # | 探针（命令） | 目标声明 | 结果 |
+|---|---|---|---|
+| P1 | `Get-Content include\cpphub\c_api\cpphub_c_api.h \| Select-String 'CPPHUB_ERR\|CPPHUB_OK'` | §4.2 错误码「复用既有」 | ❌ **F1**：`CPPHUB_ERR_BUFFER_TOO_SMALL` 不存在（实际仅 OK/INVALID_ARG/RUNTIME/UNKNOWN 4 码）→ 已修正为「新增 (-4)」 |
+| P2 | 探针1 全符号清单 `cpphub_v1_*`（6 个）+ 签名审查 | §4.2「缓冲语义沿用现有约定」 | ❌ **F2**：现有 6 符号均为调用方分配 double 数组接口，无 out_json/size_t* 先例 → 已修正为「新增约定」 |
+| P3 | 7 工具底层头文件逐一探测（adf_test / pp_test / kpss_test / df_gls_test / ng_perron_test / zivot_andrews_test / variance_ratio_test / johansen_test / engle_granger / vecm_model / garch_* / granger_test / dy_spillover） | §4.1 七工具可实现性 | ✅ 全部存在（含 `pp_test.hpp` + `test_pp_test.cpp`；首轮探针因 `-First 3` 截断产生 PP 缺失**假阳性**，精确复探排除——截断探针教训落档） |
+| P4 | `test_result_base.hpp` L25-29 读码 | §6.1/§10.1 以 `TestResultBase` 为基准 | ✅ 4 字段 (statistic/p_value/method_name/reject_null) 与信封映射一致；`cv_5pct` 库内 5 处真实使用 |
+| P5 | `git grep -n -E "GR6\|CI1" -- "*.md"` | §4.1 陷阱注释引用 | ✅ GR6（显式 cause/effect 方向）、CI1（MacKinnon 响应面 1e-12）均在受控文档落码 |
+| P6 | §2.1 引用锚点逐一在 RESEARCH/MATRIX grep | 可追溯性 | ✅ 全部解析命中 |
+| P7 | §2.1「C ABI 现仅 6 个标量符号」（A19 重放） | 符号计数 | ✅ 6 个精确 |
+
+**发现汇总**：2 × P2（F1/F2，文档级失实，已修正并回写本节）/ 0 × P1 / 其余通过。
+**修正生效**：v1.0 → v1.1（§4.2 两处措辞 + 本节新增）。
+**遗留**：复核者与起草者同为本仓库 agent 体系（异基座但同人配置），完全异源复审（RULE-4 升级路径）待 U-4 端到端联调轮一并执行；Review 签字栏留待 Scott 确认。
 
 ## 10. 对实施的输入
 
