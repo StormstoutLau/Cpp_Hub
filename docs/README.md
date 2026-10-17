@@ -109,8 +109,13 @@ spec/                              # 仓库根目录 (不在 docs/ 下), 入 Git
 | **PHASE2_SPEC.md** | Week 4-6 Heston/SABR/IR、PDE/树形/傅里叶、LSMC/标定 | COS指数收敛、Leisen-Reimer O(1/n²) |
 | **PHASE3_SPEC.md** | Week 7-9 AAD Greeks、VaR/ES、联合标定、SVI无套利 | 4种Greeks方法一致性1e-6 |
 | **PHASE4_SPEC.md** | Week 10-12 GPU/分布式/Excel/云/发布 | GPU 500M paths/s、多平台Wheel |
+| **PHASE5_HFE_SPEC.md** | v1.4 高频计量：TAQ reader / RV·BPV·RSV / 12 核函数 Realized Kernel / 5 多资产 Cov / HAR·HEAVY / 流动性 23 / 跳跃检验 AJ·JO·Intraday·Rank | 对标 R `highfrequency` 1.0.3，容差 1e-12，HFE 144 项 |
+| **PHASE6_ECONOMETRICS_SPEC.md** | 证伪统计量 + 计量推断（Newey-West / FDR / GARCH / 多变量波动率） | 统一 `TestResult` 结构，D1–D23 排幻觉点 |
+| **PHASE7{A,B,C}_*.md** | 时序与多变量：单位根六检验 / 协整 EG·Johansen / VECM / Granger·DY 溢出 / GARCH 族 / MIDAS | ADR-016~019，三平台一致 |
+| **PHASE8_SPEC.md** | ARDL/PSS 边限检验 + Kalman 状态空间精确似然 | ADR-020，v1.8.0 tag |
+| **spec/mcp-server/RESEARCH.md** | MCP 接口层调研（Step 1–2）：规范 2026-07-28 / 形态 B1→B2 / 诊断类工具面 | A=22 / B=5 / C=4 断言分级 |
 | **AUDIT_CHECKLIST.md** | 4阶段加权审计：架构20%/C++15%/数值30%/性能15%/Python10%/测试10% | 量化评分、签名确认 |
-| **ADR_INDEX.md** | 14项决策记录：Header-only、Bridge、Factory、RNG、SIMD、nanobind、AAD、COS、C ABI、GPU、MPI、xlOil、双层linalg、标定vs估计 | 状态跟踪、替代方案评估 |
+| **ADR_INDEX.md** | 20 项决策记录（ADR-001~020）：Header-only、Bridge、Factory、RNG、SIMD、nanobind、AAD、COS、C ABI、GPU、MPI、xlOil、双层linalg、标定vs估计、证伪边界、时序命名空间、SLSQP、ARDL/Kalman | 状态跟踪、替代方案评估 |
 
 ---
 
@@ -119,38 +124,38 @@ spec/                              # 仓库根目录 (不在 docs/ 下), 入 Git
 ```
 教材内容 (Joshi/Duffy×2)
     ↓ 溯源验证 (TRACEABILITY_REPORT.md)
-架构决策 (ADR_INDEX.md)
+架构决策 (ADR_INDEX.md, ADR-001~020)
     ↓ 落地实施
-Phase 1-4 执行规格书 (PHASEx_SPEC.md)
+Phase 1-8 执行规格书 (docs/phases/PHASEx_SPEC.md)
     ↓ 质量门禁
 代码审计清单 (AUDIT_CHECKLIST.md)
     ↓ 过程记录
 开发日志 (DEVELOPMENT_LOG.md)
+
+新 feature 文档管道 (Spec_Workflow):
+RESEARCH.md → DESIGN.md → IMPLEMENTATION.md → CHECKLIST.md   (spec/<feature>/)
 ```
 
 ---
 
 ## 🚀 项目状态
 
-### v1.0 已交付 (Phase 1-3 + Phase 4 LITE)
+### 交付进度 (v1.0 → v1.8)
 
-- ✅ Phase 1-3: 286/286 测试通过 (Core/PayOff/BS/Heston/MC/Sobol QMC/PDE/Tree/Greeks/VaR/Calibration/SVI)
-- ✅ Phase 4 LITE: 320/320 测试通过 (SSVI 跨期限 / Python 绑定 / GPU MC)
-- ✅ 跨平台验收: MSVC (Win10) + GCC (Ubuntu NEX/GTR-Pro) 三平台 286/286 位精确一致
-- ✅ ADR: 14 项 (Accepted 9 项 + Proposed 5 项,Proposed 均为 v2.0+ 范围)
-
-### v1.0 维护状态 (2026-07-31)
-
-- ✅ ADR-010 (GPU) 状态同步: Proposed → Accepted (Phase 4 LITE 已实施)
-- ⚠️ 3 个占位头文件 (calibrator/objective/vol_surface) 标注为 STUB,待 v1.1+ 实现
-- ⚠️ ADR-009/011/012 (C ABI/MPI/xlOil) 仍为 Proposed,属 v2.0+ 范围
+- ✅ Phase 1-3 (v1.0): 286/286 测试通过 (Core/PayOff/BS/Heston/MC/Sobol QMC/PDE/Tree/Greeks/VaR/Calibration/SVI)
+- ✅ Phase 4 LITE (v1.1): 320/320 测试通过 (SSVI 跨期限 / Python 绑定 / GPU MC)
+- ✅ Phase 5 (v1.4.0–v1.4.3): HFE 高频计量 144 项 (RV/BPV/RSV · 12 核函数 Realized Kernel · 5 多资产 Cov · HAR/HEAVY · 流动性 23 · 跳跃检验 AJ/JO/Intraday/Rank)
+- ✅ Phase 6/7 (v1.5–v1.7): 证伪统计量 + 时序/多变量 (单位根 · 协整 · VECM · Granger/DY · GARCH 族 · MIDAS)
+- ✅ Phase 8 (tag `v1.8.0`): ARDL/PSS 边限检验 + Kalman 状态空间精确似然
+- ✅ 跨平台: MSVC (Win10) + GCC (Ubuntu 22.04/24.04) 位精确一致 (HFE 1412/1412)
+- ✅ ADR: 20 项 (ADR-001~020)
 
 ### 下一步方向
 
 | 版本 | 范围 | 状态 |
 |------|------|------|
-| **v1.1+** | SSVI 跨期限扩展 / 利率模型 (Hull-White/CIR) / LSMC 美式定价 / 计量估计模块 | 规划中 |
-| **v2.0+** | MPI 分布式 / Excel XLL / gRPC / 云原生 / 多平台 Wheel | 推迟 (PhD 入学后评估) |
+| **v1.9 (Phase 9)** | KDE/KNN + KSG/TE 信息论估计器（D-2 裁决载体） | 规划中 |
+| **v2.0+** | MPI 分布式 / Excel XLL / gRPC / 云原生 / 多平台 Wheel；MCP 接口层（`spec/mcp-server/`） | 推迟 / 调研中 |
 
 ---
 
@@ -162,6 +167,7 @@ Phase 1-4 执行规格书 (PHASEx_SPEC.md)
 | **Phase 2** | Heston COS 1e-8, PDE 1e-4, 树形 O(1/n²) | Heston COS <5ms, PDE 400x2000 <100ms | 单测新增150+, 回归守护5% |
 | **Phase 3** | AAD vs 解析 1e-10, Greeks四法一致 1e-6, VaR回测 p>0.05 | 万期权全Greeks <100ms | 标定目标函数<1e-6 |
 | **Phase 4** | CPU/GPU 双精度位精确, 分布式线性加速>0.9 | GPU MC >500M paths/s, XLL UDF <5μs | 多平台Wheel, Conda/vcpkg/Conan同步 |
+| **Phase 5–8** | R/论文基准对齐 (HFE 1e-12~1e-8；时序 1e-8~1e-14 三方交叉) | CI 三平台构建 + 测试全绿 | R 门禁：调研断言分级 + 排幻觉点逐点核验 |
 
 ---
 
@@ -170,11 +176,14 @@ Phase 1-4 执行规格书 (PHASEx_SPEC.md)
 1. **文档版本控制**: 受控 `.md` 纳入 Git，重大变更需 ADR 记录；`docs/research/`、`docs/discoveries/` 为**本地留存**（研究 IP，`.gitignore` 排除），新 feature 文档走 `spec/<feature>/` 入 Git
 2. **溯源标注**: 每新增 `.hpp` 必须包含 `// SOURCE:` 头部注释
 3. **日志更新**: 每日下班前更新 `DEVELOPMENT_LOG.md`，周五生成周报
-3. **审计节点**: 每阶段结束按 `AUDIT_CHECKLIST.md` 逐项核对，Reviewer 签名
-4. **发布冻结**: v1.0 发布前所有 ADR 必须 Accepted，无 Proposed 残留
+4. **审计节点**: 每阶段结束按 `AUDIT_CHECKLIST.md` 逐项核对，Reviewer 签名
+5. **发布冻结**: 发布前所有 ADR 必须 Accepted，无 Proposed 残留
+6. **本地留存引用惯例**: 受控文档**允许**引用本地留存路径（如 `../research/xxx.md`）作为 provenance——该引用在 GitHub 上呈现为断链，属**有意取舍**（研究 IP 不入库优先于链接完整性）；引用方应在正文同时给出可独立理解的关键结论
+7. **DC1 文档契约适用范围**: front-matter（`id` / `type` / `version` / `status` / `date` / `depends` / `upstream`）**仅要求** `spec/<feature>/` 下的新 feature 文档；存量 `docs/**` 文档为历史遗留，不追溯回填
+8. **第三方 fixture 来源标注**: `tests/fixtures/` 引入外部出版物副本时须注明来源与可获得性（例：`timeseries/em2002_ifdp655.pdf` = FRB *International Finance Discussion Paper* #655，美联储公开出版物；`hfe/hf_source/` 按 CRAN 版权已排除入库）
 
 ---
 
-**文档集完成度**: 100% (12/12 核心文档)  
-**v1.0 交付状态**: **DELIVERED** (Phase 1-3 + Phase 4 LITE, 320/320 测试通过)  
-**下一里程碑**: v1.1+ 研究优先模块 (SSVI 跨期限 / 利率模型 / LSMC)
+**文档集完成度**: 核心文档已随 v1.8 更新（本索引 2026-10 刷新）  
+**当前版本**: **v1.8.0**（Phase 1–8 交付，ADR-001~020）  
+**下一里程碑**: v1.9 (Phase 9, KDE/KNN + KSG/TE) / MCP 接口层（`spec/mcp-server/` 调研中）
