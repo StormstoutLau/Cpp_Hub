@@ -3,7 +3,7 @@
 ---
 id: MCP-SERVER-DESIGN
 type: design
-version: 1.1
+version: 1.2
 status: draft
 date: 2026-10-18
 depends: [MCP-SERVER-RESEARCH, MCP-SERVER-DECISION-MATRIX, ADR-009, ADR-010, ADR-015]
@@ -11,7 +11,7 @@ upstream: null
 ---
 
 > **Feature**: mcp-server（Cpp_Hub 对外 MCP 接口层）
-> **状态**: draft — Step 4 独立 pass 已完成（v1.1 修订，见 §9.4）
+> **状态**: draft — Step 4 独立 pass ✅（v1.1）；Step 6 触发 §4.3 双向对账订正（v1.2）
 > **Spec 步骤**: Step 3–4
 > **基于调研**: [RESEARCH.md](./RESEARCH.md) · 裁定依据: [DECISION_MATRIX.md](./DECISION_MATRIX.md)
 
@@ -132,18 +132,21 @@ int cpphub_v1_tool_call(const char* tool_name,
 ### 4.3 Python 薄壳（B1）
 
 ```python
-# python/src/mcp_server.py  (形态示意; SDK API 签名待 Step 6 依实际版本核验)
-from mcp.server.fastmcp import FastMCP
+# python/src/mcp_server.py  (SDK v2 实测 API; 见 §4.3 注)
+from mcp.server import MCPServer              # SDK 2.3.0 入口 (页面级取证)
+from mcp.types import ToolAnnotations
 
-mcp = FastMCP("cpphub")
+mcp = MCPServer("cpphub")
 
-@mcp.tool(name="cpphub_unit_root_diagnose", description=CPPHUB_TOOL_DOCS["unit_root_diagnose"])
+@mcp.tool(name="cpphub_unit_root_diagnose",
+          description=CPPHUB_TOOL_DOCS["unit_root_diagnose"],
+          annotations=ToolAnnotations(readOnlyHint=True))
 def unit_root_diagnose(series: list[float], spec: dict | None = None, tests: list[str] | None = None) -> dict:
     """执行单位根六检验一揽子诊断, 返回结构化 TestResult 信封。"""
     return cpphub_abi.tool_call("unit_root_diagnose", {"series": series, "spec": spec, "tests": tests})
 ```
 
-> ⚠️ **依赖版本核验义务**（Step 6）：`FastMCP` 的导入路径、装饰器签名与版本号须以安装的官方 SDK 实际 API 为准；本条为**形态示意**，不得视为已验证契约。
+> **§4.3 订正记录（2026-10-18，Step 6 核验触发）**：本小节初版写作 `from mcp.server.fastmcp import FastMCP` / `FastMCP("cpphub")`，属**官方 SDK v1 形态**。Step 6 依 PyPI（`mcp` = 2.3.0）与官方 SDK 文档（页面级）核验，实测 v2 入口为 `from mcp.server import MCPServer`，工具以 `@mcp.tool()` 声明、默认取函数名并可经装饰器覆盖，返回类型化对象自动产出 `structured_content`。已按实测订正；**精确 kwargs 形式仍待联调轮逐字核验**（不视为已验证契约）。
 
 ## 5. 替代方案
 
