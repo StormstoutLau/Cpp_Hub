@@ -54,7 +54,7 @@ docs/
 ├── AUDIT_CHECKLIST.md           # 代码审计检查表 (4阶段全覆盖, 含 G 类基准对齐门禁)
 ├── DEVELOPMENT_WORKFLOW.md      # 开发工作流 (LLM 辅助开发 + 基准对齐 + 形式化验证)
 ├── ADR_INDEX.md                 # 架构决策记录索引 (14项 ADR, 含 ADR-013 双层 linalg, ADR-014 标定 vs 估计)
-├── research/
+├── research/                    # [本地留存] 调研报告(含研究 IP) — .gitignore 排除, 不入公共仓库
 │   ├── ECONOMETRICS_LANDSCAPE.md  # 计量经济学 C++ 开源生态调研报告 (含参数估计 §11)
 │   └── MULTI_AGENT_TRIAL.md       # 多 Agent 能力验证任务 (A/B 站 qwen3-coder + GPT OSS 120B)
 ├── architecture/
@@ -72,7 +72,7 @@ docs/
 │   └── AUDIT_CHECKLIST.md       # 审计清单 (架构/C++规范/数值/性能/Python/测试)
 ├── decisions/
 │   └── ADR_INDEX.md             # 14项 ADR 详细记录
-└── discoveries/                 # 发现日志 (实现过程发现的底层问题与前人遗漏)
+└── discoveries/                 # [本地留存] 发现日志(含潜在论文素材) — .gitignore 排除
     ├── README.md                # 发现索引 (6项: 1 RESOLVED + 5 OPEN)
     ├── 001_bh_fdr_correlated_gaussian.md  # [RESOLVED] BH-FDR 在相关双侧高斯检验下失效
     ├── 002_heston_cf_branch_cut_edge.md   # [OPEN] Heston 特征函数分支切割极端参数失效
@@ -81,6 +81,20 @@ docs/
     ├── 005_aad_checkpointing_heston.md    # [OPEN] AAD checkpointing 在 Heston 路径上的最优策略
     └── 006_fp_determinism_cross_compiler.md # [OPEN] 跨编译器/跨硬件浮点确定性
 ```
+
+### 仓库级 feature 文档管道（Spec_Workflow 规范）
+
+```
+spec/                              # 仓库根目录 (不在 docs/ 下), 入 Git 版本控制
+└── <feature>/
+    ├── RESEARCH.md                # Step 2 产出: 调研文档 (A/B/C 断言分级 + §0 统计表)
+    ├── DESIGN.md                  # Step 3 产出: 设计文档
+    ├── IMPLEMENTATION.md          # Step 5 产出: 实施文档
+    └── CHECKLIST.md               # Step 7 产出: 验收 checklist
+```
+
+- 现行实例：`spec/mcp-server/RESEARCH.md`（MCP 接口层调研，Step 1–2）
+- **版本化纪律**：feature 文档入 Git（与 `docs/research/`、`docs/discoveries/` 的本地留存策略相反）；文档内**不得**引用被 `.gitignore` 排除的本地路径——须内联内容或显式标注「本地留存」
 
 ---
 
@@ -153,7 +167,7 @@ Phase 1-4 执行规格书 (PHASEx_SPEC.md)
 
 ## 📝 维护规范
 
-1. **文档版本控制**: 所有 `.md` 纳入 Git，重大变更需 ADR 记录
+1. **文档版本控制**: 受控 `.md` 纳入 Git，重大变更需 ADR 记录；`docs/research/`、`docs/discoveries/` 为**本地留存**（研究 IP，`.gitignore` 排除），新 feature 文档走 `spec/<feature>/` 入 Git
 2. **溯源标注**: 每新增 `.hpp` 必须包含 `// SOURCE:` 头部注释
 3. **日志更新**: 每日下班前更新 `DEVELOPMENT_LOG.md`，周五生成周报
 3. **审计节点**: 每阶段结束按 `AUDIT_CHECKLIST.md` 逐项核对，Reviewer 签名
