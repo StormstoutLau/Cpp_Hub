@@ -204,6 +204,11 @@ if(CPPHUB_ENABLE_C_API)
     add_executable(test_c_api unit/c_api/test_c_api.cpp)
     target_link_libraries(test_c_api PRIVATE cpphub_core cpphub_c_api GTest::gtest_main)
     cpphub_discover_tests(test_c_api)
+
+    # spec/mcp-server S1: json_min.hpp 最小 JSON 读写 (header-only, 不链接 C ABI 库)
+    add_executable(test_json_min unit/c_api/test_json_min.cpp)
+    target_link_libraries(test_json_min PRIVATE cpphub_core GTest::gtest_main)
+    cpphub_discover_tests(test_json_min)
 endif()
 
 # v1.4.0 Phase 5: 高频计量经济学模块 (HFE) 测试
