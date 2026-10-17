@@ -165,6 +165,14 @@ def unit_root_diagnose(
 
 ## 4. 接口实施
 
+> **编号映射（Step 8 回写，F4 处置 (a)）**：本文章节号与 DESIGN 非 1:1（信封属设计的数据结构节），映射如下：
+
+| IMPL 小节 | 承接自 DESIGN | 说明 |
+|---|---|---|
+| §4.1 `DiagnosticEnvelope` | §6.1 数据结构 | 出参信封在 DESIGN 归入数据结构节 |
+| §4.2 C ABI 2 符号 | §4.2 接口定义 | 编号一致 |
+| §4.3 `mcp` 工具声明 | §4.1 工具契约 + §4.3 Python 薄壳 | 工具名/入参 schema 本体在 §4.1；SDK 声明形态在 §4.3 |
+
 ### 4.1 `DiagnosticEnvelope`（统一出参）
 
 ```python
