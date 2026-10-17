@@ -22,7 +22,7 @@ upstream: null
 
 | 级别 | 计数 | 说明 |
 |------|------|------|
-| **A 事实类** | 22 | 每条附 URL + 原文引文（≤3 行）；其中「页面级复核」7 条、「检索级」11 条、「代码取证 E1/E3」4 条（标注见 §5.1/§5.2） |
+| **A 事实类** | 22 | 每条附 URL + 原文引文（≤3 行）；其中「页面级复核」9 条、「检索级」8 条、「失效（页面级未命中）」1 条、「代码取证 E1/E3」4 条（标注见 §5.1/§5.2） |
 | **B 推断类** | 5 | 附逐步推理链 + 各依赖源 A 级证据；存在性断言 B1/B2 附搜索库名清单 |
 | **C 判断类** | 4 | rationale + 假设声明，标 [判断] |
 | **假设区** | 3 | 无 URL+引文，禁止进入正文结论（附录 C） |
@@ -30,11 +30,13 @@ upstream: null
 
 > **计数可重放命令**（E1，供审计端独立重数）——**真值源 = 附录 B 机读登记块**（唯一枚举），正文标签为其引用：
 > ```
-> (Select-String -Path docs\research\MCP_SERVER_RESEARCH.md -Pattern '"id":"A\d+"' | Measure-Object).Count   # 22
-> (Select-String -Path docs\research\MCP_SERVER_RESEARCH.md -Pattern '"id":"B\d+"' | Measure-Object).Count   # 5
-> (Select-String -Path docs\research\MCP_SERVER_RESEARCH.md -Pattern '"id":"C\d+"' | Measure-Object).Count   # 4
+> (Select-String -Path spec\mcp-server\RESEARCH.md -Pattern '"id":"A\d+"' | Measure-Object).Count   # 22
+> (Select-String -Path spec\mcp-server\RESEARCH.md -Pattern '"id":"B\d+"' | Measure-Object).Count   # 5
+> (Select-String -Path spec\mcp-server\RESEARCH.md -Pattern '"id":"C\d+"' | Measure-Object).Count   # 4
 > ```
 > 本表由人工计数，脚本化生成待 P-003 类工具就绪；声明 = 重数纪律。
+>
+> **⚠️ 证据重评级（2026-10-17，页面级复核）**：A4/A9 由检索级**升级**为页面级；原 A14（Claude Code 25k tokens）页面级**未命中 → 标记失效**（不构成证据）。修订后的证据账本、冲突登记与订正记录见 [DECISION_MATRIX.md](./DECISION_MATRIX.md) §1/§6。
 
 ---
 
@@ -127,7 +129,7 @@ upstream: null
 
 ### 3.3 工具设计方法论（Agent 消费侧）
 
-- **[A14]** Anthropic 官方工具编写指南：**限制响应 token 量**（Claude Code 默认上限 25,000 tokens）。 [检索级]
+- **[A14]** ~~Anthropic 官方工具编写指南：限制响应 token 量（Claude Code 默认上限 25,000 tokens）~~ **【2026-10-17 标记失效】** 页面级 WebFetch + grep 未命中该数值 → 移入假设区 H4，**不进入结论**（见 DECISION_MATRIX §6 H-2）。
   - URL: `https://www.anthropic.com/engineering/writing-tools-for-agents`
   - 引文: `For Claude Code, we restrict tool responses to 25,000 tokens by default.`
 - **[A15]** 社区工具设计共识：**动词+宾语命名**、**同族工具共享命名空间前缀**、禁止泛化名（如 `get_data`）。 [检索级]
@@ -212,14 +214,14 @@ upstream: null
 | [A1][A2] | spec/2026-07-28/basic | WebFetch 页面 + 逐字比对（L181 / L183） | ✅ 页面级 |
 | [A5][A6][A7][A8] | spec/2026-07-28/server/tools | WebFetch 页面 + 逐字比对（L90 / L102 / L177-185 / L124） | ✅ 页面级 |
 | [A10] | ibm.github.io/tsar-mcp | WebFetch 页面 + 逐字比对 | ✅ 页面级 |
-| [A3][A4] | spec …/transports/stdio · …/learn/architecture | WebSearch 返回片段（未做页面级 grep） | ⚠️ 检索级 |
-| [A9] | blog.modelcontextprotocol.io/posts/2026-07-28/ | WebSearch 返回片段 | ⚠️ 检索级 |
+| [A3][A4] | spec …/transports/stdio · …/learn/architecture | A4 页面级复核命中（E-8）；A3 检索级但有页面级邻证（E-8） | ✅ 页面级 / ⚠️ 检索级(邻证) |
+| [A9] | blog.modelcontextprotocol.io/posts/2026-07-28/ | 页面级复核命中（E-6） | ✅ 页面级 |
 | [A11][A13] | pypi.org · registry.modelcontextprotocol.io | WebSearch 返回片段 | ⚠️ 检索级 |
 | [A12] | modelcontextprotocol.io/examples | WebSearch 返回片段 | ⚠️ 检索级 |
-| [A14][A15][A16] | anthropic.com · gingerlabs.ai · mcp docs | WebSearch 返回片段 | ⚠️ 检索级 |
+| [A14][A15][A16] | anthropic.com · gingerlabs.ai · mcp docs | **A14 页面级复核未命中（数值不在页面内）→ 失效**；A15/A16 检索级 | ❌ 失效 / ⚠️ 检索级 |
 | [A17][A18] | owasp.org · mcp spec security | WebSearch 返回片段 | ⚠️ 检索级 |
 
-> **纪律说明**（沿用本生态既有教训「检索级 ≠ 页面级复核」）：11 条检索级 A 类未做页面级 grep 复核，若进入 spec 阻断性引用，须先补页面级复核或第二独立源。
+> **纪律说明**（沿用本生态既有教训「检索级 ≠ 页面级复核」）：8 条检索级 A 类未做页面级 grep 复核（另 1 条经复核失效），若进入 spec 阻断性引用，须先补页面级复核或第二独立源。
 
 ### 5.2 技术声明验证
 
@@ -234,7 +236,7 @@ upstream: null
 
 ### 5.3 待修正项
 
-- [ ] 对 11 条「检索级」A 类补页面级复核（进入 DESIGN 前，阻断性项优先）
+- [ ] 对 8 条「检索级」A 类补页面级复核（A4/A9 已于 2026-10-17 升级；A14 已标记失效）
 - [ ] 核实本仓库 MCP 客户端（Trae / Claude Desktop / Cursor）对 2026-07-28 规范的支持矩阵（假设区 H1）
 
 ---
@@ -265,6 +267,10 @@ upstream: null
 | R-4 双轨漂移 | Python 壳与 C++ 原生两套实现漂移 | JSON-through-ABI 单一骨干，前端仅协议薄壳 |
 
 ### 6.4 未决项登记（四元块）
+
+> **✅ 裁决完成（2026-10-17）**：U-1 / U-2 / U-3 三项已裁定，详见 [DECISION_MATRIX.md](./DECISION_MATRIX.md) §5。结论：**U-1 → dual-era**（目标 `2026-07-28`，兼容 `2025-11-25` legacy 握手）；**U-2 → B1 先行、B2 终态**；**U-3 → 仅诊断类组合工具（≤10）**。
+> 新开 **U-4 客户端实际支持矩阵**、**U-5 官方 Versioning 页不一致定性**（四元块见 DECISION_MATRIX §5）。
+> 下列原始四元块保留为裁决输入记录，**状态：已关闭**。
 
 - **U-1 规范版本锁定与客户端兼容**
   - **判据**：目标客户端（≥1 个真实 MCP 客户端）完成 `tools/list` + `tools/call` 闭环且无版本协商失败
@@ -320,7 +326,7 @@ upstream: null
   {"id":"A11","level":"A","claim":"官方 Python SDK=mcp 包; FastMCP 已并入","source":"https://pypi.org/project/fastmcp/1.0/","quote":"FastMCP has been added to the official MCP SDK!","verified":"search-level"},
   {"id":"A12","level":"A","claim":"官方 reference servers 含 Filesystem/Git/Fetch/Memory/Time","source":"https://modelcontextprotocol.io/examples","quote":"Filesystem - Secure file operations with configurable access controls","verified":"search-level"},
   {"id":"A13","level":"A","claim":"存在官方 MCP Registry","source":"https://registry.modelcontextprotocol.io/","quote":"Official MCP Registry","verified":"search-level"},
-  {"id":"A14","level":"A","claim":"Claude Code 工具响应默认上限 25000 tokens","source":"https://www.anthropic.com/engineering/writing-tools-for-agents","quote":"For Claude Code, we restrict tool responses to 25,000 tokens by default.","verified":"search-level"},
+  {"id":"A14","level":"A","claim":"Claude Code 工具响应默认上限 25000 tokens","source":"https://www.anthropic.com/engineering/writing-tools-for-agents","quote":"For Claude Code, we restrict tool responses to 25,000 tokens by default.","verified":"page-level-FAILED-downgraded"},
   {"id":"A15","level":"A","claim":"工具名用 动词+宾语 + 命名空间前缀","source":"https://www.gingerlabs.ai/blog/mcp-tool-schema-design","quote":"Tool name uses verb + object pattern (create_invoice, not invoice)","verified":"search-level"},
   {"id":"A16","level":"A","claim":"客户端应缓存工具定义","source":"https://modelcontextprotocol.io/docs/2025-11-25/develop/clients/client-best-practices","quote":"Cache tool definitions","verified":"search-level"},
   {"id":"A17","level":"A","claim":"OWASP: 工具响应视为不可信数据","source":"https://cheatsheetseries.owasp.org/cheatsheets/MCP_Security_Cheat_Sheet.html","quote":"Treat every tool response as untrusted data, including responses from approved servers.","verified":"search-level"},
