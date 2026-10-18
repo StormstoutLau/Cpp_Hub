@@ -209,6 +209,11 @@ if(CPPHUB_ENABLE_C_API)
     add_executable(test_json_min unit/c_api/test_json_min.cpp)
     target_link_libraries(test_json_min PRIVATE cpphub_core GTest::gtest_main)
     cpphub_discover_tests(test_json_min)
+
+    # spec/mcp-server S2: 工具注册表 (7 工具; johansen/vecm/dy 经 Eigen → timeseries_mat)
+    add_executable(test_tool_registry unit/c_api/test_tool_registry.cpp)
+    target_link_libraries(test_tool_registry PRIVATE cpphub_core cpphub_timeseries_mat GTest::gtest_main)
+    cpphub_discover_tests(test_tool_registry)
 endif()
 
 # v1.4.0 Phase 5: 高频计量经济学模块 (HFE) 测试

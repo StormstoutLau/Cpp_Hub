@@ -19,7 +19,9 @@
 #include <utility>
 #include <vector>
 
-namespace cpphub::v1::json_min {
+namespace cpphub {
+inline namespace v1 {
+namespace json_min {
 
 // 解析深度上限：递归下降解析器对深层嵌套输入的保护（避免栈溢出）。
 inline constexpr int kMaxParseDepth = 64;
@@ -486,6 +488,8 @@ inline std::string dump(const Value& v) {
     return out;
 }
 
-}  // namespace cpphub::v1::json_min
+}  // namespace json_min
+}  // namespace v1
+}  // namespace cpphub
 
 #endif  // CPPHUB_C_API_DETAIL_JSON_MIN_HPP

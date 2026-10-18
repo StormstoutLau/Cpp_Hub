@@ -105,13 +105,27 @@ Agent / MCP Client
 
 | 工具名 | 入参（JSON Schema 摘要） | 出参要点 |
 |---|---|---|
-| `cpphub_unit_root_diagnose` | `{series: number[], spec?: {model: "c"\|"ct"\|"ctt"}, tests?: string[]}` | ADF/PP/KPSS/DF-GLS/NP/ZA 一揽子 + 综合结论 |
-| `cpphub_variance_ratio_test` | `{series: number[], q: integer, bootstrap?: integer}` | Lo-MacKinlay / wild bootstrap VR 统计量 |
-| `cpphub_cointegration_scan` | `{series: number[][], spec: {trend: string, coint_trend: string}}` | EG + Johansen 迹/λmax + rank 判定 |
-| `cpphub_vecm_fit` | `{series: number[][], lag: integer, determ: string}` | α/β/ECT t + EM2002 临界值 + Π=αβ′ |
-| `cpphub_garch_diagnose` | `{series: number[], model: "GARCH"\|"EGARCH"\|"GJR"\|"GARCH-M"}` | 参数 + sandwich SE + LB 残差诊断 + 稳定性 |
-| `cpphub_granger_causality` | `{cause: number[], effect: number[], lag: integer, d_max: integer}` | F/χ²/LR + TY 增广 Wald + HAC |
-| `cpphub_dy_spillover` | `{series: number[][], lag: integer, horizon: integer, rolling?: integer}` | TCI/TO/FROM/NET 矩阵 + 滚动选项 |
+| `cpphub_unit_root_diagnose` | `{series: number[], trend?: "auto"\|"nc"\|"c"\|"ct" (默认 auto), tests?: ("adf"\|"pp"\|"kpss"\|"df_gls"\|"ng_perron"\|"za")[] (默认全部), za_model?: "A"\|"B"\|"C" (默认 C), max_lag?: integer (0=自动)}` | ADF/PP/KPSS/DF-GLS/NP/ZA 一揽子 + 综合结论 |
+| `cpphub_variance_ratio_test` | `{series: number[], k?: integer[] (默认 [2,5,10,20]), use_debiased?: bool (默认 true), trend?: "c"\|"n" (默认 c)}` | Lo-MacKinlay Z1/Z2 + CLM debiased + Chow-Denning SMM 联合 |
+| `cpphub_cointegration_scan` | `{series: number[][], eg_trend?: "n"\|"c"\|"ct"\|"ctt" (默认 c), det_order?: -1\|0\|1 (默认 0), k_ar_diff?: integer (默认 0)}` | EG（K=2 时）+ Johansen 迹/λmax + rank 判定 |
+| `cpphub_vecm_fit` | `{series: number[][], rank: integer, k_ar_diff?: integer (默认 0), det?: "n"\|"co"\|"ci"\|"lo"\|"li" (默认 n), urca_normalization?: bool (默认 false)}` | α/β/ECT t + EM2002 临界值 + Π=αβ′ |
+| `cpphub_garch_diagnose` | `{series: number[], model: "GARCH"\|"EGARCH"\|"GJR"\|"GARCH-M", dist?: "normal"\|"t"\|"ged" (默认 normal), form?: "var"\|"vol"\|"log" (仅 GARCH-M, 默认 vol)}` | 参数 + sandwich SE + LB(z)/LB(z²)/JB 残差诊断 + 稳定性 |
+| `cpphub_granger_causality` | `{cause: number[], effect: number[], lag?: integer (默认 1), d_max?: integer (默认 0=不做 TY), with_hac?: bool (默认 true), hac_bandwidth?: integer (默认 0)}` | F/χ²/LR + TY 增广 Wald + HAC-Wald |
+| `cpphub_dy_spillover` | `{series: number[][], horizon?: integer (默认 10), lag?: integer (默认 0=IC 自动), trend?: "c"\|"n" (默认 c), rolling?: integer (滚动窗口, 须 > 2K; 缺省=全样本静态)}` | TCI/TO/FROM/NET 矩阵 + 滚动 tci_path/net_path |
+
+> **⚠️ F7 订正（2026-10-18，Step 9 实施期 API 核验触发，P3）**：上表**入参列已于 Step 9 按库内实际签名逐项重写**——Step 3 初版入参为**未核验的拟写值**，与实现期实测不符，逐项对照如下（IMPLEMENTATION.md §4.3 曾声明"与 DESIGN §4.1 的 7 工具名/入参一致 ✅"，该声明在**入参**意义上未经 API 核验，一并更正）：
+>
+> | 工具 | 初版拟写（未核验） | 实测不符处 |
+> |---|---|---|
+> | unit_root | `spec:{model:"c"\|"ct"\|"ctt"}` | 单位根族 trend 词汇为 `auto/nc/c/ct`（KPSS/DF-GLS/NP 仅 `c/ct`），**无 `ctt`**；`model` 是 ZA 专有量（A/B/C） |
+> | variance_ratio | `q`, `bootstrap?` | 库内为 `k_list`（多 horizon）+ `use_debiased`/`trend`；**该 API 无 wild bootstrap 参数**，出参要点中的 "wild bootstrap" 同步更正 |
+> | cointegration | `spec:{trend, coint_trend}` | 库内为 `eg_trend`（EG 两步法）+ `det_order`/`k_ar_diff`（Johansen） |
+> | vecm | `lag`, `determ` | 库内为 `rank`（必填）+ `k_ar_diff` + `det`（`n/co/ci/lo/li` 五情形） |
+> | garch | `model` | 需另加 `dist`（normal/t/ged）与 GARCH-M 的 `form`（var/vol/log） |
+> | granger | `lag`, `d_max` | 需另加 `with_hac`/`hac_bandwidth`；参数顺序 **显式 `(cause, effect)`**（GR6 方向陷阱） |
+> | dy_spillover | `lag`, `horizon`, `rolling?` | 需另加 `trend`；`rolling` 即 `window`，须 `> 2·K`（否则库内抛错） |
+>
+> **证据等级**：E3（静态读码，绑 commit `4f6c74f` 的 `include/cpphub/timeseries/**` 逐签名）；**处置**：上表已改为实测词汇，§4.3 与 IMPL §4.3 同步更正。
 
 > **出参承载（F5 订正，2026-10-18）**：本表"出参要点"列所列的多统计量内容**全部**由 §6.2 `ToolResult.results[]` 承载（每项即 §6.1 信封），顶层另带 `conclusion`；**不采用**"变体扁平信封"（裁定依据见 [DECISION_MATRIX.md](./DECISION_MATRIX.md) §11–§12）。
 
@@ -198,10 +212,12 @@ class ToolResult:
 
 @dataclass
 class Conclusion:
-    reject_null: bool   # 综合判定 (以各工具 §4.1 说明的主检验/多数为准)
-    n_reject: int       # results 中 reject_null == True 的方法数
-    n_total: int        # results 中方法总数
+    primary_method: str   # 主检验方法名 (= results 中某项的 method)
+    reject_null: bool     # 恒等于主检验行的 reject_null (H0 方向由主检验定义)
+    n_total: int          # results 的方法数 (纯计数, 无方向语义)
 ```
+
+> **⚠️ F6 细化（2026-10-18，P3，**实现前**冻结）**：初版 `Conclusion` 曾设想 `n_reject`（"一揽子中 `reject_null == True` 的方法数"），但各方法的 **H0 方向不一致**——KPSS 的 H0 是**平稳性**，与 ADF/PP/DF-GLS/NP/ZA 的 H0（单位根）**相反**（unit_root U12 陷阱，读码 E3）。跨方法直接计数会产出**错误的**综合结论，这正是 §11 裁定中否掉方案 (b) 的"语义漂移"同类风险。故改为**方向显式**：`reject_null` **只取主检验行**，`n_total` 为纯计数；跨方法的同/异向一致性由 agent 读 `results[]` 各行 `notes` 自行判断。
 
 **与不变式 6 的关系**：容器层为**纯新增字段**（§6.1 的 7 个字段一字未改），属"只增不改"；`conclusion` 形状**先固定**，否则会重新引入变体 schema（MATRIX §12 回写清单第 1 项）。
 

@@ -210,7 +210,7 @@ class Conclusion:
 
 ### 4.3 `mcp` 工具声明
 
-**签名一致性**：与 DESIGN §4.1 的 7 工具名/入参一致 ✅；**SDK 调用形态与 DESIGN §4.3 示意不一致**——DESIGN 写的是 v1 `FastMCP`，实测 v2 为 `MCPServer`（§9.1 F3）。**处置：本文档为准，DESIGN §4.3 已同步订正。**
+**签名一致性**：与 DESIGN §4.1 的 7 工具名一致 ✅；**入参须以 DESIGN §4.1 的 F7 订正表为准**——初版 §4.1 入参为未核验拟写值，Step 9 按库内实测签名逐项重写（见 DESIGN §4.1 F7 块）；**SDK 调用形态与 DESIGN §4.3 示意不一致**——DESIGN 写的是 v1 `FastMCP`，实测 v2 为 `MCPServer`（§9.1 F3）。**处置：本文档为准，DESIGN §4.3 已同步订正。**
 
 ## 5. 兼容性
 
