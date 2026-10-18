@@ -1,18 +1,18 @@
-# 决策矩阵：MCP Server 三项未决项裁定（U-1 / U-2 / U-3）
+# 决策矩阵：MCP Server 未决项裁定（U-1 / U-2 / U-3，追加 F5）
 
 ---
 id: MCP-SERVER-DECISION-MATRIX
 type: design
-version: 1.0
+version: 1.1
 status: draft
-date: 2026-10-17
+date: 2026-10-18
 depends: [MCP-SERVER-RESEARCH, FWK-ASSERTION, ADR-009, ADR-010]
 upstream: null
 ---
 
-> **用途**：对 [RESEARCH.md](./RESEARCH.md) §6.4 登记的三项未决项做「选项 × 维度」逐格取证裁定。
+> **用途**：对 [RESEARCH.md](./RESEARCH.md) §6.4 登记的三项未决项做「选项 × 维度」逐格取证裁定（§0–§8）；并追加 Step 9 实施期新发现的 **F5（工具出参形状）** 裁定（§9–§12）。
 > **规范依据**：Spec_Workflow `spec/templates/DECISION_MATRIX_TEMPLATE.md` + `SPEC_PROCESS.md`「迭代收敛与未决项登记」节；证据分级沿用 `docs/ASSERTION_EVIDENCE_FRAMEWORK.md`。
-> **取证日期**：2026-10-17（全部页面级复核；读数日期同此）
+> **取证日期**：§0–§8 = 2026-10-17；§9–§12 = 2026-10-18（全部页面级复核；读数日期同此）
 
 ## 0. 前置判据与 Type 判定
 
@@ -152,3 +152,94 @@ upstream: null
 **诚实边界**：
 - 本矩阵为**过程性形态**：无门禁、无校验器；可机械校验的仅"格是否齐全 / 证据等级是否非空 / 触发条件是否存在 / 引用是否完整"，**不核结论对错**——结论正确性留人工裁决（Scott）。
 - E-13 与 OWASP 条目仍为**检索级**，若进入 DESIGN 阻断性引用须先补页面级复核。
+
+---
+
+## 9. F5 问题陈述（Step 9 实施期发现，P2）
+
+**发现**：DESIGN §4.1 的「出参要点」列与 DESIGN §6.1 的 `DiagnosticEnvelope` **粒度互斥**——前者 7/7 工具皆为**多统计量一揽子**，后者为**单方法单标量**信封。
+
+| 出处 | 逐字内容（读数 2026-10-18） |
+|---|---|
+| DESIGN §4.1 出参要点 | `cpphub_unit_root_diagnose` → `ADF/PP/KPSS/DF-GLS/NP/ZA 一揽子 + 综合结论`；`cpphub_cointegration_scan` → `EG + Johansen 迹/λmax + rank 判定`；`cpphub_vecm_fit` → `α/β/ECT t + EM2002 临界值 + Π=αβ′`；`cpphub_dy_spillover` → `TCI/TO/FROM/NET 矩阵 + 滚动选项`（其余 3 个同构） |
+| DESIGN §6.1 | `class DiagnosticEnvelope: tool / method / statistic / p_value / cv_5pct / reject_null / notes`（**单** method、**单** statistic） |
+| IMPL §4.1 | 声明 `**签名一致性**：与 DESIGN §6.1 一致 ✅` —— 该声明在**粒度**意义上失实 |
+
+**7/7 复核命令（E1，可重放）**：`Select-String -Path spec\mcp-server\DESIGN.md -Pattern '^\| .cpphub_.*\|' | Measure-Object` → 7 行；逐行比对"出参要点"列是否含 `+`/`一揽子`/`矩阵` 等并列语义 → **7/7 为多统计量**。
+
+**Step 8 未捕获的原因（我的核对缺项，已登记）**：CHECKLIST §1.2 只核"小节编号映射是否 1:1"，**未核"出参粒度语义"**——属核对表维度缺失，非他人文档缺陷。
+
+**可逆性判定**：工具出参形状 = **agent 依赖的公开契约**（发布后变更即破坏兼容，且客户端 SHOULD 校验 schema，见 E-15）→ **Type-1**，须全维度取证。
+
+---
+
+## 10. F5 补充证据锚点（页面级复核，2026-10-18）
+
+| ID | 断言 | URL | 原文引文（≤3 行） | 级别 |
+|----|------|-----|------------------|------|
+| **E-14** | `structuredContent` 可为**任意 JSON 值**（对象/数组/字符串/数字/布尔/null），须符合 `outputSchema`；官方并给出**数组根** outputSchema 示例（`list_users`） | `modelcontextprotocol.io/specification/2026-07-28/server/tools` | `**Structured** content is returned as a JSON value in the structuredContent field of a result. This can be any JSON value (object, array, string, number, boolean, or null)...` / `Example tool with array output schema: {"type": "array", "items": {...}}` | 页面级（官方，A） |
+| **E-15** | 声明 `outputSchema` 时：服务端 **MUST** 输出符合它；客户端 **SHOULD** 校验 | 同上（Output Schema 节） | `Servers **MUST** provide structured results that conform to this schema.` / `Clients **SHOULD** validate structured results against this schema.` | 页面级（官方，A） |
+| **E-16** | 组合关键字（`anyOf`/`oneOf`/`allOf`/`if`/`then`/`else`）**"校验代价高"**，实现 SHOULD 施加边界（深度/子 schema 数/时间预算）以防校验器 DoS | `modelcontextprotocol.io/specification/2026-07-28/basic#composition-keyword-resource-use` | `Composition keywords (anyOf, oneOf, allOf, if/then/else) and $defs enable expressive schemas but can be expensive to validate. Implementations SHOULD apply reasonable bounds... to prevent a malicious schema from acting as a Denial-of-Service vector against the validator.` | 页面级（官方，A） |
+| **E-17** | 协议自身对"多形态结果"的官方模式 = **统一容器 + 显式判别串**，而非 schema 层条件分支 | `modelcontextprotocol.io/specification/2026-07-28/basic`（ResultType 节） | `MCP supports polymorphic result types, allowing servers to return different structures based on the outcome of the request. The resultType field is a string that clients can use to determine how to parse and handle the result object.` | 页面级（官方，A） |
+| **E-18** | 第三方 MCP 框架（ActionMCP）明确：**inputSchema 须扁平**，而 **outputSchema 支持无限制嵌套（含对象数组）**；并警示"SDK 严格度在上升，仅靠 LLM 客户端测试会得到假信心，须用 MCP Inspector 验证" | `raw.githubusercontent.com/seuros/action_mcp/master/TOOLS.MD` | `\| Nesting Level \| Flat only (single level) \| Unlimited nesting depth \|` / `**SDK strictness is increasing** - What works today with "vibed" clients may break tomorrow with strict validation` | 页面级（第三方，B） |
+| **E-19** | 社区惯例：工具结果为 `status`/`data`/`metadata` 的**统一信封**（metadata 与 data 同层） | `theneuralbase.com/mcp/learn/intermediate/query-result-formatting/` | `The article's JSON structure (status/data/metadata) is the recommended MCP standard.` | ⚠️ 检索级（第三方，C） |
+| **E-20** | 社区工程指南：**inputSchema** 应"尽可能扁平"（嵌套 → token 增多、LLM 认知负荷、解析失败率上升） | `kansei-link.com/en/insights/mcp-tool-schema-design-guide-2026.html` | `Principle 3: keep inputSchema as flat as possible ... The deeper the nesting: (1) more tokens, (2) more LLM cognitive load, (3) higher parse-failure rate.` | ⚠️ 检索级（第三方，C） |
+| **E-21** | SEP-2106：`outputSchema` 由"仅 object"放宽为**任意合法 JSON Schema**；`structuredContent` 同步放宽 | `modelcontextprotocol.io/seps/2106-json-schema-2020-12` | `Update outputSchema types to allow any valid JSON Schema (remove type: "object" constraint)` | ⚠️ 检索级（官方 SEP，B；未做页面级复核） |
+
+**幻觉排除（本轮）**：
+
+| # | 先前/候选声明 | 复核结果 | 处置 |
+|---|---|---|---|
+| **H-6** | "协议限定 outputSchema 根必须为 object" | 页面级 E-14 给出 **array 根**官方示例；E-21 显示该约束已被移除 | **证伪**，从论证剔除 |
+| **H-7** | "方案 (b) 会因 oneOf 而被客户端拒绝" | E-16 只说组合关键字"校验代价高、SHOULD 加边界"（DoS 防护），**并未**说校验器会拒绝 | **修正为**：`oneOf` 引入**校验成本与实现分歧**，而非"被拒"；且 (b) 若把 `methods` 设为可选字段可完全避开 `oneOf` → **该论据不成立**，从 (b) 的减分项中剔除 |
+| **H-8** | "E-20 的扁平化建议适用于出参" | E-20 原文明确针对 **inputSchema**；(E-18) 更是把 input（扁平）与 output（可深嵌套）**分列** | **修正为**：E-20 **不构成**出参形状的依据，仅用于确认"输入扁平 / 输出可嵌套"的分野 |
+
+> **纪律声明**：H-7 与 H-8 两条都是"**凭直觉把结论当证据**"的典型——若不做页面级复核，会分别夸大 (b) 的技术缺陷、误用输入侧指南去论证出参。**本轮 (a)/(b) 的真实区分度因此缩小**，裁定改为完全依据 §11 的七维打分。
+
+---
+
+## 11. F5 矩阵：工具出参形状（Type-1）
+
+| 维度 | 选项 (a)：容器层 —— `{tool, results:[envelope…], conclusion}` | 选项 (b)：扁平扩展 —— 信封 + 可选 `methods:[…]` |
+|------|-----------------------------------------------------------|------------------------------------------------|
+| **成本** | 低——容器是纯增量；信封本体零改写；C++ 侧仅多一层 `json::Value::array` 装配（E-14/E-17；2026-10-18） | 低-中——需**重新定义** §6.1 七个字段在"一揽子"场景下的语义（顶层 `statistic` 何时是检验统计量、何时是"综合结论"），并回写 DESIGN §6.1（E-15；2026-10-18） |
+| **收益** | 高——逐行语义**唯一确定**且与 `TestResultBase`（ADR-015）一一对齐；单工具亦走同一路径（`results` 长度 1） | 中——少一层嵌套、多数场景 token 略省；但顶层字段语义随工具漂移 |
+| **可维护性** | 高——新增统计量 = 向 `results` 追加一行，**零 schema 变更** | 中——每新增一类"顶层语义"都要扩例，模型与校验逻辑随之分叉 |
+| **兼容** | 高——不变式 6「出参 schema 只增不改」天然满足（容器层为新增字段，行内字段不变，E-14/E-15） | **中-低**——顶层字段**语义**变更属"改"而非"增"，违反不变式 6；客户端 SHOULD 校验（E-15）时语义不稳更难严格校验 |
+| **升级潜力** | 高——与协议自身判别模式同构（**统一容器 + 显式判别字段**，E-17）；未来加工具只加 `results` 枚举值 | 中——需为每个新工具设计"综合结论"的顶层字段含义 |
+| **短期** | 中——首轮多写一层容器与 `conclusion` 固定形状 | **高**——实现最少，一次装配即返回 |
+| **长期** | **高**——契约稳定、无需返工 | 低——多统计量语义持续漂移，最终仍需重构为容器 → **返工** |
+| **社区案例佐证** | E-18（output 可无限嵌套/对象数组）+ E-19（status/data/metadata 统一信封）→ **主流形态** | 未见同类"变体扁平信封"的社区先例（E-19 的统一信封恰是反例方向） |
+
+**格内复算说明（R7 同构）**：本表无计数/占比类声明，全部为定性评估 + 证据等级。§9 的 `7/7 多统计量` 已附复算命令；`results 长度 1` 为设计约定非计数。
+
+**反模式（显式避免）**：
+- **criteria gaming**：不以"写起来少"给 (b) 加分——(b) 的短期优势合法，但其**长期返工**与**不变式 6 破坏**是实质代价；反之 (a) 的短期成本合法，不得因"看起来更规范"而免检。
+- **分析瘫痪**：本轮**关闭 F5**，不新开无触发条件的未决项。
+
+**潜在论据的排除记录**（防"为结论找证据"）：H-7（`oneOf` 被拒）与 H-8（扁平化指南适用于出参）**均被证伪并从打分中剔除**；若保留，会人为放大 (a) 的优势——**本轮结论不依赖这两条**。
+
+---
+
+## 12. 收敛出口（本轮结论）
+
+**本轮结论（明确建议）**：
+
+> **F5 → 选 (a) 容器层**：`tool_call` 出参 = `{ "tool": str, "results": [DiagnosticEnvelope…], "conclusion": {…} }`；**`DiagnosticEnvelope` 本体严格保持 DESIGN §6.1 原样**（7 字段、单方法），`results` 长度 ≥1（单统计量工具长度 1），`conclusion` 固定为 `{reject_null: bool, n_reject: int, n_total: int}`。
+
+**一句话理由**：(a) 对 §6.1 **零改写**、逐行与 `TestResultBase` 一一对齐、容器层为纯增量（满足不变式 6），且与协议自身"统一容器 + 显式判别字段"的多形态结果模式（E-17）同构；而 (b) 需要**重新定义**顶层字段在"一揽子"场景的语义（属"改"而非"增"），并已在 H-7/H-8 两条论据被证伪后仍无法回避**长期返工**。
+
+**回写清单（裁定后执行，属 Step 8 追加轮）**：
+1. DESIGN §6.1 —— 保留信封原样，**新增** `ToolResult` 容器结构定义。
+2. DESIGN §4.1 —— 出参要点列补注"由 §6.1 信封的 `results[]` 数组承载"。
+3. IMPL §4.1 —— 更正 `与 DESIGN §6.1 一致 ✅` → `信封与 DESIGN §6.1 一致；容器层为 F5 新增`。
+4. CHECKLIST §1.2 —— **新增**核对项「出参粒度语义一致（信封 vs 一揽子）」，并把本次未捕获记为核对维度缺失。
+
+**未闭合的未决项**：**（无）**——F5 本轮闭合；U-4/U-5/U-7 承前述登记，触发条件不变。
+
+**Type 判定依据**：出参形状一经发布即为 agent 依赖的公开契约（客户端 SHOULD 校验 schema，E-15），无无痛回退点 → **Type-1**，故启用全维度矩阵而非"先做再改"。
+
+---
+
+**Review 签字**: _________ 日期: _________
+

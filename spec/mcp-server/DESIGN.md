@@ -113,6 +113,8 @@ Agent / MCP Client
 | `cpphub_granger_causality` | `{cause: number[], effect: number[], lag: integer, d_max: integer}` | F/χ²/LR + TY 增广 Wald + HAC |
 | `cpphub_dy_spillover` | `{series: number[][], lag: integer, horizon: integer, rolling?: integer}` | TCI/TO/FROM/NET 矩阵 + 滚动选项 |
 
+> **出参承载（F5 订正，2026-10-18）**：本表"出参要点"列所列的多统计量内容**全部**由 §6.2 `ToolResult.results[]` 承载（每项即 §6.1 信封），顶层另带 `conclusion`；**不采用**"变体扁平信封"（裁定依据见 [DECISION_MATRIX.md](./DECISION_MATRIX.md) §11–§12）。
+
 **工具数上限 ≤10**（含后续增量），description 中内嵌文献陷阱注释（如 GR6 列序方向 / CI1 p 与 cv 分列），使 agent 消费时自带免疫。
 
 ### 4.2 C ABI 扩展符号（`include/cpphub/c_api/`）
@@ -169,7 +171,7 @@ def unit_root_diagnose(series: list[float], spec: dict | None = None, tests: lis
 
 ## 6. 数据结构
 
-### 6.1 诊断结果信封（所有工具的统一出参）
+### 6.1 诊断结果信封（`DiagnosticEnvelope`，**逐方法**）
 
 ```python
 @dataclass
@@ -182,6 +184,26 @@ class DiagnosticEnvelope:
     reject_null: bool
     notes: list[str]     # 文献陷阱注释 (随工具下发, 如 GR6 列序方向)
 ```
+
+### 6.2 工具出参容器（`ToolResult`，**所有工具的统一出参**）
+
+> **⚠️ F5 订正（2026-10-18，Step 9 实施期发现；裁定见 [DECISION_MATRIX.md](./DECISION_MATRIX.md) §9–§12）**：§6.1 初版的小节标题曾写作"所有工具的统一出参"，但 §4.1 的 7 个工具**全部**为多统计量一揽子（7/7 复核，复算命令见 MATRIX §9），单方法信封无法承载。经七维矩阵裁定为**方案 (a) 容器层**：§6.1 信封本体**原样保留**，另加容器承载 `results[]`。
+
+```python
+@dataclass
+class ToolResult:
+    tool: str                            # 工具名 (与 §4.1 一致)
+    results: list[DiagnosticEnvelope]    # 逐方法信封, 长度 >= 1 (单统计量工具长度为 1)
+    conclusion: Conclusion               # 综合结论 (形状固定, 避免引入变体 schema)
+
+@dataclass
+class Conclusion:
+    reject_null: bool   # 综合判定 (以各工具 §4.1 说明的主检验/多数为准)
+    n_reject: int       # results 中 reject_null == True 的方法数
+    n_total: int        # results 中方法总数
+```
+
+**与不变式 6 的关系**：容器层为**纯新增字段**（§6.1 的 7 个字段一字未改），属"只增不改"；`conclusion` 形状**先固定**，否则会重新引入变体 schema（MATRIX §12 回写清单第 1 项）。
 
 ## 7. 错误处理
 

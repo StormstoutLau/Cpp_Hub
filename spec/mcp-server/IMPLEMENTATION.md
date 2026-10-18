@@ -169,11 +169,11 @@ def unit_root_diagnose(
 
 | IMPL 小节 | 承接自 DESIGN | 说明 |
 |---|---|---|
-| §4.1 `DiagnosticEnvelope` | §6.1 数据结构 | 出参信封在 DESIGN 归入数据结构节 |
+| §4.1 `DiagnosticEnvelope` / `ToolResult` | §6.1 数据结构 + §6.2 出参容器 | 信封在 DESIGN §6.1；容器为 F5 新增，承接 §6.2 |
 | §4.2 C ABI 2 符号 | §4.2 接口定义 | 编号一致 |
 | §4.3 `mcp` 工具声明 | §4.1 工具契约 + §4.3 Python 薄壳 | 工具名/入参 schema 本体在 §4.1；SDK 声明形态在 §4.3 |
 
-### 4.1 `DiagnosticEnvelope`（统一出参）
+### 4.1 `DiagnosticEnvelope` / `ToolResult`（出参结构与容器）
 
 ```python
 @dataclass
@@ -187,7 +187,22 @@ class DiagnosticEnvelope:
     notes: list[str]
 ```
 
-**字段基准**：与 `TestResultBase`（`statistic` / `p_value` / `method_name` / `reject_null`，读码 E3 实测 4 字段）对齐；`cv_5pct` 为库内既有用法（5 处）。**签名一致性**：与 DESIGN §6.1 一致 ✅
+```python
+# F5 订正 (2026-10-18, 裁定见 DECISION_MATRIX §9-§12): 所有工具的统一出参是容器
+@dataclass
+class ToolResult:
+    tool: str
+    results: list[DiagnosticEnvelope]   # 长度 >= 1; 单统计量工具长度为 1
+    conclusion: Conclusion
+
+@dataclass
+class Conclusion:
+    reject_null: bool
+    n_reject: int
+    n_total: int
+```
+
+**字段基准**：与 `TestResultBase`（`statistic` / `p_value` / `method_name` / `reject_null`，读码 E3 实测 4 字段）对齐；`cv_5pct` 为库内既有用法（5 处）。**签名一致性**：信封（`DiagnosticEnvelope`）与 DESIGN §6.1 一致 ✅；**容器层（`ToolResult` / `Conclusion`）为 F5 新增**，承接 DESIGN §6.2。C++ 侧装配路径：`tool_call` → handler 产出 `ToolResult` → `json_min::Value::object` 顶层 + `Value::array` 装 `results` → `json_min::dump`。
 
 ### 4.2 C ABI 2 符号
 
