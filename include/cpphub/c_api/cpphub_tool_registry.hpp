@@ -54,10 +54,16 @@ inline constexpr std::size_t kMaxColumns = 64;
 // ---------------------------------------------------------------------------
 // handler 结果
 // ---------------------------------------------------------------------------
+// 错误分类（映射到 C ABI 错误码，见 DESIGN §7 / CHECKLIST §5）
+//   InvalidArg -> CPPHUB_ERR_INVALID_ARG（参数缺失/类型/范围/长度/非有限）
+//   Runtime    -> CPPHUB_ERR_RUNTIME（内核抛 std::runtime_error，如退化方差）
+enum class ToolErrorKind { InvalidArg, Runtime };
+
 struct ToolOutcome {
     bool ok = false;
     json::Value result;  // ok=true：ToolResult（DESIGN §6.2）
     std::string error;   // ok=false：错误信息（经 cpphub_v1_get_last_error 下发）
+    ToolErrorKind kind = ToolErrorKind::InvalidArg;
 };
 
 using ToolHandler = ToolOutcome (*)(const json::Value& args);
@@ -78,6 +84,16 @@ inline ToolOutcome fail(std::string msg) {
     ToolOutcome o;
     o.ok = false;
     o.error = std::move(msg);
+    o.kind = ToolErrorKind::InvalidArg;
+    return o;
+}
+
+// 内核运行期失败（std::runtime_error 等）→ CPPHUB_ERR_RUNTIME
+inline ToolOutcome fail_runtime(std::string msg) {
+    ToolOutcome o;
+    o.ok = false;
+    o.error = std::move(msg);
+    o.kind = ToolErrorKind::Runtime;
     return o;
 }
 
@@ -533,7 +549,7 @@ inline ToolOutcome handle_variance_ratio(const json::Value& args) {
 
         return succeed(make_tool_result(kTool, std::move(rows), "lo_mackinlay_z2"));
     } catch (const std::exception& e) {
-        return fail(std::string("variance_ratio_test failed: ") + e.what());
+        return fail_runtime(std::string("variance_ratio_test failed: ") + e.what());
     }
 }
 
@@ -713,7 +729,7 @@ inline ToolOutcome handle_vecm(const json::Value& args) {
         const std::string primary = r.has_ect_t ? "ect_t_0" : "log_likelihood";
         return succeed(make_tool_result(kTool, std::move(rows), primary));
     } catch (const std::exception& e) {
-        return fail(std::string("vecm_fit failed: ") + e.what());
+        return fail_runtime(std::string("vecm_fit failed: ") + e.what());
     }
 }
 
@@ -921,7 +937,7 @@ inline ToolOutcome handle_garch(const json::Value& args) {
                      (g.passes_normality ? "true" : "false")}));
         }
     } catch (const std::exception& e) {
-        return fail(std::string("garch_diagnose failed: ") + e.what());
+        return fail_runtime(std::string("garch_diagnose failed: ") + e.what());
     }
 
     if (rows.empty()) return fail("garch_diagnose produced no results");
@@ -995,7 +1011,7 @@ inline ToolOutcome handle_granger(const json::Value& args) {
         }
         return succeed(make_tool_result(kTool, std::move(rows), "ssr_f"));
     } catch (const std::exception& e) {
-        return fail(std::string("granger_test failed: ") + e.what());
+        return fail_runtime(std::string("granger_test failed: ") + e.what());
     }
 }
 
@@ -1076,7 +1092,7 @@ inline ToolOutcome handle_dy(const json::Value& args) {
         }
         return succeed(make_tool_result(kTool, std::move(rows), "tci"));
     } catch (const std::exception& e) {
-        return fail(std::string("dy_spillover failed: ") + e.what());
+        return fail_runtime(std::string("dy_spillover failed: ") + e.what());
     }
 }
 

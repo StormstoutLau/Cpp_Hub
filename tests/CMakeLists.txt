@@ -214,6 +214,11 @@ if(CPPHUB_ENABLE_C_API)
     add_executable(test_tool_registry unit/c_api/test_tool_registry.cpp)
     target_link_libraries(test_tool_registry PRIVATE cpphub_core cpphub_timeseries_mat GTest::gtest_main)
     cpphub_discover_tests(test_tool_registry)
+
+    # spec/mcp-server S3: C ABI 2 新符号 (tool_list / tool_call) + 缓冲协商 + 错误映射
+    add_executable(test_c_api_tools unit/c_api/test_c_api_tools.cpp)
+    target_link_libraries(test_c_api_tools PRIVATE cpphub_c_api GTest::gtest_main)
+    cpphub_discover_tests(test_c_api_tools)
 endif()
 
 # v1.4.0 Phase 5: 高频计量经济学模块 (HFE) 测试

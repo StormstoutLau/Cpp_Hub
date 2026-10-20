@@ -30,6 +30,11 @@ extern "C" {
 #define CPPHUB_ERR_INVALID_ARG    -1
 #define CPPHUB_ERR_RUNTIME        -2
 #define CPPHUB_ERR_UNKNOWN        -3
+// Output buffer too small (JSON extension only, spec/mcp-server DESIGN §4.2).
+// The required length is written back through `out_len`; caller reallocates
+// and retries. Added after the original 4 codes — existing symbols never
+// return it, so CPPHUB_ABI_VERSION stays 1 (additive change only).
+#define CPPHUB_ERR_BUFFER_TOO_SMALL -4
 
 // Greeks struct (POD, C-compatible).
 typedef struct {
@@ -97,6 +102,39 @@ const char* cpphub_v1_get_last_error(void);
 
 // Returns the ABI version (currently 1).
 int cpphub_v1_get_abi_version(void);
+
+// ---------------------------------------------------------------------------
+// MCP tool registry extension (spec/mcp-server).
+//
+// These two symbols expose the diagnostic tool surface as JSON, so any
+// language binding can act as an MCP server without re-implementing the
+// protocol or the tool schemas.
+//
+// Buffer contract (NEW for these symbols; the original scalar symbols above
+// have no buffer-query precedent):
+//   * On entry, `*out_len` is the caller-allocated capacity of `out_json`.
+//   * On return, `*out_len` is the number of bytes REQUIRED (excluding the
+//     terminating NUL).
+//   * If capacity is insufficient, returns CPPHUB_ERR_BUFFER_TOO_SMALL and
+//     still writes the required length, so the caller can reallocate and
+//     retry. No partial JSON is written in that case.
+//   * On success, `out_json` holds a NUL-terminated JSON document and
+//     `*out_len` is its length (excluding the NUL).
+// ---------------------------------------------------------------------------
+
+// Enumerate registered tools: a JSON array of
+//   {"name": string, "description": string, "inputSchema": object}
+// Returns CPPHUB_OK on success.
+int cpphub_v1_tool_list(char* out_json, size_t* out_len);
+
+// Invoke a tool by name. `args_json` is a JSON object of arguments.
+// On success `out_json` receives a JSON object (the ToolResult container:
+// tool / results[] / conclusion, see DESIGN §6.2).
+// Unknown tool name -> CPPHUB_ERR_INVALID_ARG (message lists available tools).
+// Malformed args_json or invalid argument values -> CPPHUB_ERR_INVALID_ARG.
+// Kernel failure -> CPPHUB_ERR_RUNTIME.
+int cpphub_v1_tool_call(const char* tool_name, const char* args_json,
+                        char* out_json, size_t* out_len);
 
 #ifdef __cplusplus
 }  // extern "C"

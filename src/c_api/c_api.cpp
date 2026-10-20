@@ -3,6 +3,8 @@
 // error codes. The last error message is stored in thread_local storage.
 #include "cpphub/c_api/cpphub_c_api.h"
 
+#include "cpphub/c_api/cpphub_tool_registry.hpp"
+
 #include "cpphub/core/types.hpp"
 #include "cpphub/core/math.hpp"
 #include "cpphub/core/constants.hpp"
@@ -14,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <cstring>
+#include <vector>
 
 namespace {
 
@@ -44,6 +47,30 @@ int translate_exception() {
         set_error("unknown C++ exception");
         return CPPHUB_ERR_UNKNOWN;
     }
+}
+
+// ---------------------------------------------------------------------------
+// JSON 扩展符号的共享缓冲协商（spec/mcp-server DESIGN §4.2）
+//
+// 约定：*out_len 入参 = out_json 容量；出参 = 所需字节数（不含 NUL）。
+// 容量不足返回 CPPHUB_ERR_BUFFER_TOO_SMALL 并回填所需长度（不写半截 JSON）。
+// ---------------------------------------------------------------------------
+int write_json_payload(const std::string& payload, char* out_json,
+                       size_t* out_len) {
+    if (out_len == nullptr) {
+        set_error("out_len must not be null");
+        return CPPHUB_ERR_INVALID_ARG;
+    }
+    const size_t need = payload.size();  // 不含结尾 NUL
+    const size_t capacity = *out_len;
+    *out_len = need;
+    if (out_json == nullptr || capacity < need + 1) {
+        set_error("output buffer too small");
+        return CPPHUB_ERR_BUFFER_TOO_SMALL;
+    }
+    std::memcpy(out_json, payload.data(), need);
+    out_json[need] = '\0';
+    return CPPHUB_OK;
 }
 
 }  // namespace
@@ -217,6 +244,100 @@ int cpphub_v1_mc_price(double S, double K, double T, double r, double q,
         result->price = mean;
         result->std_err = std_err;
         return CPPHUB_OK;
+    } catch (...) {
+        return translate_exception();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MCP tool registry extension (spec/mcp-server).
+// Thin JSON-through-ABI adapters: all tool semantics live in the registry
+// header; this layer only does buffer negotiation and error-code mapping.
+// ---------------------------------------------------------------------------
+int cpphub_v1_tool_list(char* out_json, size_t* out_len) {
+    try {
+        if (out_len == nullptr) {
+            set_error("out_len must not be null");
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+        // 惰性构建 + 只读缓存：schema 是常量，不构成请求态（DESIGN §8 不变式 1）
+        static const std::string kToolListJson = [] {
+            cpphub::v1::json_min::Value arr =
+                cpphub::v1::json_min::Value::array();
+            for (const auto& spec : cpphub::v1::c_api::tool_specs()) {
+                cpphub::v1::json_min::Value item =
+                    cpphub::v1::json_min::Value::object();
+                item.set("name", cpphub::v1::json_min::Value::string(spec.name));
+                item.set("description",
+                         cpphub::v1::json_min::Value::string(spec.description));
+                cpphub::v1::json_min::Value schema;
+                std::string parse_error;
+                if (!cpphub::v1::json_min::parse(spec.input_schema, schema,
+                                                 parse_error)) {
+                    throw std::runtime_error(
+                        std::string("tool_list: invalid inputSchema for ") +
+                        spec.name + ": " + parse_error);
+                }
+                item.set("inputSchema", std::move(schema));
+                arr.push(std::move(item));
+            }
+            return cpphub::v1::json_min::dump(arr);
+        }();
+        return write_json_payload(kToolListJson, out_json, out_len);
+    } catch (...) {
+        return translate_exception();
+    }
+}
+
+int cpphub_v1_tool_call(const char* tool_name, const char* args_json,
+                        char* out_json, size_t* out_len) {
+    try {
+        if (out_len == nullptr) {
+            set_error("out_len must not be null");
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+        if (tool_name == nullptr) {
+            set_error("tool_name must not be null");
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+        if (args_json == nullptr) {
+            set_error("args_json must not be null");
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+
+        const cpphub::v1::c_api::ToolSpec* spec =
+            cpphub::v1::c_api::find_tool(tool_name);
+        if (spec == nullptr) {
+            std::string available;
+            for (const auto& s : cpphub::v1::c_api::tool_specs()) {
+                if (!available.empty()) available += ", ";
+                available += s.name;
+            }
+            set_error(std::string("unknown tool '") + tool_name +
+                      "'; available: " + available);
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+
+        cpphub::v1::json_min::Value args;
+        std::string parse_error;
+        if (!cpphub::v1::json_min::parse(args_json, args, parse_error)) {
+            set_error("invalid args_json: " + parse_error);
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+        if (!args.is_object()) {
+            set_error("args_json must be a JSON object");
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+
+        const cpphub::v1::c_api::ToolOutcome outcome = spec->handler(args);
+        if (!outcome.ok) {
+            set_error(outcome.error);
+            return outcome.kind == cpphub::v1::c_api::ToolErrorKind::Runtime
+                       ? CPPHUB_ERR_RUNTIME
+                       : CPPHUB_ERR_INVALID_ARG;
+        }
+        return write_json_payload(cpphub::v1::json_min::dump(outcome.result),
+                                  out_json, out_len);
     } catch (...) {
         return translate_exception();
     }
