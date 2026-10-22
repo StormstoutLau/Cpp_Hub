@@ -1,5 +1,6 @@
 #include "cpphub/core/rng.hpp"
 #include "cpphub/core/linalg.hpp"
+#include "kat_philox4x64_10.hpp"
 #include <gtest/gtest.h>
 #include <vector>
 #include <numeric>
@@ -112,4 +113,20 @@ TEST(Rng, PhiloxNext4Consistency) {
     EXPECT_EQ(op2, n4[1]);
     EXPECT_EQ(op3, n4[2]);
     EXPECT_EQ(op4, n4[3]);
+}
+
+// RISK-027: 官方 KAT（上游 kat_vectors 生成头, tmp/extract_kat.py 抽取）
+TEST(RngKat, Philox4x64MatchesKnownAnswers) {
+    for (std::size_t i = 0; i < rng_kat::kKatCount; ++i) {
+        const auto& kv = rng_kat::kKatVectors[i];
+        r123::Philox4x64::ctr_type ctr{};
+        for (int j = 0; j < 4; ++j) ctr.v[j] = kv.ctr[j];
+        r123::Philox4x64::key_type key{};
+        key.v[0] = kv.key[0];
+        key.v[1] = kv.key[1];
+        const auto r = r123::Philox4x64{}(ctr, key);
+        for (int j = 0; j < 4; ++j) {
+            ASSERT_EQ(r.v[j], kv.answer[j]) << "vector " << i << " word " << j;
+        }
+    }
 }

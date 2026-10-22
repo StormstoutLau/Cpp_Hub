@@ -20,6 +20,9 @@
 #include <vector>
 #include "cpphub/performance/gpu/gpu_config.hpp"
 #include "cpphub/performance/gpu/gpu_mc.hpp"
+#include "cpphub/core/rng.hpp"
+#include "cpphub/performance/gpu/rng_device_probe.hpp"
+#include "kat_philox4x64_10.hpp"
 #include "cpphub/risk/greeks/greeks_analytic.hpp"
 
 using namespace cpphub;
@@ -355,4 +358,55 @@ TEST(GpuMC, EngineMoveTransfersOwnership) {
     }
     EXPECT_EQ(GpuMCEngine::live_impl_count(), 0u)
         << "移动后的所有对象析构后不得残留";
+}
+
+// ============================================================================
+// 20-23: RISK-027 RNG 对齐 (设备端 Random123 vs 官方 KAT / CPU 流 / 正态层级)
+// ============================================================================
+
+// P2a: 设备端 Random123 与官方 KAT 一致（证明 nvcc 编译出同一实现）
+TEST(GpuMC, PhiloxMatchesKnownAnswers) {
+    std::vector<gpu_probe::KatVector> vecs(rng_kat::kKatCount);
+    for (std::size_t i = 0; i < rng_kat::kKatCount; ++i) {
+        for (int j = 0; j < 4; ++j) vecs[i].ctr[j] = rng_kat::kKatVectors[i].ctr[j];
+        vecs[i].key[0] = rng_kat::kKatVectors[i].key[0];
+        vecs[i].key[1] = rng_kat::kKatVectors[i].key[1];
+    }
+    const auto got = gpu_probe::philox_kat(vecs);
+    for (std::size_t i = 0; i < rng_kat::kKatCount; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            ASSERT_EQ(got[i * 4 + j], rng_kat::kKatVectors[i].answer[j])
+                << "vector " << i << " word " << j;
+        }
+    }
+}
+
+// P2b: uniform 流 CPU/GPU 逐字相同（把 E1-9 固化为回归; U-1 分层承诺第 1 层）
+TEST(GpuMC, UniformStreamMatchesCpu) {
+    constexpr std::size_t kN = 10000;
+    Philox4x64 cpu_rng(12345);
+    const auto gpu = gpu_probe::philox_blocks(12345, kN);
+    for (std::size_t p = 0; p < kN; ++p) {
+        const auto blk = cpu_rng.next4();
+        for (int j = 0; j < 4; ++j) {
+            ASSERT_EQ(blk[j], gpu[p * 4 + j]) << "block " << p << " word " << j;
+        }
+    }
+}
+
+// P3: 正态层级 1e-15 相对差（U-1 分层承诺第 2 层; 回归锁, 非红驱动）
+TEST(GpuMC, NormalSamplesWithinTolerance) {
+    constexpr std::size_t kN = 10000;
+    Philox4x64 cpu_rng(12345);
+    const auto gpu = gpu_probe::box_muller_z1_batch(12345, kN);
+    for (std::size_t p = 0; p < kN; ++p) {
+        auto u = cpu_rng.next4();
+        double u1 = (u[0] >> 11) * (1.0 / 9007199254740992.0);
+        double u2 = (u[1] >> 11) * (1.0 / 9007199254740992.0);
+        const double zc1 = box_muller(u1, u2).first;  // 只用 z1, 与 GPU 一致
+        const double diff = std::fabs(zc1 - gpu[p]);
+        const double denom = std::fabs(zc1);
+        ASSERT_TRUE(denom > 1.0 ? diff / denom <= 1e-15 : diff <= 1e-15)
+            << "path " << p << " cpu=" << zc1 << " gpu=" << gpu[p];
+    }
 }

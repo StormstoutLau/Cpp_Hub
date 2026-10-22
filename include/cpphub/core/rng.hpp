@@ -3,101 +3,82 @@
 #include <array>
 #include <utility>
 #include <limits>
+#include <Random123/philox.h>   // RISK-027: vendor Random123 (third_party/random123)
 #include "cpphub/core/constants.hpp"
 #include "cpphub/core/simd.hpp"
 #include "cpphub/core/linalg.hpp"
 
-// MSVC 128 位乘法内建
-#if defined(_MSC_VER)
-#include <intrin.h>
-#endif
-
 namespace cpphub {
 inline namespace v1 {
 
-static constexpr uint64_t PHILOX_M4x64_0 = 0xD2B74407B1CE6E93ULL;
-static constexpr uint64_t PHILOX_M4x64_1 = 0x9CCD9A8C5AE13B41ULL;
-static constexpr uint64_t PHILOX_W32_0 = 0x9E3779B9;
-static constexpr uint64_t PHILOX_W32_1 = 0xBB67AE85;
-
+// Philox4x64-10 (Random123): counter 4xu64, key 2xu64, 每次调用产出 4 字。
+// 本类为流式适配层: 逐字输出 + 块缓冲, 对外语义不变
+// （operator() = 流顺序下一字; next4() = 恰 1 个完整块 = 与 GPU 每路径 1 块对齐）。
 class Philox4x64 {
-    uint64_t counter_[2]{0, 0};
-    uint64_t key_[2]{0, 0};
+    r123::Philox4x64::ctr_type ctr_{};    // 4xu64 计数器（下一块的 counter）
+    r123::Philox4x64::key_type key_{};    // 2xu64 密钥 = {seed, stream}
+    r123::Philox4x64::ctr_type block_{};  // 当前缓冲块的 4 字
+    int idx_ = 4;                          // 4 = 块已耗尽
+
 public:
     using result_type = uint64_t;
     static constexpr uint64_t min() { return 0; }
     static constexpr uint64_t max() { return UINT64_MAX; }
 
     explicit Philox4x64(uint64_t seed = 0, uint64_t stream = 0) {
-        key_[0] = seed;
-        key_[1] = stream;
+        key_.v[0] = seed;
+        key_.v[1] = stream;
     }
 
+    // 流顺序的下一字; 块耗尽时以当前 counter 计算整块并前移
     uint64_t operator()() {
-        auto r = compute();
-        inc_counter();
-        return r[0];
+        if (idx_ == 4) refill();
+        return block_.v[idx_++];
     }
 
-    void discard(uint64_t n) {
-        uint64_t lo = counter_[0] + n;
-        if (lo < counter_[0]) counter_[1]++;
-        counter_[0] = lo;
-    }
-
+    // 恰 1 个完整块（4 字）。调用方若从块边界出发则保持块对齐
+    // （normal_simd 即此用法 → CPU 第 p 步 = GPU 第 p 路径同一 counter 同一 4 字）。
     std::array<uint64_t, 4> next4() {
-        auto r0 = compute();
-        inc_counter();
-        auto r1 = compute();
-        inc_counter();
-        auto r2 = compute();
-        inc_counter();
-        auto r3 = compute();
-        inc_counter();
-        return {r0[0], r1[0], r2[0], r3[0]};
+        return {operator()(), operator()(), operator()(), operator()()};
+    }
+
+    // 丢弃 n 个输出字（DESIGN §6.3: ctr += n/4, 再消费 n%4）
+    void discard(uint64_t n) {
+        if (n == 0) return;
+        const uint64_t avail = (idx_ == 4) ? 0 : static_cast<uint64_t>(4 - idx_);
+        if (n < avail) {
+            idx_ += static_cast<int>(n);
+            return;
+        }
+        n -= avail;
+        idx_ = 4;
+        const uint64_t blocks = n / 4;
+        if (blocks > 0) add_to_ctr(blocks);
+        const uint64_t rem = n % 4;
+        if (rem > 0) {
+            refill();
+            idx_ = static_cast<int>(rem);
+        }
+        // rem == 0: 保持 idx_=4, 下次 operator() 触发 refill
     }
 
 private:
-    void inc_counter() {
-        counter_[0]++;
-        if (counter_[0] == 0) counter_[1]++;
+    void refill() {
+        block_ = r123::Philox4x64{}(ctr_, key_);
+        bump_ctr();
+        idx_ = 0;
     }
-
-    static uint64_t mulhi(uint64_t a, uint64_t b) {
-#if defined(CPPHUB_COMPILER_MSVC) || defined(_MSC_VER)
-        // MSVC 无 __uint128_t, 使用 _umul128 内建
-        uint64_t hi, lo;
-        lo = _umul128(a, b, &hi);
-        (void)lo;
-        return hi;
-#else
-        return (uint64_t)(((__uint128_t)a * b) >> 64);
-#endif
-    }
-
-    static uint64_t mullo(uint64_t a, uint64_t b) {
-        // 64 位乘法的低 64 位, 所有平台都是普通乘法
-        return a * b;
-    }
-
-    std::array<uint64_t, 2> compute() const {
-        uint64_t c0 = counter_[0];
-        uint64_t c1 = counter_[1];
-        uint64_t k0 = key_[0];
-        uint64_t k1 = key_[1];
-
-        for (int r = 0; r < 10; ++r) {
-            uint64_t hi0 = mulhi(c0, PHILOX_M4x64_0);
-            uint64_t lo0 = mullo(c0, PHILOX_M4x64_0);
-            uint64_t hi1 = mulhi(c1, PHILOX_M4x64_1);
-            uint64_t lo1 = mullo(c1, PHILOX_M4x64_1);
-            c0 = hi1 ^ lo0 ^ k0;
-            c1 = hi0 ^ lo1 ^ k1;
-            k0 += PHILOX_W32_0;
-            k1 += PHILOX_W32_1;
+    void bump_ctr() {
+        for (int i = 0; i < 4; ++i) {
+            if (++ctr_.v[i] != 0) break;  // 256 位小端进位
         }
-
-        return {c0, c1};
+    }
+    void add_to_ctr(uint64_t k) {
+        for (int i = 0; i < 4 && k != 0; ++i) {
+            const uint64_t old = ctr_.v[i];
+            ctr_.v[i] = old + k;
+            k = (ctr_.v[i] < old) ? 1 : 0;
+        }
     }
 };
 

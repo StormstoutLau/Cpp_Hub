@@ -182,18 +182,18 @@ Real nc = noncentral_chi2_cdf(3.0, 2.0, 4.0);  // 非中心卡方 CDF
 
 #### 3.1.3 随机数生成 `core/rng.hpp`
 
-**算法**: **Philox 4x64-10**（Salmon et al. 2011, *Parallel Random Numbers: As Easy as 1, 2, 3*, SC）
+**算法**: **Philox 4x64-10**（Salmon et al. 2011, *Parallel Random Numbers: As Easy as 1, 2, 3*, SC）— 实现来自 vendor Random123（`third_party/random123`，BSD-3-Clause）
 
 | 属性 | 值 |
 |---|---|
-| 算法 | Philox 4x64-10 计数式 ARNG（10 轮 Feistel-like 混合） |
-| 周期 | **2^128**（128 位计数器空间） |
-| 状态 | `counter_[2]` + `key_[2]`（共 256 位） |
-| 输出 | 64 位无符号整数，均匀→[0,1) 用 `u>>11 · 1/2^53`（53 位精度） |
+| 算法 | Philox 4x64-10（Random123 `philox4x64_10`，10 轮 Feistel-like 混合） |
+| 周期 | **2^256**（counter 4×u64 空间） |
+| 状态 | `counter[4]` + `key[2]`（共 384 位） |
+| 输出 | 每块 4×u64；`operator()` 逐字输出、`next4()` 返回一整块；均匀→[0,1) 用 `u>>11 · 1/2^53`（53 位精度） |
 | 正态变换 | Box-Muller：`z1=√(-2 ln u1)·cos(2π u2)`, `z2=√(-2 ln u1)·sin(2π u2)` |
 | 相关化 | `generate_correlated(rng, L)`：先独立正态 z，再 `L·z`（L 为 Cholesky 因子） |
 
-**并行性**: counter-based 设计天然支持并行 — 不同 (counter, key) 独立无重叠。GPU 实现与 CPU 位精确一致（相同 seed + counter 编号 → 相同 Z）。
+**并行性**: counter-based 设计天然支持并行 — 不同 (counter, key) 独立无重叠。CPU/GPU 承诺**分层**：uniform 流位精确（同 seed + 同 counter → 同 4 字）；正态样本相对差 ≤ 1e-15（CUDA 与 host 数学库末位差异）。以源码树直接使用需加入 `-I third_party/random123/include`（CMake 目标已自动传递）。
 
 调用示例：
 
@@ -691,7 +691,7 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 
 | 属性 | 值 |
 |---|---|
-| RNG | Philox4x64-10（与 CPU 同算法，位精确一致） |
+| RNG | Philox4x64-10（Random123，与 CPU 同一实现：uniform 位精确；正态 1e-15） |
 | 定价 | `price = E[exp(-rT)·payoff(S_T)]`，`S_T=S·exp((r-σ²/2)T+σ√T·Z)` |
 | MC 误差 | O(1/√N) |
 | CPU/GPU 一致性 | 价格相对差 < 1e-12（求和顺序不同） |

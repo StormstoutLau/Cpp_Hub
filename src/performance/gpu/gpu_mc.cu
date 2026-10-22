@@ -1,24 +1,31 @@
 // Phase 4 LITE - M3: GPU MC 引擎 (CUDA 实现)
 //
 // 设计要点:
-//   1. Philox4x64-10 RNG 与 CPU (cpphub/core/rng.hpp) 算法完全一致:
-//      - 同样常量 (PHILOX_M4x64_0/1, PHILOX_W32_0/1)
-//      - 同样 10 轮
-//      - 同样 mulhi/mullo 分离
-//      → 同 seed + counter → 同 Z (位精确)
+//   1. 同一 Random123 Philox4x64-10 实现 (third_party/random123), 常量/轮数由上游接管:
+//      - 设备端与 CPU (cpphub/core/rng.hpp) 共用同一 vendor 头
+//      → 同 seed + counter → 同 Z (uniform 位精确)
 //   2. Box-Muller 与 CPU 一致: u=(r>>11)*(1/2^53), r=sqrt(-2 ln u1), theta=2π u2
 //   3. 精确解一步到期 (欧式 GBM): S_T = S·exp((r-σ²/2)T + σ√T·Z)
 //   4. 每线程 1 条路径, block 级 shared memory 归约 + global atomic
 //   5. 双精度强制 (Real=double), RTX 4060 (SM 8.9) 支持原生 FP64
 //
 // CPU/GPU 数值差异来源:
-//   - mulhi: CPU (MSVC _umul128 / GCC __uint128_t) vs GPU (__umul64hi) 实现等价
+//   - mulhi: 上游 Random123 按平台分派 (MSVC _umul128 / GCC __uint128_t / CUDA __umul64hi) 等价
 //   - 求和顺序: GPU warp/block 归约 vs CPU 顺序累加 → 价格相对差 < 1e-12
 //   - 单测容差: 价格 1e-6 (MC 误差 O(1/√N) 主导), 标准误差 1e-4
 
 #include "cpphub/performance/gpu/gpu_config.hpp"
 #include "cpphub/performance/gpu/gpu_mc.hpp"
 #include "cpphub/core/constants.hpp"
+
+// RISK-027 / DESIGN §11 D-6: Windows+nvcc 下 msvcfeatures.h 与 nvccfeatures.h
+// 同时置位 R123_USE_MULHILO64_MSVC_INTRIN 与 _CUDA_INTRIN, 而 philox.h 让前者优先
+// → device 代码调用 host-only 的 _umul128 编译失败。必须在 include 前关闭。
+#if defined(__CUDA_ARCH__)
+#define R123_USE_MULHILO64_MSVC_INTRIN 0
+#endif
+#include <Random123/philox.h>
+#include "cpphub/performance/gpu/rng_device_probe.hpp"
 
 #include <cuda_runtime.h>
 #include <atomic>
@@ -34,47 +41,10 @@ namespace cpphub {
 inline namespace v1 {
 
 // ============================================================================
-// 1. 设备端 Philox4x64-10 (与 CPU cpphub/core/rng.hpp 算法一致)
+// 1. 设备端工具 (Box-Muller / 单位化; Philox 由 Random123 提供)
 // ============================================================================
 
 namespace {
-
-__device__ __constant__ uint64_t d_PHILOX_M4x64_0 = 0xD2B74407B1CE6E93ULL;
-__device__ __constant__ uint64_t d_PHILOX_M4x64_1 = 0x9CCD9A8C5AE13B41ULL;
-__device__ __constant__ uint64_t d_PHILOX_W32_0   = 0x9E3779B9;
-__device__ __constant__ uint64_t d_PHILOX_W32_1   = 0xBB67AE85;
-
-/// 64x64 高位乘法 (与 CPU mulhi 等价)
-__device__ __forceinline__ uint64_t gpu_mulhi(uint64_t a, uint64_t b) {
-    return __umul64hi(a, b);
-}
-
-/// 64x64 低位乘法
-__device__ __forceinline__ uint64_t gpu_mullo(uint64_t a, uint64_t b) {
-    return a * b;
-}
-
-/// Philox4x64 单次计算 (返回 2 个 64 位输出)
-/// key=[seed, stream], counter=[path_id, 0]
-__device__ __forceinline__ void philox4x64_10(
-    uint64_t c0, uint64_t c1,
-    uint64_t k0, uint64_t k1,
-    uint64_t& out0, uint64_t& out1)
-{
-    #pragma unroll
-    for (int r = 0; r < 10; ++r) {
-        uint64_t hi0 = gpu_mulhi(c0, d_PHILOX_M4x64_0);
-        uint64_t lo0 = gpu_mullo(c0, d_PHILOX_M4x64_0);
-        uint64_t hi1 = gpu_mulhi(c1, d_PHILOX_M4x64_1);
-        uint64_t lo1 = gpu_mullo(c1, d_PHILOX_M4x64_1);
-        c0 = hi1 ^ lo0 ^ k0;
-        c1 = hi0 ^ lo1 ^ k1;
-        k0 += d_PHILOX_W32_0;
-        k1 += d_PHILOX_W32_1;
-    }
-    out0 = c0;
-    out1 = c1;
-}
 
 /// Box-Muller (与 CPU box_muller 一致)
 /// u1, u2 ∈ (0, 1) (由 (r>>11)*(1/2^53) 生成)
@@ -130,13 +100,15 @@ __global__ void mc_gbm_european_kernel(
 
     // 每线程处理多条路径 (grid stride loop)
     for (Size path = tid; path < n_paths; path += stride) {
-        // Philox: key=[seed, 0], counter=[path, 0]
-        uint64_t r0, r1;
-        philox4x64_10(static_cast<uint64_t>(path), 0ULL,
-                      seed, 0ULL, r0, r1);
+        // Philox: Random123 vendor (RISK-027), key=[seed, 0], counter=[path, 0, 0, 0]
+        r123::Philox4x64::ctr_type ctr{};
+        ctr.v[0] = static_cast<uint64_t>(path);
+        r123::Philox4x64::key_type key{};
+        key.v[0] = seed;
+        const r123::Philox4x64::ctr_type r = r123::Philox4x64{}(ctr, key);
 
-        double u1 = uint64_to_unit(r0);
-        double u2 = uint64_to_unit(r1);
+        double u1 = uint64_to_unit(r.v[0]);
+        double u2 = uint64_to_unit(r.v[1]);
         double z1, z2;
         gpu_box_muller(u1, u2, z1, z2);
 
@@ -517,6 +489,106 @@ GpuMCResult GpuMCEngine::price_european_heston() const {
     throw std::runtime_error(
         "GpuMCEngine::price_european_heston: not implemented in M3 (planned for v2.1).");
 }
+
+// ============================================================================
+// 4. 测试探针 (RISK-027): 设备端 Philox/KAT/Box-Muller 结果导出到 host
+// ============================================================================
+
+namespace {
+
+constexpr int kProbeBlock = 128;
+
+__global__ void probe_philox_block_kernel(uint64_t seed, uint64_t* out, uint64_t n) {
+    const uint64_t path = blockIdx.x * blockDim.x + threadIdx.x;
+    if (path >= n) return;  // grid 向上取整 → 必须守卫, 否则越界写
+    r123::Philox4x64::ctr_type ctr{};
+    ctr.v[0] = path;
+    r123::Philox4x64::key_type key{};
+    key.v[0] = seed;
+    const r123::Philox4x64::ctr_type r = r123::Philox4x64{}(ctr, key);
+    for (int i = 0; i < 4; ++i) out[path * 4 + i] = r.v[i];
+}
+
+__global__ void probe_philox_kat_kernel(const gpu_probe::KatVector* vecs,
+                                        uint64_t* out, int n) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    r123::Philox4x64::ctr_type ctr{};
+    for (int j = 0; j < 4; ++j) ctr.v[j] = vecs[i].ctr[j];
+    r123::Philox4x64::key_type key{};
+    key.v[0] = vecs[i].key[0];
+    key.v[1] = vecs[i].key[1];
+    const r123::Philox4x64::ctr_type r = r123::Philox4x64{}(ctr, key);
+    for (int j = 0; j < 4; ++j) out[i * 4 + j] = r.v[j];
+}
+
+__global__ void probe_box_muller_z1_kernel(uint64_t seed, double* out, uint64_t n) {
+    const uint64_t path = blockIdx.x * blockDim.x + threadIdx.x;
+    if (path >= n) return;
+    r123::Philox4x64::ctr_type ctr{};
+    ctr.v[0] = path;
+    r123::Philox4x64::key_type key{};
+    key.v[0] = seed;
+    const r123::Philox4x64::ctr_type r = r123::Philox4x64{}(ctr, key);
+    double z1, z2;
+    gpu_box_muller(uint64_to_unit(r.v[0]), uint64_to_unit(r.v[1]), z1, z2);
+    out[path] = z1;
+}
+
+unsigned probe_grid(std::size_t n) {
+    return static_cast<unsigned>((n + kProbeBlock - 1) / kProbeBlock);
+}
+
+}  // namespace
+
+namespace gpu_probe {  // 已在 cpphub::v1 内, 直接开子命名空间
+
+std::vector<std::uint64_t> philox_blocks(std::uint64_t seed, std::size_t n_blocks) {
+    if (n_blocks == 0) return {};
+    std::vector<std::uint64_t> host(n_blocks * 4);
+    DeviceBuffer dev(host.size() * sizeof(std::uint64_t));
+    probe_philox_block_kernel<<<probe_grid(n_blocks), kProbeBlock>>>(
+        seed, reinterpret_cast<std::uint64_t*>(dev.get()),
+        static_cast<std::uint64_t>(n_blocks));
+    CPPHUB_CUDA_CHECK(cudaGetLastError());
+    CPPHUB_CUDA_CHECK(cudaMemcpy(host.data(), dev.get(),
+                                 host.size() * sizeof(std::uint64_t),
+                                 cudaMemcpyDeviceToHost));
+    return host;
+}
+
+std::vector<std::uint64_t> philox_kat(const std::vector<KatVector>& vectors) {
+    if (vectors.empty()) return {};
+    std::vector<std::uint64_t> out(vectors.size() * 4);
+    DeviceBuffer d_in(vectors.size() * sizeof(KatVector));
+    DeviceBuffer d_out(out.size() * sizeof(std::uint64_t));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(d_in.get(), vectors.data(),
+                                 vectors.size() * sizeof(KatVector),
+                                 cudaMemcpyHostToDevice));
+    probe_philox_kat_kernel<<<probe_grid(vectors.size()), kProbeBlock>>>(
+        reinterpret_cast<const KatVector*>(d_in.get()),
+        reinterpret_cast<std::uint64_t*>(d_out.get()),
+        static_cast<int>(vectors.size()));
+    CPPHUB_CUDA_CHECK(cudaGetLastError());
+    CPPHUB_CUDA_CHECK(cudaMemcpy(out.data(), d_out.get(),
+                                 out.size() * sizeof(std::uint64_t),
+                                 cudaMemcpyDeviceToHost));
+    return out;
+}
+
+std::vector<double> box_muller_z1_batch(std::uint64_t seed, std::size_t n) {
+    if (n == 0) return {};
+    std::vector<double> out(n);
+    DeviceBuffer dev(n * sizeof(double));
+    probe_box_muller_z1_kernel<<<probe_grid(n), kProbeBlock>>>(
+        seed, dev.get(), static_cast<std::uint64_t>(n));
+    CPPHUB_CUDA_CHECK(cudaGetLastError());
+    CPPHUB_CUDA_CHECK(cudaMemcpy(out.data(), dev.get(), n * sizeof(double),
+                                 cudaMemcpyDeviceToHost));
+    return out;
+}
+
+}  // namespace gpu_probe
 
 }  // namespace cpphub::v1
 }  // namespace cpphub

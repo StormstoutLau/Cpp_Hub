@@ -154,54 +154,54 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-61 | vendor 目录完整 | `Get-ChildItem third_party/random123 -Recurse` | `include/Random123/**` + `LICENSE` + `UPSTREAM.md` | 目录树 | ☐ |
-| C-62 | 上游头文件未被修改 | 与 U-8 下载源逐文件比对（hash 或 `diff -r`） | 差异仅限新增 `UPSTREAM.md`/目录布局 | diff 输出 | ☐ |
-| C-63 | 三处 include 路径补齐 | 读根 CMake :25-28、gpu CMake :36-39、python CMake :27-31 | 各含 `random123/include` | 三处代码 | ☐ |
-| C-64 | stub 分支未被污染 | 读 gpu CMake :65-88 | 无 random123 路径、无 `.cu` | 代码片段 | ☐ |
-| C-65 | 库外无人引用旧常量 | `Get-ChildItem -Recurse -Include *.cpp,*.hpp,*.cu \| Select-String -Pattern 'PHILOX_M4x64\|PHILOX_W32\|d_PHILOX'` | 除 `spec/`、`docs/` 外 **0** 命中 | 计数 0 | ☐ |
+| C-61 | vendor 目录完整 | `Get-ChildItem third_party/random123 -Recurse` | `include/Random123/**` + `LICENSE` + `UPSTREAM.md` | `include/Random123/**` **27** 文件 + LICENSE + UPSTREAM.md（现树实测） | ✅ |
+| C-62 | 上游头文件未被修改 | 与 U-8 下载源逐文件比对（hash 或 `diff -r`） | 差异仅限新增 `UPSTREAM.md`/目录布局 | 上游 zip（`tmp/r123_dl/random123.zip`，SHA-256 `1E0C81EE…E01F0`）解包后逐文件比较：**27/27 SHA-256 全等，0 diff**；LICENSE 逐字节相同 | ✅ |
+| C-63 | 三处 include 路径补齐 | 读根 CMake :25-28、gpu CMake :36-39、python CMake :27-31 | 各含 `random123/include` | 根 `CMakeLists.txt:30`、`src/performance/gpu/CMakeLists.txt:40`、`python/CMakeLists.txt:40` 均含 | ✅ |
+| C-64 | stub 分支未被污染 | 读 gpu CMake :65-88 | 无 random123 路径、无 `.cu` | :67-90 仅 `gpu_mc_cpu_stub.cpp` + `gpu_config.cpp`，无 random123 路径 | ✅ |
+| C-65 | 库外无人引用旧常量 | `Get-ChildItem -Recurse -Include *.cpp,*.hpp,*.cu \| Select-String -Pattern 'PHILOX_M4x64\|PHILOX_W32\|d_PHILOX'` | 除 `spec/`、`docs/` 外 **0** 命中 | 0 命中（仅两处 `#include "kat_philox4x64_10.hpp"` 命中文件名子串，非常量） | ✅ |
 
 ### 6.2 `rng.hpp` 契约
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-66 | 公共签名不变 | 读 rng.hpp | 类名 `Philox4x64`；`result_type`、`min/max`、`Philox4x64(uint64_t=0,uint64_t=0)`、`operator()`、`discard(uint64_t)`、`next4()->std::array<uint64_t,4>` 全保留 | 代码片段 | ☐ |
-| C-67 | 旧实现残留清零 | `Select-String -Path include/cpphub/core/rng.hpp -Pattern 'mulhi|mullo|PHILOX_'` | 0 命中；含 `#include <Random123/philox.h>` | 计数 0 + include 行 | ☐ |
-| C-68 | `box_muller`/`normal_simd`/`generate_correlated` 未改 | `git diff -U0 include/cpphub/core/rng.hpp` | 三函数区间零 diff | diff 输出 | ☐ |
-| C-69 | 块对齐语义 | 读 `next4()`；跑 `Rng.PhiloxNext4Consistency` | `next4() == 4×operator()`；用例通过 | 用例 + 代码 | ☐ |
-| C-70 | discard 语义 | 跑 `Rng.PhiloxDiscard` | 通过（50 → 12 块 + 2 字内） | 用例通过 | ☐ |
-| C-71 | 既有 **9** 用例无需改动即绿 | `git diff tests/unit/core/test_rng.cpp`（除新增 KAT 段） | 既有用例零修改；全部通过 | diff + ctest | ☐ |
+| C-66 | 公共签名不变 | 读 rng.hpp | 类名 `Philox4x64`；`result_type`、`min/max`、`Philox4x64(uint64_t=0,uint64_t=0)`、`operator()`、`discard(uint64_t)`、`next4()->std::array<uint64_t,4>` 全保留 | `rng.hpp:17-83`：类名 :17、result_type/min/max :24-26、构造 :28、operator() :34、next4 :41、discard :46 | ✅ |
+| C-67 | 旧实现残留清零 | `Select-String -Path include/cpphub/core/rng.hpp -Pattern 'mulhi\|mullo\|PHILOX_'` | 0 命中；含 `#include <Random123/philox.h>` | 全文 0 命中；`rng.hpp:6` 为 include 行 | ✅ |
+| C-68 | `box_muller`/`normal_simd`/`generate_correlated` 未改 | `git diff -U0 include/cpphub/core/rng.hpp` | 三函数区间零 diff | diff 末 hunk 止于 `:81`（类私有段），:85-120 三函数零 hunk | ✅ |
+| C-69 | 块对齐语义 | 读 `next4()`；跑 `Rng.PhiloxNext4Consistency` | `next4() == 4×operator()`；用例通过 | `rng.hpp:41-43` 逐字等于 4 次 `operator()`；test_rng 10/10 通过 | ✅ |
+| C-70 | discard 语义 | 跑 `Rng.PhiloxDiscard` | 通过（50 → 12 块 + 2 字内） | test_rng 10/10 通过 | ✅ |
+| C-71 | 既有 **9** 用例无需改动即绿 | `git diff tests/unit/core/test_rng.cpp`（除新增 KAT 段） | 既有用例零修改；全部通过 | `+17` 行（1 include + `RngKat` 15 行），既有 9 用例零改动；10/10 通过 | ✅ |
 
 ### 6.3 GPU 侧
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-72 | 设备端自写 Philox 已删 | `Select-String -Path src/performance/gpu/gpu_mc.cu -Pattern 'd_PHILOX|philox4x64_10|gpu_mulhi|gpu_mullo'` | 0 命中 | 计数 0 | ☐ |
-| C-73 | 内核走 Random123 | 读内核调用点 | `ctr.v[0]=path`、`key.v[0]=seed`、`r.v[0]/r.v[1]` 进 `uint64_to_unit` | 代码片段 | ☐ |
-| C-74 | 探针头存在且仅 CUDA 分支提供实现 | 读 `rng_device_probe.hpp`；`Select-String -Path src/performance/gpu/gpu_mc_cpu_stub.cpp -Pattern 'gpu_probe'` | 头文件 3 个函数声明；stub 0 命中（不做未定义引用） | 头文件 + 计数 0 | ☐ |
-| C-75 | 探针 kernel 安全 | 读 gpu_mc.cu 探针段 | 三个 kernel 均有 `path >= n` 守卫；launch 后 `cudaGetLastError()`；空输入早退 | 代码片段 | ☐ |
-| C-76 | 探针头登记进 FILE_SET | 读 gpu CMake :27-34 | FILES 含 `rng_device_probe.hpp` | 代码片段 | ☐ |
+| C-72 | 设备端自写 Philox 已删 | `Select-String -Path src/performance/gpu/gpu_mc.cu -Pattern 'd_PHILOX|philox4x64_10|gpu_mulhi|gpu_mullo'` | 0 命中 | 0 命中（gpu_mc.cu 全文） | ✅ |
+| C-73 | 内核走 Random123 | 读内核调用点 | `ctr.v[0]=path`、`key.v[0]=seed`、`r.v[0]/r.v[1]` 进 `uint64_to_unit` | `gpu_mc.cu:104-111` 符合 | ✅ |
+| C-74 | 探针头存在且仅 CUDA 分支提供实现 | 读 `rng_device_probe.hpp`；`Select-String -Path src/performance/gpu/gpu_mc_cpu_stub.cpp -Pattern 'gpu_probe'` | 头文件 3 个函数声明；stub 0 命中（不做未定义引用） | 头 :20/:23/:26 三声明；stub 0 命中 | ✅ |
+| C-75 | 探针 kernel 安全 | 读 gpu_mc.cu 探针段 | 三个 kernel 均有 `path >= n` 守卫；launch 后 `cudaGetLastError()`；空输入早退 | `gpu_mc.cu:502/514/526` 守卫；:552/571/584 `CPPHUB_CUDA_CHECK(cudaGetLastError())`；:546/560/579 空输入早退 | ✅ |
+| C-76 | 探针头登记进 FILE_SET | 读 gpu CMake :27-34 | FILES 含 `rng_device_probe.hpp` | `src/performance/gpu/CMakeLists.txt:34` | ✅ |
 
 ### 6.4 KAT 与对齐测试
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-77 | 夹具为生成头（非 .txt） | `Test-Path tests/fixtures/rng/kat_philox4x64_10.hpp`；`Test-Path ...\.txt` | hpp = True；txt = False | 两个布尔值 | ☐ |
-| C-78 | 夹具内容来自上游 | 抽查 ≥3 行与上游 `tests/kat_vectors` 逐字比对 | 完全一致；`kKatCount = 3`（上游 10 轮全部行） | 生成头 + 上游行对照 | ☐ |
-| C-79 | CPU KAT：`RngKat.Philox4x64MatchesKnownAnswers` | `ctest --test-dir build -C Release -R "RngKat"` | 1/1 通过 | ctest 输出 | ☐ |
-| C-80 | GPU KAT | `ctest --test-dir build_cuda -C Release -R "gpu_mc"`，读 `GpuMC.PhiloxMatchesKnownAnswers` 结果 | 通过（设备端与上游一致） | 用例输出 | ☐ |
-| C-81 | uniform 流逐字对齐 | 同上，`GpuMC.UniformStreamMatchesCpu` | p=0..9999 共 40'000 字全等 | 用例通过 | ☐ |
-| C-82 | 正态层级承诺 | 同上，`GpuMC.NormalSamplesWithinTolerance` | 相对差 ≤1e-15（|z|<1 时绝对 ≤1e-15） | 用例通过 | ☐ |
-| C-83 | P3 定性记录正确 | 读 DESIGN §7 与 IMPLEMENTATION §5.6 | 均写明"回归锁、非红驱动" | 文档行 | ☐ |
-| C-84 | 测试 include 路径齐全 | 读 tests/CMakeLists :22 附近、gpu CMake test_gpu_mc 块 | 两处 `target_include_directories(... fixtures/rng)`；test_gpu_mc.cpp 含 `rng.hpp` | 代码片段 | ☐ |
+| C-77 | 夹具为生成头（非 .txt） | `Test-Path tests/fixtures/rng/kat_philox4x64_10.hpp`；`Test-Path ...\.txt` | hpp = True；txt = False | hpp=True / txt=False | ✅ |
+| C-78 | 夹具内容来自上游 | 抽查 ≥3 行与上游 `tests/kat_vectors` 逐字比对 | 完全一致；`kKatCount = 3`（上游 10 轮全部行） | 上游 `kat_vectors` 3 行逐字一致（`16554d9e…` / `87b092c3…` / `a528f454…`）；`kKatCount=3` | ✅ |
+| C-79 | CPU KAT：`RngKat.Philox4x64MatchesKnownAnswers` | `ctest --test-dir build -C Release -R "RngKat"` | 1/1 通过 | build 与 `tmp/verify_capi` 均 Passed | ✅ |
+| C-80 | GPU KAT | `ctest --test-dir build_cuda -C Release -R "gpu_mc"`，读 `GpuMC.PhiloxMatchesKnownAnswers` 结果 | 通过（设备端与上游一致） | build_cuda `gpu_mc` 22/22（2026-10-22，RTX 4060） | ✅ |
+| C-81 | uniform 流逐字对齐 | 同上，`GpuMC.UniformStreamMatchesCpu` | p=0..9999 共 40'000 字全等 | 22/22 中的 `GpuMC.UniformStreamMatchesCpu` Passed（10000 块×4 字逐字相等） | ✅ |
+| C-82 | 正态层级承诺 | 同上，`GpuMC.NormalSamplesWithinTolerance` | 相对差 ≤1e-15（\|z\|<1 时绝对 ≤1e-15） | 22/22 中的 `GpuMC.NormalSamplesWithinTolerance` Passed | ✅ |
+| C-83 | P3 定性记录正确 | 读 DESIGN §7 与 IMPLEMENTATION §5.6 | 均写明"回归锁、非红驱动" | DESIGN §11 D-4 / IMPLEMENTATION §5.6 写明 KAT 为回归锚，非红驱动 | ✅ |
+| C-84 | 测试 include 路径齐全 | 读 tests/CMakeLists :22 附近、gpu CMake test_gpu_mc 块 | 两处 `target_include_directories(... fixtures/rng)`；test_gpu_mc.cpp 含 `rng.hpp` | `tests/CMakeLists.txt:24`、`src/performance/gpu/CMakeLists.txt:106`；test_gpu_mc.cpp 含 `cpphub/core/rng.hpp` + 探针头 | ✅ |
 
 ### 6.5 文档同步
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-85 | USAGE_GUIDE §3.1.3 自洽 | 读 :183-196 | 算法=Random123；周期=2^256；状态=counter[4]+key[2]（384 位）；输出=4×u64/块；承诺=分层 | 五行全文 | ☐ |
-| C-86 | USAGE_GUIDE §3.10 同步 | 读 :693 | RNG 行与 §3.1.3 同表述 | 行全文 | ☐ |
-| C-87 | ARCHITECTURE 假条目清除 | `Select-String -Path docs/architecture/ARCHITECTURE.md -Pattern 'Threefry'` | 0 命中 | 计数 0 | ☐ |
-| C-88 | ARCHITECTURE 依赖列更新 | 读 :91、:68 | :91 写 `Philox4x64` + vendor 路径；:68 ADR-004 注 vendor | 两行全文 | ☐ |
+| C-85 | USAGE_GUIDE §3.1.3 自洽 | 读 :183-196 | 算法=Random123；周期=2^256；状态=counter[4]+key[2]（384 位）；输出=4×u64/块；承诺=分层 | :185-196 五项全符合 | ✅ |
+| C-86 | USAGE_GUIDE §3.10 同步 | 读 :693 | RNG 行与 §3.1.3 同表述 | :694 `Philox4x64-10（Random123，与 CPU 同一实现：uniform 位精确；正态 1e-15）` | ✅ |
+| C-87 | ARCHITECTURE 假条目清除 | `Select-String -Path docs/architecture/ARCHITECTURE.md -Pattern 'Threefry'` | 0 命中 | 0 命中 | ✅ |
+| C-88 | ARCHITECTURE 依赖列更新 | 读 :91、:68 | :91 写 `Philox4x64` + vendor 路径；:68 ADR-004 注 vendor | :68 ADR-004 注 `third_party/random123`，:91 依赖列 `Random123 (vendor: third_party/random123/include)` | ✅ |
 
 ---
 
@@ -209,12 +209,12 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-91 | 全量回归（三目录） | `ctest --test-dir build -C Release -j 8 --output-on-failure`（其余两目录同） | 三目录 0 失败 | 三组通过数 | ☐ |
-| C-92 | 失败处置合规 | 检查所有失败修复的 diff | 仅"重选 seed"或"修实现"；**无** `EXPECT_NEAR` 阈值放宽 | diff + 提交说明 | ☐ |
-| C-93 | 夹具零改动 | `git diff --stat tests/fixtures` | 仅新增 `rng/kat_philox4x64_10.hpp`，既有文件零改动 | diff stat | ☐ |
-| C-94 | 性能前后已记录 | `benchmark_philox` 改造前后各跑；读 `docs/DEVELOPMENT_LOG.md` 新小节 | 含时间戳、平台、numbers/sec、ns/number、旧/新对照与结论 | 日志片段 | ☐ |
-| C-95 | 性能未异常退化 | 对比两次数字 | 未出现 >2× 下降；如出现已有书面可接受性说明 | 数据 + 说明 | ☐ |
-| C-96 | Python 侧语义变更已披露 | `Select-String -Recurse -Path python -Pattern 'next4'`；读 docstring | 若暴露，docstring 已写"4 字 = 1 块"语义 | 命中清单 | ☐ |
+| C-91 | 全量回归（三目录） | `ctest --test-dir build -C Release -j 8 --output-on-failure`（其余两目录同） | 三目录 0 失败 | `build` **2596/2596**；`tmp/verify_capi` **2596/2596**；`build_cuda` **2538/2538**（含 `gpu_mc`=1 注册项，其 exe 内 **22/22**）。均 0 失败 | ✅ |
+| C-92 | 失败处置合规 | 检查所有失败修复的 diff | 仅"重选 seed"或"修实现"；**无** `EXPECT_NEAR` 阈值放宽 | 4 例重选种子（NgPerron stream 2→3、Phase8 301→302、IS Put 42→43，覆盖 4 用例）；1 例参照口径修正（几何亚洲：连续 KV → 离散精确闭式解，容差 0.10→**0.05 收紧**）。全 diff 无阈值放宽 | ✅ |
+| C-93 | 夹具零改动 | `git diff --stat tests/fixtures` | 仅新增 `rng/kat_philox4x64_10.hpp`，既有文件零改动 | `git status --short tests/fixtures` = `?? tests/fixtures/rng/`（仅新增） | ✅ |
+| C-94 | 性能前后已记录 | `benchmark_philox` 改造前后各跑；读 `docs/DEVELOPMENT_LOG.md` 新小节 | 含时间戳、平台、numbers/sec、ns/number、旧/新对照与结论 | DEVELOPMENT_LOG :3032-3040：MSVC 19.50/Release，旧 1.007e8（9.93 ns），新 4.213e8（2.37 ns），≈4.18× | ✅ |
+| C-95 | 性能未异常退化 | 对比两次数字 | 未出现 >2× 下降；如出现已有书面可接受性说明 | 新实现快 4.18×，无退化 | ✅ |
+| C-96 | Python 侧语义变更已披露 | `Select-String -Recurse -Path python -Pattern 'next4'`；读 docstring | 若暴露，docstring 已写"4 字 = 1 块"语义 | `cpphub_python.cpp:319-321` 暴露 `next4`，docstring 写 `Draw exactly one block = four 64-bit unsigned integers` | ✅ |
 
 ---
 
@@ -222,11 +222,11 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-101 | 提交 1（R-033）独立可 revert | `git show --stat` | 仅 `CMakeLists.txt` + `ci.yml` 两处 cache key | stat | ☐ |
-| C-102 | 提交 2（R-032）文件集合正确 | 同上 | `VERSION`、`tools/sync_version.py`、`version.hpp`、`config.hpp`、根 CMake、python CMake、`cpphub_python.cpp`、`pyproject.toml`、`test_version.py`、`ci.yml`、README（:21/:107/:121/顶部） | stat | ☐ |
-| C-103 | 提交 3（R-034）文件集合正确 | 同上 | `json_min.hpp`、`registry.hpp`、`c_api.cpp`、`test_json_min.cpp`、`test_c_api_tools.cpp` | stat | ☐ |
-| C-104 | 提交 4（R-027）整体可 revert | 同上 | `third_party/random123/**`、`rng.hpp`、`gpu_mc.cu`、`rng_device_probe.hpp`、两处测试 CMake、4 个测试文件、README:40、USAGE_GUIDE、ARCHITECTURE、夹具头 | stat | ☐ |
-| C-105 | README 无重复修改 | `git log -p -- README.md` | :40 只在提交 4，:21/:107/:121 只在提交 2 | log | ☐ |
+| C-101 | 提交 1（R-033）独立可 revert | `git show --stat` | 仅 `CMakeLists.txt` + `ci.yml` 两处 cache key | `7e305fc`：2 文件（ci.yml +4/-2、CMakeLists.txt +7/-1） | ✅ |
+| C-102 | 提交 2（R-032）文件集合正确 | 同上 | `VERSION`、`tools/sync_version.py`、`version.hpp`、`config.hpp`、根 CMake、python CMake、`cpphub_python.cpp`、`pyproject.toml`、`test_version.py`、`ci.yml`、README（:21/:107/:121/顶部） | `5c8e21b`：13 文件 (= 上述 11 + CHECKLIST/IMPLEMENTATION 文档) | ✅ |
+| C-103 | 提交 3（R-034）文件集合正确 | 同上 | `json_min.hpp`、`registry.hpp`、`c_api.cpp`、`test_json_min.cpp`、`test_c_api_tools.cpp` | `253fd94`：6 文件 (= 上述 5 + CHECKLIST) | ✅ |
+| C-104 | 提交 4（R-027）整体可 revert | 同上 | `third_party/random123/**`、`rng.hpp`、`gpu_mc.cu`、`rng_device_probe.hpp`、三处 CMake include + 两处测试 CMake、6 个测试文件（新增 2 个 + 回归处置 4 个）、README:46、USAGE_GUIDE、ARCHITECTURE、夹具头 | stat | ☐ |
+| C-105 | README 无重复修改 | `git log -p -- README.md` | :46 只在提交 4，:21/:107/:121 只在提交 2 | log | ☐ |
 | C-106 | 每提交前已 review | 提交说明或 review 记录 | 4 次 review 均有结论（排除幻觉） | 记录 | ☐ |
 | C-107 | 回滚演练（可选） | 在临时分支 `git revert --no-commit <R-027>` | 回滚后 `build/` 核心配置可编译（GPU 目录除外） | 演练日志 | ☐ |
 
@@ -255,10 +255,10 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | 项 | 填写 |
 |---|---|
-| 实施完成日期 | |
-| 三目录通过数 | build: ___ / build_capi: ___ / build_cuda: ___ |
-| 性能（旧 → 新，numbers/sec） | |
-| 全量回归失败处置摘要 | |
+| 实施完成日期 | 2026-10-22 |
+| 三目录通过数 | build: **2596/2596** / build_capi（`tmp/verify_capi`）: **2596/2596** / build_cuda: **2538/2538**（`gpu_mc` 内含 22/22） |
+| 性能（旧 → 新，numbers/sec） | **1.007e8 → 4.213e8**（9.93 → 2.37 ns/number，≈4.18×） |
+| 全量回归失败处置摘要 | 首轮 5 红：4 例统计窗口（重选 seed: NgPerron stream 2→3 / Phase8 301→302 / IS Put 42→43）；1 例参照口径修正（几何亚洲改为离散监控精确闭式解，容差 0.10→0.05 收紧）。**无阈值放宽** |
 | 结论 | ☐ 通过 / ☐ 有条件通过（列条件） / ☐ 不通过 |
 | 实施人 / 复核人 | |
 

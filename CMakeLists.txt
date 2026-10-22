@@ -27,6 +27,7 @@ add_library(cpphub_core INTERFACE)
 target_include_directories(cpphub_core INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party  # autodiff header-only library
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/random123/include  # RISK-027: Random123 Philox4x64
 )
 target_compile_features(cpphub_core INTERFACE cxx_std_20)
 

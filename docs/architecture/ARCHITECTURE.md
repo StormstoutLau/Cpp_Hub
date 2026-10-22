@@ -65,7 +65,7 @@ Cpp_Hub = 轻量级定价内核 + Python绑定 + 可扩展插件架构
 | ADR-001 | Header-only core + 单一共享库 | 编译快、部署简单、Python轮子小 | 全静态库 / 多共享库 |
 | ADR-002 | Bridge + Virtual Constructor (Joshi Ch.4) | 开闭原则、无切片拷贝、值语义 | `std::variant` / CRTP |
 | ADR-003 | Factory + 静态注册模板 (Joshi Ch.10) | 运行时扩展无需重编译、单例工厂 | 手工 switch / 插件系统 |
-| ADR-004 | 计数器 RNG (Philox/Threefry) + 确定性分块 | 位精确复现、SIMD友好、无锁并行 | `std::mt19937` / PCG |
+| ADR-004 | 计数器 RNG (Philox4x64) + 确定性分块 | 位精确复现、SIMD友好、无锁并行；实现 vendored（`third_party/random123`，BSD-3-Clause） | `std::mt19937` / PCG |
 | ADR-005 | 可移植 SIMD 抽象层 (simde + 内置) | 单代码路径支持 AVX2/AVX-512/NEON | 手写汇编 / Vc / Highway |
 | ADR-006 | nanobind 绑定 + 批量 NumPy API | 零拷贝、编译快、二进制小 | pybind11 / ctypes / C API |
 | ADR-007 | AAD (伴随模式) 统一 Greeks | 一次扫描全希腊值、无数值误差 | 有限差分 / Pathwise / LR |
@@ -88,7 +88,7 @@ Cpp_Hub = 轻量级定价内核 + Python绑定 + 可扩展插件架构
 > **linalg.hpp 范围说明**: 当前仅覆盖定价所需的固定尺寸矩阵运算（编译期 `R×C`，栈分配）。未来扩展计量模块（Newey-West、Fama-MacBeth、GARCH、因子回归）时，需新增 `linalg_dynamic.hpp` 封装 Eigen3 处理动态尺寸大矩阵（运行时 `N×K`，堆分配 + BLAS 加速 + SVD/QR/LU）。详见 ADR-013 和 `docs/research/ECONOMETRICS_LANDSCAPE.md`。
 | `datetime.hpp` | 日期/日历/年基 | `Date`, `Calendar`, `DayCount`, `Schedule`, `Frequency` | 无 |
 | `simd.hpp` | 可移植 SIMD | `f64x4`, `f64x8`, `exp`, `log`, `sqrt`, `hsum`, `blend` | `simde` (内置) |
-| `rng.hpp` | 无状态计数器 RNG | `Philox4x64`, `Threefry4x64`, `normal_simd` | `Random123` (头文件) |
+| `rng.hpp` | 无状态计数器 RNG | `Philox4x64`, `normal_simd` | `Random123` (vendor: `third_party/random123/include`) |
 | `parallel.hpp` | 确定性并行 | `ThreadPool`, `parallel_for`, `blocked_range` | OpenMP / TBB |
 | `batch.hpp` | 批量计算入口 | `bsm_price_batch`, `bsm_greeks_batch`, `heston_cos_batch` | 以上所有 |
 | `memory.hpp` | 内存工具 | `aligned_allocator`, `object_pool`, `stack_allocator` | `<memory>` |

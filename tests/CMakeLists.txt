@@ -20,6 +20,8 @@ endfunction()
 cpphub_add_test(test_core_math unit/core/test_core_math.cpp)
 cpphub_add_test(test_linalg unit/core/test_linalg.cpp)
 cpphub_add_test(test_rng unit/core/test_rng.cpp)
+# RISK-027: KAT 夹具为生成头, test_rng 直接 include
+target_include_directories(test_rng PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/rng)
 cpphub_add_test(test_cpu_features unit/core/test_cpu_features.cpp)
 
 # RISK-002: Philox benchmark (信息性, 不注册 ctest)

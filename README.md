@@ -43,7 +43,7 @@
 - **High-frequency econometrics (v1.4.2+)**: 多资产协方差估计 — Hayashi-Yoshida (非同步交易) / Two-Scale (微结构噪声) / Pre-averaged (噪声稳健) / Robust Two-Scale / Modulated Realized Cov, PSD 投影 (Jacobi 特征值分解); HAR (Corsi 2009) + HARJ/CHAR 波动率预测, HEAVY (Shephard & Sheppard 2010) MLE 估计 (Nelder-Mead + penalty) — 对标 R `rHYCov`/`rTSCov`/`rRTSCov`/`rMRCov`/`rAVGCov`/`HARmodel`/`HEAVYmodel`, 容差 1e-10
 - **High-frequency econometrics (v1.4.3+)**: 流动性度量 23 种 (Hasbrouck 2009, effectiveSpread/realizedSpread/priceImpact/depthImbalanceRatio 等) + Lee-Ready 交易方向推断; 高级跳跃检验 — AJ (Aït-Sahalia & Jacod 2009), JO (Jiang & Oomen 2008), Intraday (Lee & Mykland 2008, RM 模式), Rank (Bollerslev & Todorov 2011, 含自实现 one-sided Jacobi SVD 全分解 + bootstrap) — 对标 R `getLiquidityMeasures`/`AJjumpTest`/`JOjumpTest`/`intradayJumpTest`/`rankJumpTest`, 23 个排幻觉点 (D1-D23) R 源码实测标注
 - **Python bindings**: `import cpphub` via nanobind (BSM / Heston / MC / Greeks / VaR)
-- **GPU MC** (optional): CUDA Philox4x64-10 RNG, bit-exact match with CPU `cpphub::core::rng`
+- **GPU MC** (optional): Philox4x64-10 (Random123): **uniform stream bit-exact** with CPU; normal samples agree to 1e-15 (CUDA/host math libraries differ in last bits)
 
 ---
 

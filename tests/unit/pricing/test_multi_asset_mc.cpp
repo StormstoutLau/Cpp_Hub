@@ -1,6 +1,6 @@
 // v1.2: 多资产 MC 测试
 // - 多资产 GBM 路径生成器 (marginal/相关性/antithetic/半正定)
-// - Asian (Kemna-Vorst 几何 closed form, 算术 > 几何, antithetic 方差缩减)
+// - Asian (几何 closed form: 离散监控精确解, 算术 > 几何, antithetic 方差缩减)
 // - Lookback (固定 strike > vanilla, 浮动 strike 非负)
 // - Barrier (out <= vanilla, in+out=vanilla parity, deep barrier ≈ vanilla)
 // - Basket (n=1=vanilla, 相关性再现, 分散化)
@@ -126,9 +126,9 @@ TEST(MultiAssetGBMTest, AntitheticGeometricMeanProperty) {
 
 // ============ 2. Asian Options ============
 
-TEST(AsianOptionTest, GeometricAsianMatchesKemnaVorst) {
-    // Kemna-Vorst (1990): geometric Asian call = vanilla call with
-    //   σ_g = σ/√3, q_g = 0.5*(r + q + σ²/2) - σ²/6
+TEST(AsianOptionTest, GeometricAsianMatchesDiscreteClosedForm) {
+    // 离散监控几何亚洲期权精确闭式解 (见下方推导; 连续 Kemna-Vorst 公式
+    // 与 path[1..n] 离散观察点在 n=50 时存在 +0.0942 理论差, 不可混比)
     Real S0 = 100.0, K = 100.0, r = 0.05, q = 0.0, sigma = 0.20, T = 1.0;
     Size n_steps = 50;
 
@@ -144,13 +144,27 @@ TEST(AsianOptionTest, GeometricAsianMatchesKemnaVorst) {
 
     MCResult res = price_path_dependent(gen, payoff, mc);
 
-    // Kemna-Vorst closed form
-    Real sigma_g = sigma / std::sqrt(3.0);
-    Real q_g = 0.5 * (r + q + sigma * sigma / 2.0) - sigma * sigma / 6.0;
-    Real kv_price = bsm_call_price(S0, K, T, r, q_g, sigma_g);
+    // 参照口径必须与实现一致: 观察点 path[1..n] = t_i = i·T/n (离散监控),
+    // 而非连续平均的 Kemna-Vorst 公式。二者在 n=50 时理论差 +0.0942
+    // (连续: σ_g=σ/√3, q_g=½(r+q+σ²/2)−σ²/6), 恰与测试容差同量级 →
+    // RISK-027 换 RNG 流后曾边界失败。此处改用离散监控精确闭式解:
+    //   m = log S0 + (r−q−σ²/2)·dt·(n+1)/2
+    //   v = σ²·dt·[Σ_iΣ_j min(i,j)]/n², Σ_iΣ_j min(i,j) = n(n+1)(2n+1)/6
+    //   E[G]=exp(m+v/2), log G ~ N(m, v) → call = e^{−rT}(E[G]Φ(d1)−KΦ(d2))
+    Real dt = T / static_cast<Real>(n_steps);
+    Real m = std::log(S0) + (r - q - 0.5 * sigma * sigma) * dt
+             * static_cast<Real>(n_steps + 1) / 2.0;
+    Real sum_min = static_cast<Real>(n_steps) * (n_steps + 1) * (2.0 * n_steps + 1) / 6.0;
+    Real v = sigma * sigma * dt * sum_min
+             / (static_cast<Real>(n_steps) * static_cast<Real>(n_steps));
+    Real sigma_g = std::sqrt(v);
+    Real EG = std::exp(m + 0.5 * v);
+    Real d1 = (m - std::log(K) + v) / sigma_g;
+    Real d2 = d1 - sigma_g;
+    Real ref_price = std::exp(-r * T) * (EG * normal_cdf(d1) - K * normal_cdf(d2));
 
-    // MC 100k antithetic, 容差 0.10
-    EXPECT_NEAR(res.price, kv_price, 0.10);
+    // MC 100k antithetic, 5σ 容差 (SE ≈ 0.01)
+    EXPECT_NEAR(res.price, ref_price, 0.05);
 }
 
 TEST(AsianOptionTest, ArithmeticGreaterThanGeometric) {

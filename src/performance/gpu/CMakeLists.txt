@@ -31,11 +31,13 @@ if(CPPHUB_CUDA_AVAILABLE)
         FILES
             ${GPU_INCLUDE_DIR}/cpphub/performance/gpu/gpu_config.hpp
             ${GPU_INCLUDE_DIR}/cpphub/performance/gpu/gpu_mc.hpp
+            ${GPU_INCLUDE_DIR}/cpphub/performance/gpu/rng_device_probe.hpp
     )
 
     target_include_directories(cpphub_cuda PUBLIC
         ${GPU_INCLUDE_DIR}
         ${GPU_THIRD_PARTY_DIR}
+        ${GPU_THIRD_PARTY_DIR}/random123/include  # RISK-027: Random123 Philox4x64
     )
 
     target_compile_features(cpphub_cuda PUBLIC cxx_std_20)
@@ -100,6 +102,8 @@ if(CPPHUB_CUDA_AVAILABLE)
         GTest::gtest_main
     )
     target_compile_features(test_gpu_mc PRIVATE cxx_std_20)
+    # RISK-027: KAT 夹具 + CPU/GPU 对齐用例
+    target_include_directories(test_gpu_mc PRIVATE ${GPU_TESTS_DIR}/fixtures/rng)
     if(MSVC)
         target_compile_options(test_gpu_mc PRIVATE /utf-8 /W3)
         target_compile_definitions(test_gpu_mc PRIVATE _USE_MATH_DEFINES)

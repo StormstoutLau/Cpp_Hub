@@ -3021,4 +3021,32 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### RISK-027 修复: 去自写 Philox, vendor Random123 + KAT (2026-10-22)
+
+> [rng.hpp](../include/cpphub/core/rng.hpp) / [gpu_mc.cu](../src/performance/gpu/gpu_mc.cu) / [rng_device_probe.hpp](../include/cpphub/performance/gpu/rng_device_probe.hpp) / [third_party/random123](../third_party/random123) — 来源: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §三 RISK-027 (P0, 已修复)
+
+- **根因**: 手写 `Philox4x64` 名实不符 — 常量区把 Random123 的 **M2x64_0**（`0xD2B74407B1CE6E93`）当 M4x64_0 用，`0x9CCD9A8C5AE13B41` 非任何 Philox4x64 常量，`PHILOX_W32_*` 是 4x32 变体的 W；且 `operator()` 每次 10 轮只取 1 字（`next4()` 4 次 compute 取 r[0]）→ 输出流与官方 `philox4x64_10` 完全不同，GPU 端另有独立实现（`__umul64hi`）复刻同一错误。无官方 KAT 锚定。
+- **改造**: vendor Random123（upstream `9545ff64`，BSD-3-Clause，`UPSTREAM.md` 记录来源）→ `Philox4x64` 变为流式适配层：4×u64 counter + 2×u64 key，块缓冲 4 字，`operator()` 逐字、`next4()` 恰一块、`discard(n)` 按 `ctr += n/4` 再消费 `n%4`；GPU 内核改用同一 `r123::Philox4x64{}(ctr, key)`，`box_muller`/`uint64_to_unit` 保留。
+- **重大发现 (DESIGN §11 D-6)**: Windows+nvcc 下 `msvcfeatures.h` 与 `nvccfeatures.h` **同时**置位 `R123_USE_MULHILO64_MSVC_INTRIN=1` 与 `_CUDA_INTRIN=1`，而 `philox.h:199-202` 让 MSVC 内建（host-only `_umul128`）优先 → device 代码报 `calling a __host__ function from a __device__ function`。修复：`#if defined(__CUDA_ARCH__) / #define R123_USE_MULHILO64_MSVC_INTRIN 0 / #endif`，**必须在 `#include <Random123/philox.h>` 之前**（`gpu_mc.cu` 与探针段同）。
+- **KAT 锚定**: 官方 `tests/kat_vectors`（非 examples，E-7）philox4x64 10 轮共 **3 行**（0/0、全 f、pi-digits 三类边界，E-8）；生成 `tests/fixtures/rng/kat_philox4x64_10.hpp`（.hpp 生成头，弃 .txt 运行时解析器，D-4）。CPU `RngKat.Philox4x64MatchesKnownAnswers` 与 GPU `GpuMC.PhiloxMatchesKnownAnswers` 双向逐字通过。
+- **对齐测试 (build_cuda, RTX 4060)**: `GpuMC.UniformStreamMatchesCpu` — 10000 块 × 4 字 CPU/GPU 逐字相同；`GpuMC.NormalSamplesWithinTolerance` — 10000 路径 z1 相对差 ≤ 1e-15。`test_gpu_mc` **22/22 通过**（19 既有 + 3 新增）。
+- **性能 (R-027 前后吞吐, MSVC 19.50 / Release / 无 CUDA)**: 基准 `benchmark_philox`（`tests/unit/performance/`，N=1e8 逐字 `rng()`，信息性不入 ctest），同机三次取中位：
+
+  | 实现 | 吞吐 (numbers/sec) | 单次 (ns/number) |
+  |---|---|---|
+  | 旧（手写，每字 1 次 10 轮 compute） | 1.007e+08 | 9.93 |
+  | 新（Random123 块缓冲，每 4 字 1 次块调用） | 4.213e+08 | 2.37 |
+
+  比值 **≈ 4.18×**，与"每字轮数降至 1/4"的理论上限吻合。**性质 = 实现更换基线，不与旧值做回归比较**；benchmark 内的"MSVC `_umul128` / GCC `__uint128_t`"平台标签现仅表示编译平台（乘法路径已由上游分派）。
+- **文档同步**: README GPU 行改为分层承诺；USAGE_GUIDE §3.1.3 周期 2^128→**2^256**、状态 `counter[4]+key[2]`（384 位）、输出"每块 4×u64"、并行性分层 + `-I third_party/random123/include`；§3.10 RNG 行同步；ARCHITECTURE 删 `Threefry4x64` 假条目、ADR-004 注明 vendor。
+- **回归处置 (IMPLEMENTATION §5.8)**: 全量首次回归 5 例红，全部为随机流更换后的统计窗口漂移，无一涉及数值/接口实现：
+  - 重选 seed（§5.8(a)）3 例：NgPerron `gen_ar095` stream 2→3（原 T=500 抽到 MZα=-8.5 落在功率边界）；Phase8 Kalman `gen_noise` seed 301→302（原样本 ARMA(1,1) MLE 不收敛）；IS ITM Put seed 42→43（原 |Δ|=0.0686 vs 0.05）。
+  - 参照口径修正 1 例：几何亚洲测试原用**连续** Kemna-Vorst 公式（σ_g=σ/√3），而实现按 `path[1..n]` 离散监控；n=50 时二者理论差 **+0.0942**，与 0.10 容差同量级（旧流通过属抽样运气）。改为离散监控精确闭式解 `m=logS0+(r-q-σ²/2)dt(n+1)/2`、`v=σ²dt·n(n+1)(2n+1)/(6n²)`，容差同步**收紧** 0.10→0.05（SE≈0.01）。
+  - **未放宽容差**；`test_gpu_mc` 22/22 与 KAT 用例零改动。
+- **三目录回归**: `build` 2596/2596、`tmp/verify_capi` 2596/2596、`build_cuda`（含 `gpu_mc` 22 用例）见 CHECKLIST C-91。
+- **教训**: (1) "自写加密级原语 + 无官方 KAT"是不可验证的正确性 — 常量名与值不匹配这种错误靠统计测试（均值/方差）永远发现不了，必须有固定向量锚；(2) 跨编译器特性宏在 nvcc 下会**同时**命中两套条件分支，`#if defined(__CUDA_ARCH__)` 守卫必须置于 include 之前（后置无效）；(3) 块缓冲改写把 `next4()` 的语义从"4 次 compute 取首字"变成"1 块 4 字"，这正是 CPU/GPU 对齐的前提。
+- **交叉引用**: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §二 主表 RISK-027 → **已修复**; DESIGN §11 D-4/D-6, IMPLEMENTATION §5 / §9 E-7/E-8/E-10/E-11/E-12
+
+---
+
 

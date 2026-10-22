@@ -37,6 +37,7 @@ target_include_directories(cpphub_headers INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party  # autodiff header-only
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/eigen  # Eigen3 3.4.0 (MPL2)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/random123/include  # RISK-027
 )
 target_compile_features(cpphub_headers INTERFACE cxx_std_20)
 # 与根 CMakeLists.txt 的 eigen3_interface 保持一致: 仅启用 MPL2.0 许可部分

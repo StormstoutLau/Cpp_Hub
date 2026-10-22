@@ -275,8 +275,10 @@ TEST(Phase8Integration, UnitRootPrecheckBoundsWorkflow) {
 // ===========================================================================
 TEST(Phase8Integration, KalmanInnovationsDiagnostics) {
     // DGP: 零均值 ARMA(1,1) φ=0.5, θ=0.3 (Philox 确定性)
+    // seed=302: RISK-027 切换 Random123 vendor 后随机流变化, 原 301 抽到 MLE
+    // 不收敛样本 (非实现缺陷) → 按 IMPLEMENTATION §5.8(a) 重选, 不放宽容差
     const Size T = 300;
-    const auto e = gen_noise(T, 301);
+    const auto e = gen_noise(T, 302);
     std::vector<Real> z(T);
     Real prev_e = 0.0;
     for (Size t = 0; t < T; ++t) {

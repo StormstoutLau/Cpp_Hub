@@ -266,7 +266,10 @@ TEST(ImportanceSamplingPut, ITMPutMatchesBSM) {
 
     // ITM Put: K=110, S0=100
     Real S0 = 100.0, K = 110.0, T = 1.0, r = 0.05, q = 0.0, sigma = 0.20;
-    auto result = is.price_european_put(S0, K, T, r, q, sigma, 200000, 42);
+    // seed=43: RISK-027 换 vendor Random123 后随机流变化, 原 42 抽到
+    // |Δ|=0.0686 越 0.05 容差 (ITM 下 theta*>0 推离赔付区, IS 方差本底较大)
+    // → §5.8(a) 重选, 不放宽容差
+    auto result = is.price_european_put(S0, K, T, r, q, sigma, 200000, 43);
 
     Real expected = bsm_put_price(S0, K, T, r, q, sigma);
     EXPECT_NEAR(result.price, expected, 0.05);

@@ -316,9 +316,9 @@ NB_MODULE(_core, m) {
         .def("__call__", &Philox4x64::operator(),
              "Draw next 64-bit unsigned integer")
         .def("discard", &Philox4x64::discard, nb::arg("n"),
-             "Advance the state by n steps")
+             "Advance the state by n output words")
         .def("next4", &Philox4x64::next4,
-             "Draw four 64-bit unsigned integers (returns list)");
+             "Draw exactly one block = four 64-bit unsigned integers (returns list)");
 
     // =========================================================================
     // 7. COS 定价引擎 (Fang-Oosterlee 2008)
