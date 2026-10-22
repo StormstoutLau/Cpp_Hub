@@ -647,7 +647,7 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 | `ParametricVaR` | Normal / StudentT / Cornish-Fisher | Normal: `VaR=-(μ+z_{1-c}σ√h)`；CF: `z_cf=z+(z²-1)S/6+(z³-3z)K/24-(2z³-5z)S²/36` | Normal 闭式 O(1)；StudentT Newton 100 次 + betainc |
 | `MCVaR` | Full / Delta-Gamma / Delta + antithetic | Cholesky 分解协方差，`ΔR=LZ`，`Π≈δᵀΔR+½ΔRᵀΓΔR` | Cholesky O(n³)；MC 误差 O(1/√n_paths) |
 | `ExpectedShortfall` | 经验 / 正态 / StudentT / CF | 正态: `ES=-μ+σφ(z)/(1-c)` | 正态闭式；StudentT Newton + betainc |
-| `Backtesting` | **Kupiec POF** / **Christoffersen** / Basel 交通灯 | Kupiec LR~χ²(1)；Christoffersen LR_ind~χ²(1)，LR_cc~χ²(2)；χ² 用 Wilson-Hilferty 近似 | O(N) |
+| `Backtesting` | **Kupiec POF** / **Christoffersen** / Basel 交通灯 | Kupiec LR~χ²(1)；Christoffersen LR_ind~χ²(1)，LR_cc=LR_pof+LR_ind~χ²(2)；**对数似然**（0·log0=0，避免大样本下溢）；χ² 用精确正则化下不完全 Gamma（~1e-14） | O(N) |
 
 **Basel 交通灯**（250 日 99%）: Green ≤4 (×3.0)，Yellow 5-9 (×3.4-3.85)，Red ≥10 (×4.0)。
 
