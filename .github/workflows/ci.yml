@@ -56,7 +56,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: gtest-1.14.0-${{ runner.os }}-${{ matrix.compiler }}
+          key: gtest-f8d7d77c-${{ runner.os }}-${{ matrix.compiler }}
 
       # shell: bash — Windows 默认 pwsh 不认 bash 反斜杠续行, 逐行拆成独立命令导致
       # "-G: command not found" (自 run #1 起 Windows Configure 全败的根因)
@@ -107,7 +107,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: gtest-1.14.0-${{ runner.os }}-capi
+          key: gtest-f8d7d77c-${{ runner.os }}-capi
 
       - name: Configure CMake (C API enabled)
         shell: bash

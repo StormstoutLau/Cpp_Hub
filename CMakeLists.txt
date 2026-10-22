@@ -60,9 +60,14 @@ endif()
 
 # GoogleTest (FetchContent)
 include(FetchContent)
+# 供应链 (RISK-033): 以 commit 为不可变身份钉住 googletest v1.14.0
+# 不用 tag 名 / tag 归档 URL: tag 可被重指, tag 归档字节不承诺稳定。
+# 不用 GIT_REPOSITORY: 本机 git 协议到 github.com:443 不通,
+#   而 codeload HTTPS 可达 (URL 形态同时保证本地与 CI 都能全新 configure)。
 FetchContent_Declare(
     googletest
-    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+    URL https://codeload.github.com/google/googletest/tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 set(gtest_force_shared_runtime ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
