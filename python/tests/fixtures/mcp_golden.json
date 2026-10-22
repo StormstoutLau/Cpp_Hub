@@ -81,16 +81,16 @@
     "cpphub_garch_diagnose": {
       "skeleton": "{\"tool\":\"cpphub_garch_diagnose\",\"results\":[{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"omega\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"参数估计 (QMLE); std_error=<num> (sandwich)\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"alpha\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"ARCH 系数; std_error=<num>\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"beta\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"GARCH 系数; std_error=<num>\",\"稳定性: alpha+beta=<num> (<1, 协方差平稳)\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"log_likelihood\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"非检验行; AIC=<num>; BIC=<num>; converged=true; dist=normal\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"ljung_box_z\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":true,\"notes\":[\"H0=标准化残差无自相关 (LB(z), G11); lag=5\",\"passes_no_autocorr=false\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"ljung_box_z_squared\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=无 ARCH 效应 (LB(z^2), G12/Li-Mak); lag=5\",\"passes_no_arch_effect=true\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"jarque_bera\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=标准化残差正态 (JB; G-ADR4: p 经 Bootstrap, reps=1000)\",\"skewness=<num>; kurtosis(非超额)=<num>\",\"passes_normality=true\"]}],\"conclusion\":{\"primary_method\":\"omega\",\"reject_null\":false,\"n_total\":7}}",
       "numbers": [
-        1.80531256745944e-05,
-        0.12519309918030425,
-        0.834214223826707,
-        1024.9024895904818,
-        14.66251658534863,
-        0.011906010513367272,
-        3.9466168725790993,
-        0.5571271901567102,
-        1.7008724314614945,
-        0.4045954045954046
+        1.8053084018196922e-05,
+        0.12519312128025525,
+        0.8342142560046851,
+        1024.9024895904522,
+        14.662518535691857,
+        0.011906000979097388,
+        3.9466143161623006,
+        0.5571275606335195,
+        1.7008732722764475,
+        0.4165834165834166
       ]
     },
     "cpphub_granger_causality": {

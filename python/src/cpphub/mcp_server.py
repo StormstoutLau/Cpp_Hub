@@ -15,12 +15,16 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, Literal, Optional, TypedDict
+from typing import Annotated, Any, Literal, Optional
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
+# py<3.12 上 pydantic 拒绝 typing.TypedDict (PydanticUserError), outputSchema
+# 创建失败 → structured_content 恒 None (CI py3.11 job 24 failed 实证);
+# typing_extensions 的 TypedDict 双向兼容 3.9+ 全版本
+from typing_extensions import TypedDict
 
 from . import _core
 

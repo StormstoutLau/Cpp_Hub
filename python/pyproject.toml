@@ -50,7 +50,7 @@ test = ["pytest>=7.0", "numpy>=1.20", "scipy>=1.7"]
 # spec/mcp-server B1 薄壳 (python/src/cpphub/mcp_server.py) 的可选依赖。
 # 注意: mcp 2.3.0 要求 Python >= 3.10，而本项目 requires-python 仍为 >= 3.9
 # (三源冲突 U-7); 在 3.9 上安装本 extra 会在解析阶段失败，不会静默降级。
-mcp = ["mcp>=2.3.0"]
+mcp = ["mcp>=2.3.0", "typing_extensions>=4.0"]
 
 [tool.scikit-build]
 cmake.version = ">=3.25"
