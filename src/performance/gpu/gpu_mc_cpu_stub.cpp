@@ -6,6 +6,8 @@
 
 #include "cpphub/performance/gpu/gpu_config.hpp"
 #include "cpphub/performance/gpu/gpu_mc.hpp"
+#include <atomic>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -30,13 +32,23 @@ std::vector<GpuDeviceInfo> gpu_list_devices() {
 // GpuMCEngine (CPU stub: 所有调用抛异常)
 // ============================================================================
 
+namespace {
+/// RISK-025 诊断钩子: 存活的 Impl 计数 (与 CUDA 实现保持一致)
+std::atomic<std::size_t> g_live_impl_count{0};
+}  // namespace
+
 struct GpuMCEngine::Impl {
     GpuConfig config;
-    explicit Impl(GpuConfig c) : config(std::move(c)) {}
+    explicit Impl(GpuConfig c) : config(std::move(c)) { ++g_live_impl_count; }
+    ~Impl() { --g_live_impl_count; }
 };
 
+Size GpuMCEngine::live_impl_count() {
+    return g_live_impl_count.load(std::memory_order_relaxed);
+}
+
 GpuMCEngine::GpuMCEngine(GpuConfig config)
-    : config_(std::move(config)), impl_(new Impl(config_)) {}
+    : impl_(std::make_unique<Impl>(std::move(config))) {}
 
 GpuMCEngine::~GpuMCEngine() = default;
 

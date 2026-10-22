@@ -15,6 +15,7 @@
 #pragma once
 #include "cpphub/core/types.hpp"
 #include "cpphub/performance/gpu/gpu_config.hpp"
+#include <memory>
 #include <vector>
 #include <string>
 
@@ -64,6 +65,8 @@ struct GpuBSMOption {
 class GpuMCEngine {
 public:
     /// 构造引擎 (CPU stub 模式下不抛异常, 在 price_* 时抛)
+    /// @throws std::invalid_argument block_size 非 32 正整数倍 / 超设备 max_threads_per_block
+    /// @throws std::runtime_error 设备不可用 (device_id 越界 / CUDA 运行时错误; CUDA 模式)
     explicit GpuMCEngine(GpuConfig config = GpuConfig::Default());
 
     /// 析构 (释放 CUDA 资源, CPU stub 为 no-op)
@@ -80,6 +83,10 @@ public:
 
     /// @return 设备信息 (CPU stub 返回空 name)
     GpuDeviceInfo device_info() const;
+
+    /// 诊断钩子 (测试用): 当前存活的 Impl 实例数。
+    /// 用途: 验证 PIMPL 析构真正释放 (RISK-025); 非 API 契约, 不保证跨版本语义。
+    static Size live_impl_count();
 
     /// 单期权欧式 GBM MC 定价
     /// @param opt 期权参数
@@ -105,9 +112,9 @@ public:
     GpuMCResult price_european_heston(/* HestonOption, ... */) const;
 
 private:
-    GpuConfig config_;
     struct Impl;
-    Impl* impl_ = nullptr;  ///< PIMPL, 隔离 CUDA 类型
+    /// PIMPL, 隔离 CUDA 类型; unique_ptr 保证析构/移动/异常路径均释放 (RISK-025)
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace cpphub::v1

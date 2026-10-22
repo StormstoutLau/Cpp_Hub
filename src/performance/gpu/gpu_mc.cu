@@ -21,6 +21,9 @@
 #include "cpphub/core/constants.hpp"
 
 #include <cuda_runtime.h>
+#include <atomic>
+#include <memory>
+#include <string>
 #include <vector>
 #include <stdexcept>
 #include <chrono>
@@ -160,6 +163,8 @@ __global__ void mc_gbm_european_kernel(
     int warp_id = threadIdx.x / 32;
 
     // Warp 归约
+    // 全掩码 0xFFFFFFFF 的安全性: Impl 构造期已校验 block_size 为 32 的正整数倍
+    // (RISK-026), 归约时所有 lane 必然活跃, 不存在部分掩码未定义行为。
     for (int offset = 16; offset > 0; offset >>= 1) {
         local_sum    += __shfl_down_sync(0xFFFFFFFF, local_sum, offset);
         local_sum_sq += __shfl_down_sync(0xFFFFFFFF, local_sum_sq, offset);
@@ -258,8 +263,65 @@ std::vector<GpuDeviceInfo> gpu_list_devices() {
 }
 
 // ---------------------------------------------------------------------------
+// CUDA 错误检查 (RISK-026): 所有 CUDA 运行时调用必须显式检查
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// 检查 CUDA 返回码; 失败抛 std::runtime_error (携带调用点与 cudaGetErrorString)
+void cuda_check(cudaError_t err, const char* call, const char* file, int line) {
+    if (err == cudaSuccess) return;
+    throw std::runtime_error(
+        std::string("GpuMCEngine: CUDA 调用失败: ") + cudaGetErrorString(err) +
+        " (" + std::to_string(static_cast<int>(err)) + ") in " + call +
+        " at " + file + ":" + std::to_string(line));
+}
+
+/// 设备显存 RAII (RISK-025): 作用域退出即 cudaFree, 覆盖异常与提前返回路径
+class DeviceBuffer {
+public:
+    explicit DeviceBuffer(std::size_t bytes) {
+        void* p = nullptr;
+        cuda_check(cudaMalloc(&p, bytes), "cudaMalloc", __FILE__, __LINE__);
+        ptr_ = static_cast<Real*>(p);
+    }
+    ~DeviceBuffer() {
+        if (ptr_) cudaFree(ptr_);  // 析构不可抛异常, 忽略返回值
+    }
+    DeviceBuffer(const DeviceBuffer&) = delete;
+    DeviceBuffer& operator=(const DeviceBuffer&) = delete;
+    DeviceBuffer(DeviceBuffer&& other) noexcept : ptr_(other.ptr_) {
+        other.ptr_ = nullptr;
+    }
+    DeviceBuffer& operator=(DeviceBuffer&& other) noexcept {
+        if (this != &other) {
+            if (ptr_) cudaFree(ptr_);
+            ptr_ = other.ptr_;
+            other.ptr_ = nullptr;
+        }
+        return *this;
+    }
+
+    Real* get() const { return ptr_; }
+
+private:
+    Real* ptr_ = nullptr;
+};
+
+}  // namespace
+
+/// 包装 CUDA 调用并检查返回码 (RISK-026)
+#define CPPHUB_CUDA_CHECK(call) \
+    ::cpphub::v1::cuda_check((call), #call, __FILE__, __LINE__)
+
+// ---------------------------------------------------------------------------
 // GpuMCEngine::Impl
 // ---------------------------------------------------------------------------
+
+namespace {
+/// RISK-025 诊断钩子: 存活的 Impl 计数 (验证析构释放; 仅测试用)
+std::atomic<std::size_t> g_live_impl_count{0};
+}  // namespace
 
 struct GpuMCEngine::Impl {
     GpuConfig config;
@@ -267,32 +329,60 @@ struct GpuMCEngine::Impl {
     cudaStream_t stream = nullptr;
 
     explicit Impl(GpuConfig c) : config(std::move(c)) {
-        // 设置设备
-        cudaSetDevice(config.device_id);
-        device = gpu_query_device(config.device_id);
-
-        // 创建流
-        if (config.stream_count > 1) {
-            // 多流模式 (M3 仅单流, 留扩展点)
-            cudaStreamCreate(&stream);
-        } else {
-            cudaStreamCreate(&stream);
+        // RISK-026: 配置校验前置 —— 非法配置不创建任何资源
+        // block_size 必须为 32 的正整数倍: warp 归约使用全掩码 __shfl_down_sync,
+        // 非满 warp 的 lane 不活跃会触发未定义行为
+        if (config.block_size <= 0 || config.block_size % 32 != 0) {
+            throw std::invalid_argument(
+                "GpuMCEngine: block_size 必须为 32 的正整数倍, 实际 " +
+                std::to_string(config.block_size));
         }
+
+        int device_count = 0;
+        CPPHUB_CUDA_CHECK(cudaGetDeviceCount(&device_count));
+        if (config.device_id < 0 || config.device_id >= device_count) {
+            throw std::runtime_error(
+                "GpuMCEngine: 非法 device_id " + std::to_string(config.device_id) +
+                " (可见设备数: " + std::to_string(device_count) + ")");
+        }
+
+        device = gpu_query_device(config.device_id);
+        // 属性查询失败时 gpu_query_device 返回空 info (max_threads_per_block=0), 需显式报错
+        if (device.max_threads_per_block <= 0) {
+            throw std::runtime_error(
+                "GpuMCEngine: 无法查询设备属性 (device_id " +
+                std::to_string(config.device_id) + ")");
+        }
+        if (config.block_size > device.max_threads_per_block) {
+            throw std::invalid_argument(
+                "GpuMCEngine: block_size " + std::to_string(config.block_size) +
+                " 超过设备上限 max_threads_per_block " +
+                std::to_string(device.max_threads_per_block));
+        }
+
+        CPPHUB_CUDA_CHECK(cudaSetDevice(config.device_id));
+        // 多流模式 (stream_count > 1) 留待扩展; M3 仅单流
+        CPPHUB_CUDA_CHECK(cudaStreamCreate(&stream));
+
+        ++g_live_impl_count;  // 全部资源就绪后才计数: 构造抛异常不泄漏计数
     }
 
     ~Impl() {
         if (stream) {
+            // 析构不可抛异常; cudaStreamDestroy 保证流上残留工作完成后自动回收资源
             cudaStreamDestroy(stream);
+            stream = nullptr;
         }
-        // 重置设备 (同步, 调试用)
-        if (config.sync_after_kernel) {
-            cudaDeviceSynchronize();
-        }
+        --g_live_impl_count;
     }
 };
 
+Size GpuMCEngine::live_impl_count() {
+    return g_live_impl_count.load(std::memory_order_relaxed);
+}
+
 GpuMCEngine::GpuMCEngine(GpuConfig config)
-    : config_(std::move(config)), impl_(new Impl(config_)) {}
+    : impl_(std::make_unique<Impl>(std::move(config))) {}
 
 GpuMCEngine::~GpuMCEngine() = default;
 
@@ -316,29 +406,23 @@ GpuMCResult GpuMCEngine::price_european_gbm(const GpuBSMOption& opt,
                                              uint64_t seed) const {
     GpuMCResult result;
     result.n_paths = n_paths;
-    result.used_gpu = true;
 
     auto t_start = std::chrono::steady_clock::now();
 
-    // 分配 device 内存
-    Real* d_sum = nullptr;
-    Real* d_sum_sq = nullptr;
-    Real* d_min = nullptr;
-    Real* d_max = nullptr;
-
-    cudaMalloc(&d_sum, sizeof(Real));
-    cudaMalloc(&d_sum_sq, sizeof(Real));
-    cudaMalloc(&d_min, sizeof(Real));
-    cudaMalloc(&d_max, sizeof(Real));
+    // 分配 device 内存 (RAII: 异常/提前返回路径亦释放)
+    DeviceBuffer d_sum(sizeof(Real));
+    DeviceBuffer d_sum_sq(sizeof(Real));
+    DeviceBuffer d_min(sizeof(Real));
+    DeviceBuffer d_max(sizeof(Real));
 
     // 初始化
     Real h_zero = 0.0;
     Real h_max_init = 1e300;
     Real h_min_init = -1e300;
-    cudaMemcpy(d_sum, &h_zero, sizeof(Real), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_sum_sq, &h_zero, sizeof(Real), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_min, &h_max_init, sizeof(Real), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_max, &h_min_init, sizeof(Real), cudaMemcpyHostToDevice);
+    CPPHUB_CUDA_CHECK(cudaMemcpy(d_sum.get(), &h_zero, sizeof(Real), cudaMemcpyHostToDevice));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(d_sum_sq.get(), &h_zero, sizeof(Real), cudaMemcpyHostToDevice));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(d_min.get(), &h_max_init, sizeof(Real), cudaMemcpyHostToDevice));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(d_max.get(), &h_min_init, sizeof(Real), cudaMemcpyHostToDevice));
 
     // 启动内核
     int block_size = impl_->config.block_size;
@@ -354,20 +438,23 @@ GpuMCResult GpuMCEngine::price_european_gbm(const GpuBSMOption& opt,
     auto t_kernel_start = std::chrono::steady_clock::now();
 
     mc_gbm_european_kernel<<<grid_size, block_size, smem_bytes, impl_->stream>>>(
-        opt, n_paths, seed, d_sum, d_sum_sq, d_min, d_max);
+        opt, n_paths, seed, d_sum.get(), d_sum_sq.get(), d_min.get(), d_max.get());
+    // 启动失败 (显存不足 / 配置非法) 必须显式报错, 不得静默返回 price=0
+    CPPHUB_CUDA_CHECK(cudaGetLastError());
 
     if (impl_->config.sync_after_kernel) {
-        cudaStreamSynchronize(impl_->stream);
+        // 捕获运行期错误 (如非法地址访问), 而非静默返回伪结果
+        CPPHUB_CUDA_CHECK(cudaStreamSynchronize(impl_->stream));
     }
 
     auto t_kernel_end = std::chrono::steady_clock::now();
 
     // 拷回结果
-    Real h_sum, h_sum_sq, h_min, h_max;
-    cudaMemcpy(&h_sum, d_sum, sizeof(Real), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&h_sum_sq, d_sum_sq, sizeof(Real), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&h_min, d_min, sizeof(Real), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&h_max, d_max, sizeof(Real), cudaMemcpyDeviceToHost);
+    Real h_sum = 0.0, h_sum_sq = 0.0, h_min = 0.0, h_max = 0.0;
+    CPPHUB_CUDA_CHECK(cudaMemcpy(&h_sum, d_sum.get(), sizeof(Real), cudaMemcpyDeviceToHost));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(&h_sum_sq, d_sum_sq.get(), sizeof(Real), cudaMemcpyDeviceToHost));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(&h_min, d_min.get(), sizeof(Real), cudaMemcpyDeviceToHost));
+    CPPHUB_CUDA_CHECK(cudaMemcpy(&h_max, d_max.get(), sizeof(Real), cudaMemcpyDeviceToHost));
 
     // 计算 price 和 standard error
     result.price = h_sum / static_cast<Real>(n_paths);
@@ -378,11 +465,8 @@ GpuMCResult GpuMCEngine::price_european_gbm(const GpuBSMOption& opt,
     result.min_payoff = h_min;
     result.max_payoff = h_max;
 
-    // 释放
-    cudaFree(d_sum);
-    cudaFree(d_sum_sq);
-    cudaFree(d_min);
-    cudaFree(d_max);
+    // 全部 CUDA 调用成功后才标记 (RISK-026: 此前提前置 true, 失败时伪报成功)
+    result.used_gpu = true;
 
     auto t_end = std::chrono::steady_clock::now();
 

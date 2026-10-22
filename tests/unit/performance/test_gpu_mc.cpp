@@ -8,6 +8,7 @@
 //   13:   标准误差收敛 (4x 路径 → 2x SE)
 //   14:   批量定价
 //   15:   性能 (1M 路径耗时)
+//   16-19: RISK-025/026 回归 (PIMPL 释放验证 + CUDA 错误检查 + 配置校验)
 //
 // 容差策略:
 //   - MC 价格: 4*SE (99.99% 置信区间, 避免偶发失败)
@@ -275,4 +276,83 @@ TEST(GpuMC, Performance_1MPaths_CompletesQuickly) {
     double tol = 4.0 * result.standard_error;
     EXPECT_NEAR(result.price, expected, tol)
         << "1M paths: MC=" << result.price << " BSM=" << expected;
+}
+
+// ============================================================================
+// 16-19: RISK-025/026 回归
+// ============================================================================
+
+namespace {
+/// 构造即析构助手 (避开 EXPECT_THROW 内的声明语句怪癖)
+void construct_engine(GpuConfig cfg) {
+    GpuMCEngine engine(cfg);
+    (void)engine;
+}
+}  // namespace
+
+TEST(GpuMC, EngineRejectsInvalidBlockSize) {
+    // RISK-026: 此前 block_size 未校验 → 非 32 倍数会触发 warp shuffle 全掩码 UB,
+    // 超上限会 launch 失败但静默返回 price=0 且 used_gpu=true
+    GpuConfig cfg = GpuConfig::Default();
+    cfg.block_size = 100;  // 非 32 倍数
+    EXPECT_THROW(construct_engine(cfg), std::invalid_argument);
+
+    GpuConfig cfg_zero = GpuConfig::Default();
+    cfg_zero.block_size = 0;
+    EXPECT_THROW(construct_engine(cfg_zero), std::invalid_argument);
+
+    GpuConfig cfg_neg = GpuConfig::Default();
+    cfg_neg.block_size = -32;  // 负值: C++ 取模为 0, 必须显式拒绝
+    EXPECT_THROW(construct_engine(cfg_neg), std::invalid_argument);
+
+    GpuConfig cfg_big = GpuConfig::Default();
+    cfg_big.block_size = 4096;  // 超过设备 maxThreadsPerBlock
+    EXPECT_THROW(construct_engine(cfg_big), std::invalid_argument);
+}
+
+TEST(GpuMC, EngineRejectsUnknownDevice) {
+    // RISK-026: 此前 cudaSetDevice 失败无检查 → 伪结果 (0 价格 + used_gpu=true)
+    GpuConfig cfg = GpuConfig::Default();
+    cfg.device_id = 9999;
+    EXPECT_THROW(construct_engine(cfg), std::runtime_error);
+}
+
+TEST(GpuMC, EngineDestructorReleasesImpl) {
+    // RISK-025: PIMPL 析构此前永不执行 (裸指针 + default 析构) → 每个引擎泄漏
+    // 一个 Impl 与一个 CUDA stream
+    EXPECT_EQ(GpuMCEngine::live_impl_count(), 0u)
+        << "前序用例的引擎应已全部析构";
+
+    {
+        GpuMCEngine engine;
+        EXPECT_EQ(GpuMCEngine::live_impl_count(), 1u);
+    }
+    EXPECT_EQ(GpuMCEngine::live_impl_count(), 0u)
+        << "引擎离开作用域后 Impl 必须被释放";
+
+    for (int i = 0; i < 64; ++i) {
+        GpuMCEngine engine;
+    }
+    EXPECT_EQ(GpuMCEngine::live_impl_count(), 0u)
+        << "循环构造 64 个引擎后不得残留 Impl";
+}
+
+TEST(GpuMC, EngineMoveTransfersOwnership) {
+    // RISK-025: 默认移动此前只浅拷裸指针 → 移出对象与移入对象共享同一 Impl
+    EXPECT_EQ(GpuMCEngine::live_impl_count(), 0u);
+
+    {
+        GpuMCEngine src;
+        GpuMCEngine dst(std::move(src));
+        EXPECT_EQ(GpuMCEngine::live_impl_count(), 1u)
+            << "移动构造不产生新 Impl";
+
+        GpuMCEngine dst2;
+        dst2 = std::move(dst);
+        EXPECT_EQ(GpuMCEngine::live_impl_count(), 1u)
+            << "移动赋值应释放 dst2 原有 Impl";
+        EXPECT_EQ(dst2.config().block_size, GpuConfig::Default().block_size);
+    }
+    EXPECT_EQ(GpuMCEngine::live_impl_count(), 0u)
+        << "移动后的所有对象析构后不得残留";
 }
