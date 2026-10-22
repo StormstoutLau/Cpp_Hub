@@ -26,6 +26,13 @@ namespace json_min {
 // 解析深度上限：递归下降解析器对深层嵌套输入的保护（避免栈溢出）。
 inline constexpr int kMaxParseDepth = 64;
 
+// 节点预算上限（RISK-034）：每次 parse_value 调用计 1 个节点
+// （null/bool/number/string/array/object 各计 1），对象键不计入——
+// 键的规模已被调用方入口长度上限约束，且键不是 JSON 值。
+// 合法上界 ≈ kMaxSeriesLength(1e4) × kMaxColumns(64) ≈ 6.4e5 个数值节点，
+// 1e6 留 ~1.5× 余量；未来放宽序列上限时两者需同步。
+inline constexpr std::size_t kMaxParseNodes = 1'000'000;
+
 // JSON 值：可判别联合（duck-typed 树）。
 class Value {
 public:
@@ -172,6 +179,7 @@ private:
     std::string_view s_;
     std::size_t pos_ = 0;
     std::string& err_;
+    std::size_t nodes_ = 0;  // RISK-034: 已解析节点数（每次 parse_value 计 1）
 
     bool fail(const char* msg) {
         err_ = msg;
@@ -190,6 +198,10 @@ private:
     }
 
     bool parse_value(Value& out, int depth) {
+        // RISK-034: 节点预算（每值 1 节点；对象键不经此处，天然不计入）
+        if (++nodes_ > kMaxParseNodes) {
+            return fail("maximum node count exceeded");
+        }
         switch (peek()) {
             case '{':
                 return parse_object(out, depth);

@@ -305,6 +305,15 @@ int cpphub_v1_tool_call(const char* tool_name, const char* args_json,
             return CPPHUB_ERR_INVALID_ARG;
         }
 
+        // RISK-034: 入口长度上限, 前置于解析与工具查找
+        const std::size_t args_len = std::strlen(args_json);
+        if (args_len > cpphub::v1::c_api::kMaxArgsJsonBytes) {
+            set_error("args_json exceeds limit (" + std::to_string(args_len) +
+                      " > " + std::to_string(cpphub::v1::c_api::kMaxArgsJsonBytes) +
+                      " bytes)");
+            return CPPHUB_ERR_INVALID_ARG;
+        }
+
         const cpphub::v1::c_api::ToolSpec* spec =
             cpphub::v1::c_api::find_tool(tool_name);
         if (spec == nullptr) {

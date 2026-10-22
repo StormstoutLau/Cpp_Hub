@@ -340,3 +340,50 @@ TEST(JsonMinParse, ErrorMessageOnFailureIsSet) {
     ASSERT_TRUE(jm::parse("{\"a\":1}", v, err));
     EXPECT_TRUE(err.empty());
 }
+
+// ---------------------------------------------------------------------------
+// RISK-034: 节点预算（kMaxParseNodes）
+// 注意: 文件顶部 (:18) 已有 `namespace jm = cpphub::v1::json_min;`,
+// 同一作用域重复声明 namespace alias = 编译错误 (Step 6 勘误 R-1), 此处不得再写。
+// ---------------------------------------------------------------------------
+
+TEST(JsonMinBudget, AcceptsAtBoundary) {
+    // N 元素数组 = 1(数组) + N(元素) 节点 → kMaxParseNodes-1 个元素恰为 1e6 节点
+    std::string text = "[";
+    for (std::size_t i = 0; i < jm::kMaxParseNodes - 1; ++i) {
+        if (i) text += ',';
+        text += '0';
+    }
+    text += ']';
+    std::string err;
+    jm::Value v;
+    ASSERT_TRUE(jm::parse(text, v, err)) << err;
+    ASSERT_TRUE(v.is_array());
+    EXPECT_EQ(v.as_array().size(), jm::kMaxParseNodes - 1);
+}
+
+TEST(JsonMinBudget, RejectsWideArrayOverBudget) {
+    // kMaxParseNodes+2 个元素 → 1'000'003 节点, 超限拒绝且错误含 "node"
+    std::string text = "[";
+    for (std::size_t i = 0; i < jm::kMaxParseNodes + 2; ++i) {
+        if (i) text += ',';
+        text += '0';
+    }
+    text += ']';
+    std::string err;
+    jm::Value v;
+    EXPECT_FALSE(jm::parse(text, v, err));
+    EXPECT_NE(std::string(err).find("node"), std::string::npos) << err;
+}
+
+TEST(JsonMinBudget, DeepNestingStillLimitedByDepth) {
+    // 回归锁: 节点预算不遮蔽深度限制（小节点数 + 深嵌套仍报 nesting depth）
+    std::string deep;
+    for (int i = 0; i < 200; ++i) deep.push_back('[');
+    deep += "1";
+    for (int i = 0; i < 200; ++i) deep.push_back(']');
+    std::string err;
+    jm::Value v;
+    EXPECT_FALSE(jm::parse(deep, v, err));
+    EXPECT_NE(std::string(err).find("nesting depth"), std::string::npos) << err;
+}

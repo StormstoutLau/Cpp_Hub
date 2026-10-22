@@ -50,6 +50,9 @@ namespace json = json_min;
 inline constexpr std::size_t kMaxSeriesLength = 10000;
 // 多变量列数上限（K）
 inline constexpr std::size_t kMaxColumns = 64;
+// args_json 字节上限（RISK-034）：属工具面输入策略（与序列/列数上限同层），
+// 由 c_api.cpp tool_call 入口在 strlen 后前置检查，防超大输入在解析前占用内存。
+inline constexpr std::size_t kMaxArgsJsonBytes = 8u * 1024u * 1024u;  // 8 MiB
 
 // ---------------------------------------------------------------------------
 // handler 结果

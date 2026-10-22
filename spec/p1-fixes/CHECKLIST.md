@@ -133,18 +133,18 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-41 | 节点预算常量与语义注释 | 读 `json_min.hpp`（`kMaxParseDepth` 之后） | `kMaxParseNodes = 1'000'000`；注释写明"每次 parse_value 计 1，键不计入" | 代码片段 | ☐ |
-| C-42 | 入口长度常量 | 读 `cpphub_tool_registry.hpp`（`kMaxColumns` 之后） | `kMaxArgsJsonBytes = 8u*1024u*1024u` + 策略层注释 | 代码片段 | ☐ |
-| C-43 | 计数实现位置正确 | 读 `Parser::parse_value` 入口 | `if (++nodes_ > kMaxParseNodes) return fail("maximum node count exceeded");` | 代码片段 | ☐ |
-| C-44 | 入口检查**前置于**工具查找与解析 | 读 `cpphub_v1_tool_call` | strlen 检查位于 args 判空之后、`find_tool` 之前；返回 `CPPHUB_ERR_INVALID_ARG` | 代码片段 | ☐ |
-| C-45 | 边界算术正确（接受侧） | 运行 `JsonMinBudget.AcceptsAtBoundary` | 999'999 元素（=1e6 节点）parse 成功 | 用例通过 | ☐ |
-| C-46 | 边界算术正确（拒绝侧） | 运行 `JsonMinBudget.RejectsWideArrayOverBudget` | 1'000'002 元素拒绝，error 含 `node` | 用例通过 + 错误串 | ☐ |
-| C-47 | 两类限制互不遮蔽 | 运行 `JsonMinBudget.DeepNestingStillLimitedByDepth` | 深嵌套仍报 `nesting depth` | 用例通过 | ☐ |
-| C-48 | 8 MiB+1 被拒且文案正确 | 运行 `CApiTools.RejectsOversizedArgsJson` | `-1`；`get_last_error` 含 `exceeds limit` | 用例通过 | ☐ |
-| C-49 | 检查前置可证 | 运行 `CApiTools.OversizedCheckPrecedesParse` | 超长且非法 → 报 `exceeds limit`，**不含** `invalid args_json` | 用例通过 | ☐ |
-| C-50 | 红→绿性质成立 | 在改动前跑 §5 用例 | C-46/C-48/C-49 为 **FAILED**；C-45/C-47 为 PASSED（回归锁） | 改动前后两次 ctest 输出 | ☐ |
-| C-51 | 无新增错误码 / ABI 不破 | 读 `cpphub_c_api.h`；`cpphub_v1_get_abi_version()` | 错误码集合不变；ABI 版本仍 = 1 | 头文件 diff + 用例 | ☐ |
-| C-52 | 资源开销可接受 | 记录 `ctest -R "JsonMinBudget"` 用时 | 两个 1e6 节点用例合计 < 10 s（本机实测记录） | 耗时数字 | ☐ |
+| C-41 | 节点预算常量与语义注释 | 读 `json_min.hpp`（`kMaxParseDepth` 之后） | `kMaxParseNodes = 1'000'000`；注释写明"每次 parse_value 计 1，键不计入" | 代码片段 | ✅ :29-34 常量 + 5 行注释（含"键不计入"与合法上界推导） |
+| C-42 | 入口长度常量 | 读 `cpphub_tool_registry.hpp`（`kMaxColumns` 之后） | `kMaxArgsJsonBytes = 8u*1024u*1024u` + 策略层注释 | 代码片段 | ✅ :53-55 `inline constexpr std::size_t kMaxArgsJsonBytes = 8u * 1024u * 1024u;` + 策略层注释 |
+| C-43 | 计数实现位置正确 | 读 `Parser::parse_value` 入口 | `if (++nodes_ > kMaxParseNodes) return fail("maximum node count exceeded");` | 代码片段 | ✅ :200-204 `parse_value` 入口（switch 前）；:182 成员 `std::size_t nodes_ = 0;` |
+| C-44 | 入口检查**前置于**工具查找与解析 | 读 `cpphub_v1_tool_call` | strlen 检查位于 args 判空之后、`find_tool` 之前；返回 `CPPHUB_ERR_INVALID_ARG` | 代码片段 | ✅ c_api.cpp :308-315；`std::strlen` + `kMaxArgsJsonBytes` 比较 + `set_error("args_json exceeds limit (...)")` + 返回 `CPPHUB_ERR_INVALID_ARG` |
+| C-45 | 边界算术正确（接受侧） | 运行 `JsonMinBudget.AcceptsAtBoundary` | 999'999 元素（=1e6 节点）parse 成功 | 用例通过 | ✅ PASSED（142 ms）；`as_array().size() == kMaxParseNodes - 1` |
+| C-46 | 边界算术正确（拒绝侧） | 运行 `JsonMinBudget.RejectsWideArrayOverBudget` | 1'000'002 元素拒绝，error 含 `node` | 用例通过 + 错误串 | ✅ PASSED（144 ms）；红态曾 `Actual: true`（无上限时解析成功），绿态拒绝且 err 含 "node" |
+| C-47 | 两类限制互不遮蔽 | 运行 `JsonMinBudget.DeepNestingStillLimitedByDepth` | 深嵌套仍报 `nesting depth` | 用例通过 | ✅ PASSED（0 ms）；err 含 "nesting depth" |
+| C-48 | 8 MiB+1 被拒且文案正确 | 运行 `CApiTools.RejectsOversizedArgsJson` | `-1`；`get_last_error` 含 `exceeds limit` | 用例通过 | ✅ PASSED（4 ms）；返回 `CPPHUB_ERR_INVALID_ARG`，err 含 "exceeds limit" |
+| C-49 | 检查前置可证 | 运行 `CApiTools.OversizedCheckPrecedesParse` | 超长且非法 → 报 `exceeds limit`，**不含** `invalid args_json` | 用例通过 | ✅ PASSED（4 ms）；红态曾报 `invalid args_json: invalid number`（证明未前置），绿态仅 `exceeds limit` |
+| C-50 | 红→绿性质成立 | 在改动前跑 §5 用例 | C-46/C-48/C-49 为 **FAILED**；C-45/C-47 为 PASSED（回归锁） | 改动前后两次 ctest 输出 | ✅ 仅加常量未加逻辑时实测：`JsonMinBudget` 2 PASSED / 1 FAILED（AcceptsAtBoundary、DeepNesting PASSED）；`CApiTools` 0 PASSED / 2 FAILED；实施后 `test_json_min` 17/17、`test_c_api_tools` 10/10 |
+| C-51 | 无新增错误码 / ABI 不破 | 读 `cpphub_c_api.h`；`cpphub_v1_get_abi_version()` | 错误码集合不变；ABI 版本仍 = 1 | 头文件 diff + 用例 | ✅ `cpphub_c_api.h` 未改动（`git diff` 0 命中）；复用 `CPPHUB_ERR_INVALID_ARG` |
+| C-52 | 资源开销可接受 | 记录 `ctest -R "JsonMinBudget"` 用时 | 两个 1e6 节点用例合计 < 10 s（本机实测记录） | 耗时数字 | ✅ 三个用例合计 287 ms（142 + 144 + 0），远低于 10 s |
 
 ---
 

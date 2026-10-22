@@ -6,6 +6,7 @@
 //   4. 缓冲协商：不足返回 -4 并回填所需长度；二次分配后成功
 //   5. 错误映射：未知工具 / 非法 args_json / 非法参数 -> -1；内核退化 -> -2
 #include "cpphub/c_api/cpphub_c_api.h"
+#include "cpphub/c_api/cpphub_tool_registry.hpp"
 #include "cpphub/c_api/detail/json_min.hpp"
 
 #include <gtest/gtest.h>
@@ -325,4 +326,31 @@ TEST(CApiTools, ErrorStateIsPerThreadAndResetBySuccess) {
     json::Value v;
     std::string err;
     EXPECT_TRUE(json::parse(std::string(buf, len), v, err)) << err;
+}
+
+// ---------------------------------------------------------------------------
+// RISK-034: 入口长度上限（kMaxArgsJsonBytes, 8 MiB）
+// ---------------------------------------------------------------------------
+TEST(CApiTools, RejectsOversizedArgsJson) {
+    const std::size_t limit = cpphub::v1::c_api::kMaxArgsJsonBytes;
+    std::string args = "{\"series\":[" + std::string(limit, '0') + "]}";
+    ASSERT_GT(args.size(), limit);
+    size_t need = 0;
+    EXPECT_EQ(cpphub_v1_tool_call("cpphub_unit_root_diagnose", args.c_str(),
+                                  nullptr, &need),
+              CPPHUB_ERR_INVALID_ARG);
+    EXPECT_NE(std::string(cpphub_v1_get_last_error()).find("exceeds limit"),
+              std::string::npos);
+}
+
+TEST(CApiTools, OversizedCheckPrecedesParse) {
+    // 超长 + 语法非法 → 报 "exceeds limit" 而非 JSON 语法错误（证明检查前置）
+    std::string args(cpphub::v1::c_api::kMaxArgsJsonBytes + 1, '!');
+    size_t need = 0;
+    EXPECT_EQ(cpphub_v1_tool_call("cpphub_unit_root_diagnose", args.c_str(),
+                                  nullptr, &need),
+              CPPHUB_ERR_INVALID_ARG);
+    const std::string err = cpphub_v1_get_last_error();
+    EXPECT_NE(err.find("exceeds limit"), std::string::npos) << err;
+    EXPECT_EQ(err.find("invalid args_json"), std::string::npos) << err;
 }
