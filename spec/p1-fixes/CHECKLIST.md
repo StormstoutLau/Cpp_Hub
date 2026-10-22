@@ -125,7 +125,7 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | C-37 | 版本漂移门禁进 CI | 查 ci.yml build-test job | 含 `python3 tools/sync_version.py --check`（`if: runner.os == 'Linux'`） | 步骤全文 | ✅ :74-77 build-test job 内 "Check version header (RISK-032)"，`if: runner.os == 'Linux'`，`python3 tools/sync_version.py --check` |
 | C-38 | coverage job 存在且可跑 | 查 ci.yml | Debug + `--coverage` + `--filter 'include/cpphub/'` + **`python3 -m pip install gcovr`** + artifact `coverage*.html` / `coverage.xml` | job 全文 | ✅ coverage job 现位于 ci.yml :136-164（2026-10-22 复测）：Debug、`--coverage -O0 -g`、`gcovr --filter 'include/cpphub/' --exclude 'third_party'`、`python3 -m pip install gcovr`、artifact `coverage.xml` + `coverage*.html` |
 | C-39 | YAML 语法有效 | `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml',encoding='utf-8')); print('ok')"`（无 PyYAML 时以推送后 Actions 解析为准） | ok / Actions 不报 syntax error | 输出 | ✅ `yaml ok`（PyYAML，Python 3.12） |
-| C-40 | A5 实证：JsonMin/ToolRegistry 在 CI 真跑 | 看 c-api job 日志 | 日志出现 `JsonMinBudget.*`、`ToolRegistry.*`、`CApiTools.*` | 日志片段 | ⏸ 待推送后以 Actions 日志取证（本地已证注册存在：`JsonMin\|ToolRegistry` = 28 个用例）。**跟踪条款**：推送后取证回填本行，见 AUDIT.md 遗留项 |
+| C-40 | A5 实证：JsonMin/ToolRegistry 在 CI 真跑 | 看 c-api job 日志 | 日志出现 `JsonMinBudget.*`、`ToolRegistry.*`、`CApiTools.*` | 日志片段 | ✅ run 39755779788 C ABI job（ubuntu #119747299808 / windows #119747299759）：`(JsonMinBudget\|ToolRegistry\|CApiTools)\..*Passed` = 30 行/平台，双平台 2600/2600 全绿；本审计新增 3 用例（RejectsFirstNodeOverBudget #1341 / ObjectKeysNotCountedInNodeBudget #1342 / AcceptsArgsJsonAtExactLimit #1366）均在列且 Passed。注：同 run 其余 job 失败（guard 自匹配等 4 簇）另行修复，见 DEVELOPMENT_LOG 2026-10-22 CI 条目 |
 
 ---
 
@@ -240,7 +240,7 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | A2 | 两轴版本模型三者一致 | C-21 ~ C-29 | ✅ |
 | A3 | README 事实修正、无冻结总数 | C-31 / C-32 / C-33 / C-34 / C-35 | ✅ |
 | A4 | 覆盖率 job 产出 artifact | C-38 | ✅ |
-| A5 | C API 测试在 CI 实际运行 | C-36 / C-40 | ⏸（C-36 ✅；C-40 待 CI 日志） |
+| A5 | C API 测试在 CI 实际运行 | C-36 / C-40 | ✅（C-36 ✅；C-40 ✅ run 39755779788 双平台 2600/2600） |
 | A6 | 8 MiB+1 拒绝；节点预算边界正确 | C-41 ~ C-52 | ✅ |
 | A7 | KAT（CPU/GPU）全绿；uniform 逐字相同 | C-77 ~ C-81 | ✅ |
 | A8 | 正态层级 ≤1e-15 | C-82 | ✅ |
