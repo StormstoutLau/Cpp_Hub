@@ -68,7 +68,7 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
 | G-01 | U-7 发布号已确认 | 向 Scott 确认；写入 `python/pyproject.toml:24` | 取值确定（默认 1.9.0）且与提交说明一致 | **Scott 裁定 1.9.0（2026-10-22）** | ✅ |
-| G-02 | U-8 vendor 身份可审计 | 读 `third_party/random123/UPSTREAM.md` | 含**页面级核实**的仓库 URL + 40 位 commit SHA + 拷贝日期 + 范围 + 许可证 | commit `9545ff6413f258be2f04c1d319d99aaef7521150`（GitHub API 直连确认）；codeload 归档 430 644 B；28 文件 + LICENSE 落地；UPSTREAM.md 已写 | ✅ |
+| G-02 | U-8 vendor 身份可审计 | 读 `third_party/random123/UPSTREAM.md` | 含**页面级核实**的仓库 URL + 40 位 commit SHA + 拷贝日期 + 范围 + 许可证 | commit `9545ff6413f258be2f04c1d319d99aaef7521150`（GitHub API 直连确认）；codeload 归档 430 644 B；**27 文件** + LICENSE 落地；UPSTREAM.md 已写 | ✅ |
 | G-03 | U-6 KAT 列序已确认 | 打开上游 `kat_vectors` 首行，与抽取脚本输出比对 | 脚本产出的 `ctr/key/answer` 三组数值与上游行**逐字一致** | 路径 `tests/kat_vectors`（非 examples，E-7）；列序 `nameNxW R CTR[4] KEY[2] EXPECTED[4]`；philox4x64 10 轮 3 行（E-8）；夹具 `tests/fixtures/rng/kat_philox4x64_10.hpp` 已生成（kKatCount=3），第 1 行答案与 nvcc device 输出逐字一致 | ✅ |
 | G-04 | U-10 探针通过（Random123 在 nvcc 下可用） | 运行 `tmp/probe_r123.cu`（IMPLEMENTATION §1.2） | ① nvcc 编译通过；② `R123_USE_PHILOX_64BIT` 非 0；③ 设备 4 字 == host 4 字 | host：`PHILOX_64BIT=1` + 输出=KAT ✓；device **首轮失败**（`mulhilo64` host/device 错配）→ 加 device pass 守卫后 `nvcc -arch=sm_89` 通过，device 输出 `16554d9e…7ba23b` = KAT 第 1 行逐字一致（D-6 / E-10） | ✅ |
 | G-05 | 基线全绿（改动前） | `ctest --test-dir build -C Release -j 8 --output-on-failure`；同 build_capi / build_cuda | 三目录 0 失败 | build **2605/2605**（重配清 4 项 NOT_BUILT 残留；残留源 = 旧 configure 注册，E-9）；build_capi **2587/2587**；build_cuda **2548/2548**（含 `gpu_mc` 通过） | ✅ |
@@ -113,7 +113,7 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 |---|---|---|---|---|---|
 | C-31 | 冻结总数清零 | `Select-String -Path README.md -Pattern '1412'` | 0 命中 | 计数 0 | ✅ 0 命中；:27 改为"全量测试通过（见 CI）；位精确复现限**同编译器族内 + 同 RNG 版本 + 同编译选项**" |
 | C-32 | GPU 测试数失真清除 | `Select-String -Path README.md -Pattern '15 GPU MC'` | 0 命中；:107 改为"stub 编译 + `test_gpu_mc` skipped"表述 | 计数 0 + :107 全文 | ✅ 0 命中；:113 "a CPU stub is compiled and `test_gpu_mc` is **skipped** (`test_gpu_mc: SKIPPED (no CUDA)`); GPU entry points throw `std::runtime_error`" |
-| C-33 | RNG 承诺分层（:40） | 读 README :40 | uniform bit-exact + normal 1e-15 双承诺 | 行全文 | ⏸ 归提交 4（R-027，避免同段二次修改；见 IMPLEMENTATION §3.2 I） |
+| C-33 | RNG 承诺分层（:46） | 读 README :46 | uniform bit-exact + normal 1e-15 双承诺 | ✅ README:46 "Philox4x64-10 (Random123): **uniform stream bit-exact** with CPU; normal samples agree to 1e-15"（原计划 :40，实际行漂移至 :46） |
 | C-34 | 跨平台限定（:121） | 读 README :121 | 注明"同 RNG 版本 + 同编译选项" | 行全文 | ✅ :127 "Cross-platform float determinism \| bit-exact \| ✅ (MSVC + 2× GCC；同 RNG 版本 + 同编译选项)" |
 | C-35 | 顶部版本模型说明 | 读 README 顶部 | 3 行：C++ API 版本见 `VERSION` / Python 发行版本见 `pyproject.toml` / tag 独立 | 段落 | ✅ :9-13 "版本模型（两轴，彼此独立）"三行齐全 |
 
@@ -225,10 +225,10 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | C-101 | 提交 1（R-033）独立可 revert | `git show --stat` | 仅 `CMakeLists.txt` + `ci.yml` 两处 cache key | `7e305fc`：2 文件（ci.yml +4/-2、CMakeLists.txt +7/-1） | ✅ |
 | C-102 | 提交 2（R-032）文件集合正确 | 同上 | `VERSION`、`tools/sync_version.py`、`version.hpp`、`config.hpp`、根 CMake、python CMake、`cpphub_python.cpp`、`pyproject.toml`、`test_version.py`、`ci.yml`、README（:21/:107/:121/顶部） | `5c8e21b`：13 文件 (= 上述 11 + CHECKLIST/IMPLEMENTATION 文档) | ✅ |
 | C-103 | 提交 3（R-034）文件集合正确 | 同上 | `json_min.hpp`、`registry.hpp`、`c_api.cpp`、`test_json_min.cpp`、`test_c_api_tools.cpp` | `253fd94`：6 文件 (= 上述 5 + CHECKLIST) | ✅ |
-| C-104 | 提交 4（R-027）整体可 revert | 同上 | `third_party/random123/**`、`rng.hpp`、`gpu_mc.cu`、`rng_device_probe.hpp`、三处 CMake include + 两处测试 CMake、6 个测试文件（新增 2 个 + 回归处置 4 个）、README:46、USAGE_GUIDE、ARCHITECTURE、夹具头 | stat | ☐ |
-| C-105 | README 无重复修改 | `git log -p -- README.md` | :46 只在提交 4，:21/:107/:121 只在提交 2 | log | ☐ |
-| C-106 | 每提交前已 review | 提交说明或 review 记录 | 4 次 review 均有结论（排除幻觉） | 记录 | ☐ |
-| C-107 | 回滚演练（可选） | 在临时分支 `git revert --no-commit <R-027>` | 回滚后 `build/` 核心配置可编译（GPU 目录除外） | 演练日志 | ☐ |
+| C-104 | 提交 4（R-027）整体可 revert | 同上 | `third_party/random123/**`、`rng.hpp`、`gpu_mc.cu`、`rng_device_probe.hpp`、三处 CMake include + 两处测试 CMake、6 个测试文件（新增 2 个 + 回归处置 4 个）、README:46、USAGE_GUIDE、ARCHITECTURE、夹具头 | `5910753`：49 文件 = 上述全部 + vendor 27 头/LICENSE/UPSTREAM + 文档与 CHECKLIST | ✅ |
+| C-105 | README 无重复修改 | `git log -p -- README.md` | :46 只在提交 4，:21/:107/:121 只在提交 2 | `5910753` README 仅 GPU MC 行；`5c8e21b` 含版本模型/跨平台行/GPU skip 行 | ✅ |
+| C-106 | 每提交前已 review | 提交说明或 review 记录 | 4 次 review 均有结论（排除幻觉） | 4 次提交前均逐文件读 diff；提交 4 review 修正 `tests/CMakeLists.txt` 注释笔误（grunfeld）、`kv_price`→`ref_price`，并核对全部行号引用 | ✅ |
+| C-107 | 回滚演练（可选） | 在临时分支 `git revert --no-commit <R-027>` | 回滚后 `build/` 核心配置可编译（GPU 目录除外） | 未执行（清单标注为可选，不阻塞验收） | ⏸ |
 
 ---
 
@@ -236,16 +236,16 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | 标准 | 内容 | 本清单条目 | 状态 |
 |---|---|---|---|
-| A1 | 无 tag 依赖，FetchContent 钉 commit | C-11 / C-12 / C-13 | ☐ |
-| A2 | 两轴版本模型三者一致 | C-21 ~ C-29 | ☐ |
-| A3 | README 事实修正、无冻结总数 | C-31 / C-32 / C-33 / C-34 / C-35 | ☐ |
-| A4 | 覆盖率 job 产出 artifact | C-38 | ☐ |
-| A5 | C API 测试在 CI 实际运行 | C-36 / C-40 | ☐ |
-| A6 | 8 MiB+1 拒绝；节点预算边界正确 | C-41 ~ C-52 | ☐ |
-| A7 | KAT（CPU/GPU）全绿；uniform 逐字相同 | C-77 ~ C-81 | ☐ |
-| A8 | 正态层级 ≤1e-15 | C-82 | ☐ |
-| A9 | 全量回归通过（允许重选 seed） | C-91 / C-92 / C-93 | ☐ |
-| A10 | 性能前后数据已记录 | C-94 / C-95 | ☐ |
+| A1 | 无 tag 依赖，FetchContent 钉 commit | C-11 / C-12 / C-13 | ✅ |
+| A2 | 两轴版本模型三者一致 | C-21 ~ C-29 | ✅ |
+| A3 | README 事实修正、无冻结总数 | C-31 / C-32 / C-33 / C-34 / C-35 | ✅ |
+| A4 | 覆盖率 job 产出 artifact | C-38 | ✅ |
+| A5 | C API 测试在 CI 实际运行 | C-36 / C-40 | ⏸（C-36 ✅；C-40 待 CI 日志） |
+| A6 | 8 MiB+1 拒绝；节点预算边界正确 | C-41 ~ C-52 | ✅ |
+| A7 | KAT（CPU/GPU）全绿；uniform 逐字相同 | C-77 ~ C-81 | ✅ |
+| A8 | 正态层级 ≤1e-15 | C-82 | ✅ |
+| A9 | 全量回归通过（允许重选 seed） | C-91 / C-92 / C-93 | ✅ |
+| A10 | 性能前后数据已记录 | C-94 / C-95 | ✅ |
 
 **覆盖声明**：A1-A10 全部有映射；本清单另有 G/C 系列超出 A1-A10 的工程项（构建、探针安全、提交可回滚性），均来自 IMPLEMENTATION §1-§7，不引入 DESIGN 外的新裁决。
 
