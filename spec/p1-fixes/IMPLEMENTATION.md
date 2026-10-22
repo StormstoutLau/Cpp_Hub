@@ -2,7 +2,7 @@
 
 > **Feature**: p1-fixes
 > **Spec 步骤**: Step 5（IMPLEMENTATION）— 上游 [DESIGN.md](./DESIGN.md)（Step 4 review 完成，§12）+ [RESEARCH.md](./RESEARCH.md)（U-1~U-5 已裁定）
-> **状态**: **Step 6 review 完成**（2026-10-21，13 处勘误已回写，见 §10）— 可进入 Step 7（CHECKLIST）
+> **状态**: **Step 9 TDD 实施完成**（2026-10-22，验收见 [CHECKLIST.md](./CHECKLIST.md) §2-§8）+ **Step 10 ADD 审计修复已回写**（见 [AUDIT.md](./AUDIT.md)）
 > **实施环境**: Windows 11 + MSVC 2022 + RTX 4060（SM 8.9）+ CUDA 12.x + Python 3.12
 
 ---
@@ -179,7 +179,7 @@ inline constexpr std::size_t kKatCount = sizeof(kKatVectors) / sizeof(kKatVector
 
 TDD 不适用（构建面变更，无 gtest 红用例）；验证 = 重放。
 
-### 2.1 [CMakeLists.txt:61-68](../../CMakeLists.txt#L61-L68)
+### 2.1 CMakeLists.txt R-033 块（内容锚: codeload URL 行, 现位于 :72；行号随提交序列漂移, 以 URL 字面量为准——ADD 审计 P2-1）
 
 原（tag 归档 URL）→ 改为（DESIGN §3.1 / §11 D-5 裁决：URL@commit 形态）：
 
@@ -978,7 +978,7 @@ TEST(GpuMC, NormalSamplesWithinTolerance) {
 ### 5.8 复跑处置与性能记录（DESIGN §6.7）
 
 1. 夹具不受影响（tests/fixtures/** 由 Python/R 生成，不重算）。
-2. 全量复跑三目录（§0.1），记录失败清单；处置仅两类：(a) 统计窗口红 → **重选 seed** 并在提交说明记录；(b) 实现错误 → 修实现。**禁止放宽容差**。
+2. 全量复跑三目录（§0.1），记录失败清单；处置仅三类：(a) 统计窗口红 → **重选 seed** 并在提交说明记录；(b) 实现错误 → 修实现；(c) 测试参照口径错误 → 修参照（**非放宽容差**；实例：几何亚洲连续 KV → 离散监控精确闭式解，2026-10-22，容差同步收紧 0.10→0.05）。**禁止放宽容差**。
 3. 性能前后：`benchmark_philox`（[tests/unit/performance/benchmark_philox.cpp](../../tests/unit/performance/benchmark_philox.cpp)，**路径在 tests/ 下而非 benchmarks/**；信息性、不入 ctest；`N=1e8` 逐字 `rng()` 调用）改造前后各跑一次，吞吐写入 [DEVELOPMENT_LOG.md](../../docs/DEVELOPMENT_LOG.md) 新增小节「R-027 前后吞吐」。旧值与新值**不可直接比回归**（算法实现更换），记录为"实现更换基线"。
    理论量级：旧实现每输出 1 字 = 1 次 10 轮 compute（产 2 字用 1 字）；新实现每 4 字 = 1 次块调用 ⇒ 每字轮数降到 1/4，**吞吐上限约 4×**；缓冲分支开销以实测为准，若下降 >2× 须在日志说明可接受性。
    注：benchmark 输出的平台标签（MSVC `_umul128` / GCC `__uint128_t`，[:15-25](../../tests/unit/performance/benchmark_philox.cpp#L15-L25)）描述的是旧实现的乘法路径，换 vendor 后仅剩"编译平台"含义；不改代码，记录时注明语境。
@@ -1047,6 +1047,8 @@ TEST(GpuMC, NormalSamplesWithinTolerance) {
 | E-10 | Random123 nvcc 宏守卫 | 见 DESIGN §11 D-6：`gpu_mc.cu` 与探针段必须在 include 前定义 device pass 守卫，否则 device 代码调用 host-only `_umul128` 编译失败 |
 | E-11 | CMake 4.4 `gtest_discover_tests` JSON 临时文件竞争 | 全新目录高并行构建（`--parallel 8`）时，`GoogleTestAddTests` 的 `cmake_test_discovery_<hash>.json` 文件名 hash 不含 target 名 → 多 target 争抢同一文件，POST_BUILD 读到编译日志而 JSON 解析失败（`MSB3073` + `ParseTestList.cmake:96`）。**既有基建缺陷，与本次改动无关**；串行构建（`--parallel 1`）或低并行度可规避。CI 用 `--parallel 4`，风险存在但非本次范围 |
 | E-12 | CTest 注册表代际污染（build/ vs 全新目录） | 事实：① exe 层面两目录**完全一致**（逐 exe `--gtest_list_tests`：各 157 exe / **2590 用例**）；② `build/` 注册 2573 项，其中**248 组同名重复**（多代发现文件共存：3032 个 `*.cmake` vs 干净目录 1406 个）→ 唯一注册仅 2325，反漏 265 个真实用例（如 `CGMYCharactericFunction.*` 9 个全缺）；③ 干净目录 `tmp/verify_capi`（C_API=ON）经"删除 exe + 发现文件 → 串行重链"后注册 **2590**，与 exe 用例数逐一相等、零重复。判定：**R-032 回归证据以干净目录 2590/2590 全绿为准**（`tmp/ctest_r032_final.log`）；`build/` 的 2573/2573 亦全绿，但既跑重复又漏用例，属既有目录污染（同 E-9/E-11 族），**后续 C-91 三目录回归必须用干净目录**，否则数字不可信 |
+
+> **计数代次调和（ADD 审计 P2-8, 2026-10-22）**：全量回归注册数存在四个代次——E-9 基线 **2553**（build/ 旧 configure 注册）→ E-12 干净目录 **2590**（R-032 时点）→ G-05 基线 **2605**（build/ 重配清残留后）→ C-91 终态 **2596**（build/ 再次重配后）。注册数差额源于 build/ 注册表代际污染（E-11/E-12 族，与本次改动无关），**以干净重配目录口径为准**；build_cuda 2548→2538 的差额无法静态逐项归因，仅登记代次事实，不作无证据断言。
 
 ---
 

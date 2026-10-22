@@ -12,7 +12,8 @@ namespace cpphub {
 inline namespace v1 {
 
 // Philox4x64-10 (Random123): counter 4xu64, key 2xu64, 每次调用产出 4 字。
-// 本类为流式适配层: 逐字输出 + 块缓冲, 对外语义不变
+// 本类为流式适配层: 逐字输出 + 块缓冲, 公共 API 不变;
+// 输出流语义变更见 USAGE_GUIDE §3.1.3 (2026-10-22 R-027)。
 // （operator() = 流顺序下一字; next4() = 恰 1 个完整块 = 与 GPU 每路径 1 块对齐）。
 class Philox4x64 {
     r123::Philox4x64::ctr_type ctr_{};    // 4xu64 计数器（下一块的 counter）

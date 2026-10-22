@@ -387,3 +387,36 @@ TEST(JsonMinBudget, DeepNestingStillLimitedByDepth) {
     EXPECT_FALSE(jm::parse(deep, v, err));
     EXPECT_NE(std::string(err).find("nesting depth"), std::string::npos) << err;
 }
+
+TEST(JsonMinBudget, RejectsFirstNodeOverBudget) {
+    // ADD P3-4: 最小拒绝量 = kMaxParseNodes 个元素 → 1'000'001 节点,
+    // 恰好比接受侧 (AcceptsAtBoundary 的 1e6 节点) 多 1 个节点。
+    std::string text = "[";
+    for (std::size_t i = 0; i < jm::kMaxParseNodes; ++i) {
+        if (i) text += ',';
+        text += '0';
+    }
+    text += ']';
+    std::string err;
+    jm::Value v;
+    EXPECT_FALSE(jm::parse(text, v, err));
+    EXPECT_NE(std::string(err).find("node"), std::string::npos) << err;
+}
+
+TEST(JsonMinBudget, ObjectKeysNotCountedInNodeBudget) {
+    // ADD P2-4: 语义锚定 —— 对象键经 parse_string 直调, 不计入节点预算。
+    // 500'000 键值对 = 1(对象) + 500'000(值) = 500'001 节点, 应接受;
+    // 若键被误计入则为 1'000'001 节点, 必然拒绝 —— 本用例反向锁定该语义。
+    std::string text = "{\"k0\":0";
+    for (std::size_t i = 1; i < 500'000; ++i) {
+        text += ",\"k";
+        text += std::to_string(i);
+        text += "\":0";
+    }
+    text += '}';
+    std::string err;
+    jm::Value v;
+    ASSERT_TRUE(jm::parse(text, v, err)) << err;
+    ASSERT_TRUE(v.is_object());
+    EXPECT_EQ(v.as_object().size(), 500'000u);
+}

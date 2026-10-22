@@ -42,6 +42,14 @@ jobs:
           # third_party/eigen 是 submodule (ADR-013); 缺失导致 Eigen/Dense 编译失败
           submodules: recursive
 
+      # RISK-033 供应链守卫 (ADD 审计 P3-1): URL 钉 commit 形态被意外回退时 CI 直接红。
+      # 旧 tag key 检测用变量拼接, 避免 guard 自身文本被 grep 命中 (自匹配)。
+      - name: Guard googletest pinned to immutable commit (R-033)
+        shell: bash
+        run: |
+          grep -q "codeload.github.com/google/googletest/tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571" CMakeLists.txt
+          P="gtest-1.14.0"; ! grep -q "$P" .github/workflows/ci.yml
+
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1

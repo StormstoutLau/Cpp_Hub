@@ -13,7 +13,7 @@
 | ADR-001 | Header-only Core + 单一共享库 | Accepted | 2026-07-29 | Phase 1 |
 | ADR-002 | Bridge + Virtual Constructor (PayOff) | Accepted | 2026-07-29 | Phase 1 |
 | ADR-003 | Factory + 静态注册模板 | Accepted | 2026-07-29 | Phase 1 |
-| ADR-004 | 计数器 RNG (Philox/Threefry) + 确定性分块并行 | Accepted | 2026-07-29 | Phase 1 |
+| ADR-004 | 计数器 RNG (Philox; Threefry 未实现, 2026-10-22 R-027 勘误) + 确定性分块并行 | Accepted | 2026-07-29 | Phase 1 |
 | ADR-005 | 可移植 SIMD 抽象层 | Accepted | 2026-07-29 | Phase 1 |
 | ADR-006 | nanobind Python 绑定 + 批量 NumPy API | Accepted | 2026-07-29 | Phase 1 |
 | ADR-007 | AAD (伴随模式) 统一 Greeks | Accepted | 2026-07-29 | Phase 3 |
@@ -177,7 +177,7 @@ static PayOffRegistrar<PutPayOff> reg_put("Put");
 Monte Carlo 需高质量、可并行、可复现的随机数。`std::mt19937` 有状态、难并行、种子管理复杂。
 
 ### 决策
-采用 **Philox4x64 / Threefry4x64** (Random123) 计数器 RNG:
+采用 **Philox4x64** (Random123) 计数器 RNG（Threefry 未实现——2026-10-22 R-027 勘误）:
 - **纯函数**: `draw(i) = f(key, counter=i)` 无内部状态
 - **SIMD 友好**: 一次生成 4/8 个 64-bit 整数
 - **并行安全**: 线程/块/进程只需不同 `key` 或 `counter` 偏移

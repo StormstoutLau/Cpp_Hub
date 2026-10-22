@@ -3040,7 +3040,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   比值 **≈ 4.18×**，与"每字轮数降至 1/4"的理论上限吻合。**性质 = 实现更换基线，不与旧值做回归比较**；benchmark 内的"MSVC `_umul128` / GCC `__uint128_t`"平台标签现仅表示编译平台（乘法路径已由上游分派）。
 - **文档同步**: README GPU 行改为分层承诺；USAGE_GUIDE §3.1.3 周期 2^128→**2^256**、状态 `counter[4]+key[2]`（384 位）、输出"每块 4×u64"、并行性分层 + `-I third_party/random123/include`；§3.10 RNG 行同步；ARCHITECTURE 删 `Threefry4x64` 假条目、ADR-004 注明 vendor。
 - **回归处置 (IMPLEMENTATION §5.8)**: 全量首次回归 5 例红，全部为随机流更换后的统计窗口漂移，无一涉及数值/接口实现：
-  - 重选 seed（§5.8(a)）3 例：NgPerron `gen_ar095` stream 2→3（原 T=500 抽到 MZα=-8.5 落在功率边界）；Phase8 Kalman `gen_noise` seed 301→302（原样本 ARMA(1,1) MLE 不收敛）；IS ITM Put seed 42→43（原 |Δ|=0.0686 vs 0.05）。
+  - 重选 seed（§5.8(a)）**3 处编辑（覆盖 4 个统计窗口红用例**，NgPerron 1 处编辑覆盖 2 用例）：NgPerron `gen_ar095` stream 2→3（原 T=500 抽到 MZα=-8.5 落在功率边界）；Phase8 Kalman `gen_noise` seed 301→302（原样本 ARMA(1,1) MLE 不收敛）；IS ITM Put seed 42→43（原 |Δ|=0.0686 vs 0.05）。
   - 参照口径修正 1 例：几何亚洲测试原用**连续** Kemna-Vorst 公式（σ_g=σ/√3），而实现按 `path[1..n]` 离散监控；n=50 时二者理论差 **+0.0942**，与 0.10 容差同量级（旧流通过属抽样运气）。改为离散监控精确闭式解 `m=logS0+(r-q-σ²/2)dt(n+1)/2`、`v=σ²dt·n(n+1)(2n+1)/(6n²)`，容差同步**收紧** 0.10→0.05（SE≈0.01）。
   - **未放宽容差**；`test_gpu_mc` 22/22 与 KAT 用例零改动。
 - **三目录回归**: `build` 2596/2596、`tmp/verify_capi` 2596/2596、`build_cuda`（含 `gpu_mc` 22 用例）见 CHECKLIST C-91。

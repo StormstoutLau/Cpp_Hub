@@ -101,6 +101,17 @@ TEST(Rng, PhiloxDiscard) {
     }
 }
 
+TEST(Rng, PhiloxDiscardExactBlocks) {
+    // ADD P3-9: discard 恰为整块倍数（rem == 0, 延迟 refill 路径）
+    Philox4x64 rng1(42);
+    Philox4x64 rng2(42);
+    rng2.discard(8);  // 2 整块, 无余字
+    for (int i = 0; i < 8; ++i) rng1();
+    for (int i = 0; i < 8; ++i) {
+        EXPECT_EQ(rng1(), rng2());
+    }
+}
+
 TEST(Rng, PhiloxNext4Consistency) {
     Philox4x64 rng(77);
     uint64_t op1 = rng();

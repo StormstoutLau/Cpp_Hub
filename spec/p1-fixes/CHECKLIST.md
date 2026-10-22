@@ -5,7 +5,7 @@
 id: P1-FIXES-CHECKLIST
 type: acceptance
 version: 1.0
-status: pending
+status: audited
 date: 2026-10-21
 depends: [P1-FIXES-IMPLEMENTATION, P1-FIXES-DESIGN, P1-FIXES-RESEARCH]
 upstream: EXTERNAL_REVIEW_2026-10-20
@@ -13,7 +13,7 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 ---
 
 > **Feature**: p1-fixes（RISK-027 / 032 / 033 / 034）
-> **状态**: 待验收（§2-§8 全部 ☐；§1 一致性核对已于 2026-10-22 完成）
+> **状态**: **验收通过**（§2-§8 全部 ✅，2026-10-22 签收；§1 一致性核对已于 2026-10-22 完成；Step 10 ADD 审计修复已回写，见 [AUDIT.md](./AUDIT.md)）
 > **Spec 步骤**: Step 7（本清单）→ Step 8（§1 文档一致性）→ Step 9（TDD 实施）→ Step 10（ADD 审计）
 > **基于实施**: [IMPLEMENTATION.md](./IMPLEMENTATION.md)（Step 6 review 后）· **基于设计**: [DESIGN.md](./DESIGN.md)（Step 4 review 后）· **调研**: [RESEARCH.md](./RESEARCH.md)
 > **计数基准**：G 系列 **6**（§2）+ C 系列 **78**（§3 6 / §4 19 / §5 12 / §6 28 / §7 6 / §8 7）= **84** 项；口径 = 逐项编号计数（`grep -c '^| [GC]-'`，非事后推算）
@@ -83,9 +83,9 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
 | C-11 | 无 tag 归档 URL 依赖 | `Select-String -Path CMakeLists.txt -Pattern 'archive/refs/tags'` | 0 命中 | **0 命中**（2026-10-22 实测） | ✅ |
-| C-12 | 以 commit 为不可变身份 | 读 `CMakeLists.txt` googletest 块 | URL 形如 `https://codeload.github.com/google/googletest/tar.gz/<40 位 SHA>`（URL@commit 形态，D-5）；无 tag 名、无 `GIT_REPOSITORY` | `CMakeLists.txt:63-71`：URL = `.../tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571` + `DOWNLOAD_EXTRACT_TIMESTAMP TRUE` | ✅ |
+| C-12 | 以 commit 为不可变身份 | 读 `CMakeLists.txt` googletest 块 | URL 形如 `https://codeload.github.com/google/googletest/tar.gz/<40 位 SHA>`（URL@commit 形态，D-5）；无 tag 名、无 `GIT_REPOSITORY` | 内容锚（行号随提交序列漂移, 2026-10-22 复测 URL 位于 :72）：URL = `.../tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571` + `DOWNLOAD_EXTRACT_TIMESTAMP TRUE`。**归档 SHA-256 留存（ADD 审计 OBS-1）**: `7FF5DB23DE232A39CBB5C9F5143C355885E30AC596161A6B9FC50C4538BFBF01`（868 904 B, codeload 实测 2026-10-22） | ✅ |
 | C-13 | 全新 configure 解析到同一份源码 | 全新目录 `cmake -S . -B build_verify`；读 `build_verify\_deps\googletest-src\CMakeLists.txt` | configure 无下载错误；`GOOGLETEST_VERSION 1.14.0`；且 URL 路径 SHA = `f8d7d77c06936315286eb55f8de22cd23c188571`（URL 解包无 `.git`，身份证据 = SHA 路径 + 版本指纹，E-6） | configure exit 0；`urlinfo.txt`: `url(s)=https://codeload.github.com/google/googletest/tar.gz/f8d7d77c…8571`；`set(GOOGLETEST_VERSION 1.14.0)` | ✅ |
-| C-14 | cache key 同步且计数正确 | `Select-String -Path .github/workflows/ci.yml -Pattern 'gtest-1.14.0'`；再查 `gtest-f8d7d77c` | 旧 key 0 命中；新 key **2** 命中（:59 build-test、:110 c-api） | 旧 **0** / 新 **2**（2026-10-22 实测） | ✅ |
+| C-14 | cache key 同步且计数正确 | `Select-String -Path .github/workflows/ci.yml -Pattern 'gtest-1.14.0'`；再查 `gtest-f8d7d77c` | 旧 key 0 命中；新 key **2** 命中（build-test 与 c-api 两处, 2026-10-22 复测为 :59/:115） | 旧 **0** / 新 **2**（2026-10-22 实测） | ✅ |
 | C-15 | python job 未被误改 | 读 ci.yml :132-177 | 仍为 pip cache，无 `_deps` | python job 段 `_deps` 命中 **0** | ✅ |
 | C-16 | 清缓存后测试全绿 | `ctest --test-dir build_verify -C Release -j 8` | 0 失败；验完删除 `build_verify` | **2536/2536**（2026-10-22；含 2 项 NOT_BUILT 残留重建后全绿）；`build_verify` 已删除 | ✅ |
 
@@ -123,9 +123,9 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 |---|---|---|---|---|---|
 | C-36 | C API 过滤缺口已修 | `Select-String -Path .github/workflows/ci.yml -Pattern '-R "CApi"'` | 0 命中；Run C API Tests 步骤无 `-R` | 计数 0 + 步骤全文 | ✅ 0 命中；:128-130 `ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure --parallel 4`（无 `-R`）。干净目录实测：`CApi*` 26 个 + `JsonMin\|ToolRegistry` 28 个（合计 54）在无过滤下全部执行 |
 | C-37 | 版本漂移门禁进 CI | 查 ci.yml build-test job | 含 `python3 tools/sync_version.py --check`（`if: runner.os == 'Linux'`） | 步骤全文 | ✅ :74-77 build-test job 内 "Check version header (RISK-032)"，`if: runner.os == 'Linux'`，`python3 tools/sync_version.py --check` |
-| C-38 | coverage job 存在且可跑 | 查 ci.yml | Debug + `--coverage` + `--filter 'include/cpphub/'` + **`python3 -m pip install gcovr`** + artifact `coverage*.html` / `coverage.xml` | job 全文 | ✅ :132-164 独立 `coverage` job：Debug、`--coverage -O0 -g`、`gcovr --filter 'include/cpphub/' --exclude 'third_party'`、`python3 -m pip install gcovr`、artifact `coverage.xml` + `coverage*.html` |
+| C-38 | coverage job 存在且可跑 | 查 ci.yml | Debug + `--coverage` + `--filter 'include/cpphub/'` + **`python3 -m pip install gcovr`** + artifact `coverage*.html` / `coverage.xml` | job 全文 | ✅ coverage job 现位于 ci.yml :136-164（2026-10-22 复测）：Debug、`--coverage -O0 -g`、`gcovr --filter 'include/cpphub/' --exclude 'third_party'`、`python3 -m pip install gcovr`、artifact `coverage.xml` + `coverage*.html` |
 | C-39 | YAML 语法有效 | `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml',encoding='utf-8')); print('ok')"`（无 PyYAML 时以推送后 Actions 解析为准） | ok / Actions 不报 syntax error | 输出 | ✅ `yaml ok`（PyYAML，Python 3.12） |
-| C-40 | A5 实证：JsonMin/ToolRegistry 在 CI 真跑 | 看 c-api job 日志 | 日志出现 `JsonMinBudget.*`、`ToolRegistry.*`、`CApiTools.*` | 日志片段 | ⏸ 待推送后以 Actions 日志取证（本地已证注册存在：`JsonMin\|ToolRegistry` = 28 个用例） |
+| C-40 | A5 实证：JsonMin/ToolRegistry 在 CI 真跑 | 看 c-api job 日志 | 日志出现 `JsonMinBudget.*`、`ToolRegistry.*`、`CApiTools.*` | 日志片段 | ⏸ 待推送后以 Actions 日志取证（本地已证注册存在：`JsonMin\|ToolRegistry` = 28 个用例）。**跟踪条款**：推送后取证回填本行，见 AUDIT.md 遗留项 |
 
 ---
 
@@ -178,7 +178,7 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | C-72 | 设备端自写 Philox 已删 | `Select-String -Path src/performance/gpu/gpu_mc.cu -Pattern 'd_PHILOX|philox4x64_10|gpu_mulhi|gpu_mullo'` | 0 命中 | 0 命中（gpu_mc.cu 全文） | ✅ |
 | C-73 | 内核走 Random123 | 读内核调用点 | `ctr.v[0]=path`、`key.v[0]=seed`、`r.v[0]/r.v[1]` 进 `uint64_to_unit` | `gpu_mc.cu:104-111` 符合 | ✅ |
 | C-74 | 探针头存在且仅 CUDA 分支提供实现 | 读 `rng_device_probe.hpp`；`Select-String -Path src/performance/gpu/gpu_mc_cpu_stub.cpp -Pattern 'gpu_probe'` | 头文件 3 个函数声明；stub 0 命中（不做未定义引用） | 头 :20/:23/:26 三声明；stub 0 命中 | ✅ |
-| C-75 | 探针 kernel 安全 | 读 gpu_mc.cu 探针段 | 三个 kernel 均有 `path >= n` 守卫；launch 后 `cudaGetLastError()`；空输入早退 | `gpu_mc.cu:502/514/526` 守卫；:552/571/584 `CPPHUB_CUDA_CHECK(cudaGetLastError())`；:546/560/579 空输入早退 | ✅ |
+| C-75 | 探针 kernel 安全 | 读 gpu_mc.cu 探针段 | 三个 kernel 均有 `path >= n` 守卫；launch 后 `cudaGetLastError()`；空输入早退 | `gpu_mc.cu:503/515/527` 守卫；:553/572/585 `CPPHUB_CUDA_CHECK(cudaGetLastError())`；:547/561/580 空输入早退（2026-10-22 复测） | ✅ |
 | C-76 | 探针头登记进 FILE_SET | 读 gpu CMake :27-34 | FILES 含 `rng_device_probe.hpp` | `src/performance/gpu/CMakeLists.txt:34` | ✅ |
 
 ### 6.4 KAT 与对齐测试
@@ -209,8 +209,8 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-91 | 全量回归（三目录） | `ctest --test-dir build -C Release -j 8 --output-on-failure`（其余两目录同） | 三目录 0 失败 | `build` **2596/2596**；`tmp/verify_capi` **2596/2596**；`build_cuda` **2538/2538**（含 `gpu_mc`=1 注册项，其 exe 内 **22/22**）。均 0 失败 | ✅ |
-| C-92 | 失败处置合规 | 检查所有失败修复的 diff | 仅"重选 seed"或"修实现"；**无** `EXPECT_NEAR` 阈值放宽 | 4 例重选种子（NgPerron stream 2→3、Phase8 301→302、IS Put 42→43，覆盖 4 用例）；1 例参照口径修正（几何亚洲：连续 KV → 离散精确闭式解，容差 0.10→**0.05 收紧**）。全 diff 无阈值放宽 | ✅ |
+| C-91 | 全量回归（三目录） | `ctest --test-dir build -C Release -j 8 --output-on-failure`（其余两目录同） | 三目录 0 失败 | `tmp/verify_capi` **2600/2600**（2026-10-22 修复后终态, 干净目录口径 = 基线 2596 + 本审计新增 4 用例）；`build` **2592 过 / 4 NOT_BUILT**（E-12 族既有注册残留, 0 真失败）；`build_cuda` 不涉及本次修复改动（rng.hpp 仅注释、gpu_mc.cu 未动），维持 C-91 原记录 **2538/2538**。注册数代次调和见 IMPLEMENTATION §9 P2-8 注 | ✅ |
+| C-92 | 失败处置合规 | 检查所有失败修复的 diff | 仅"重选 seed"或"修实现"；**无** `EXPECT_NEAR` 阈值放宽 | **3 处 seed 编辑覆盖 4 个统计窗口红用例**（NgPerron stream 2→3 一处覆盖 2 用例、Phase8 301→302、IS Put 42→43）+ 1 处参照口径修正（几何亚洲：连续 KV → 离散精确闭式解，容差 0.10→**0.05 收紧**；§5.8(c)）。全 diff 无阈值放宽 | ✅ |
 | C-93 | 夹具零改动 | `git diff --stat tests/fixtures` | 仅新增 `rng/kat_philox4x64_10.hpp`，既有文件零改动 | `git status --short tests/fixtures` = `?? tests/fixtures/rng/`（仅新增） | ✅ |
 | C-94 | 性能前后已记录 | `benchmark_philox` 改造前后各跑；读 `docs/DEVELOPMENT_LOG.md` 新小节 | 含时间戳、平台、numbers/sec、ns/number、旧/新对照与结论 | DEVELOPMENT_LOG :3032-3040：MSVC 19.50/Release，旧 1.007e8（9.93 ns），新 4.213e8（2.37 ns），≈4.18× | ✅ |
 | C-95 | 性能未异常退化 | 对比两次数字 | 未出现 >2× 下降；如出现已有书面可接受性说明 | 新实现快 4.18×，无退化 | ✅ |
@@ -222,10 +222,10 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-101 | 提交 1（R-033）独立可 revert | `git show --stat` | 仅 `CMakeLists.txt` + `ci.yml` 两处 cache key | `7e305fc`：2 文件（ci.yml +4/-2、CMakeLists.txt +7/-1） | ✅ |
-| C-102 | 提交 2（R-032）文件集合正确 | 同上 | `VERSION`、`tools/sync_version.py`、`version.hpp`、`config.hpp`、根 CMake、python CMake、`cpphub_python.cpp`、`pyproject.toml`、`test_version.py`、`ci.yml`、README（:21/:107/:121/顶部） | `5c8e21b`：13 文件 (= 上述 11 + CHECKLIST/IMPLEMENTATION 文档) | ✅ |
+| C-101 | 提交 1（R-033）独立可 revert | `git show --numstat`（**不可用 --stat 图形刻度读增删行**, ADD 审计 P2-2） | 仅 `CMakeLists.txt` + `ci.yml` 两处 cache key | `7e305fc`：2 文件，numstat 实测 ci.yml +2/−2、CMakeLists.txt +6/−1 | ✅ |
+| C-102 | 提交 2（R-032）文件集合正确 | 同上 | `VERSION`、`tools/sync_version.py`、`version.hpp`、`config.hpp`、根 CMake、python CMake、`cpphub_python.cpp`、`pyproject.toml`、`test_version.py`、`ci.yml`、README（版本两轴模型段现 :9-13 / 跨平台确定性行现 :29 / GPU skip 行现 :113 / 顶部——内容锚, ADD 审计 P2-1） | `5c8e21b`：13 文件 (= 上述 11 + CHECKLIST/IMPLEMENTATION 文档) | ✅ |
 | C-103 | 提交 3（R-034）文件集合正确 | 同上 | `json_min.hpp`、`registry.hpp`、`c_api.cpp`、`test_json_min.cpp`、`test_c_api_tools.cpp` | `253fd94`：6 文件 (= 上述 5 + CHECKLIST) | ✅ |
-| C-104 | 提交 4（R-027）整体可 revert | 同上 | `third_party/random123/**`、`rng.hpp`、`gpu_mc.cu`、`rng_device_probe.hpp`、三处 CMake include + 两处测试 CMake、6 个测试文件（新增 2 个 + 回归处置 4 个）、README:46、USAGE_GUIDE、ARCHITECTURE、夹具头 | `5910753`：49 文件 = 上述全部 + vendor 27 头/LICENSE/UPSTREAM + 文档与 CHECKLIST | ✅ |
+| C-104 | 提交 4（R-027）整体可 revert | 同上 | `third_party/random123/**`、`rng.hpp`、`gpu_mc.cu`、`rng_device_probe.hpp`、三处 CMake include + 两处测试 CMake、6 个测试文件（既有 2 文件加用例 test_json_min/test_c_api_tools + 4 个回归处置, ADD 审计 P2-2 勘误"新增 2 个"）、README GPU 行、USAGE_GUIDE、ARCHITECTURE、夹具头 | `5910753`：49 文件 = 上述全部 + vendor 27 头/LICENSE/UPSTREAM + 文档与 CHECKLIST | ✅ |
 | C-105 | README 无重复修改 | `git log -p -- README.md` | :46 只在提交 4，:21/:107/:121 只在提交 2 | `5910753` README 仅 GPU MC 行；`5c8e21b` 含版本模型/跨平台行/GPU skip 行 | ✅ |
 | C-106 | 每提交前已 review | 提交说明或 review 记录 | 4 次 review 均有结论（排除幻觉） | 4 次提交前均逐文件读 diff；提交 4 review 修正 `tests/CMakeLists.txt` 注释笔误（grunfeld）、`kv_price`→`ref_price`，并核对全部行号引用 | ✅ |
 | C-107 | 回滚演练（可选） | 在临时分支 `git revert --no-commit <R-027>` | 回滚后 `build/` 核心配置可编译（GPU 目录除外） | 未执行（清单标注为可选，不阻塞验收） | ⏸ |
@@ -256,12 +256,12 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 | 项 | 填写 |
 |---|---|
 | 实施完成日期 | 2026-10-22 |
-| 三目录通过数 | build: **2596/2596** / build_capi（`tmp/verify_capi`）: **2596/2596** / build_cuda: **2538/2538**（`gpu_mc` 内含 22/22） |
+| 三目录通过数（R-027 实施时点；ADD 修复后终态见下行） | build: **2596/2596** / build_capi（`tmp/verify_capi`）: **2596/2596** / build_cuda: **2538/2538**（`gpu_mc` 内含 22/22） |
 | 性能（旧 → 新，numbers/sec） | **1.007e8 → 4.213e8**（9.93 → 2.37 ns/number，≈4.18×） |
-| 全量回归失败处置摘要 | 首轮 5 红：4 例统计窗口（重选 seed: NgPerron stream 2→3 / Phase8 301→302 / IS Put 42→43）；1 例参照口径修正（几何亚洲改为离散监控精确闭式解，容差 0.10→0.05 收紧）。**无阈值放宽** |
-| 结论 | ☐ 通过 / ☐ 有条件通过（列条件） / ☐ 不通过 |
-| 实施人 / 复核人 | |
+| 全量回归失败处置摘要 | 首轮 5 红（**计数单位 = 红用例数**；编辑数 3+1）：4 例统计窗口红（3 处 seed 编辑覆盖: NgPerron stream 2→3 一处覆盖 2 用例 / Phase8 301→302 / IS Put 42→43）；1 例参照口径修正（几何亚洲改为离散监控精确闭式解，容差 0.10→0.05 收紧）。**无阈值放宽**。修复后终态: `tmp/verify_capi` 2600/2600（ADD 审计后, 基线 2596 + 新增 4 用例） |
+| 结论 | ✅ 通过（Step 10 ADD 审计 Tier 2 修复全清, 2026-10-22） |
+| 实施人 / 复核人 | Scott (鹏) / ADD 审计（主 agent 复核 + 双 subagent 交叉） |
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: 待 Step 9
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0）

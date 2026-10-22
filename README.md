@@ -4,7 +4,7 @@
 >
 > 一个以头文件为主的 C++20 量化定价库：解析解 / 蒙特卡洛 / PDE / 树形 / AAD Greeks / VaR / SVI 波动率曲面，附带 Python 绑定与可选 CUDA MC 内核。
 >
-> v1.4.0 起新增高频计量经济学模块 (HFE), 对标 R `highfrequency` 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08), 提供 C++ 工程级 RV/BPV/RSV/BNS 跳跃检验实现. v1.4.1 新增 Realized Kernel (BNS 2008 ECTA) 微结构噪声稳健估计, 含 12 种核函数 + 噪声方差 + 最优带宽选择. v1.4.2 新增多资产协方差估计 (5 方法: Hayashi-Yoshida / Two-Scale / Pre-averaged / Robust Two-Scale / Modulated) + HAR/HEAVY 波动率预测模型. v1.4.3 新增流动性度量 (23 种, Hasbrouck 2009) + 高级跳跃检验 (AJ/JO/Intraday/Rank, 含自实现 Jacobi SVD 全分解).
+> HFE 高频计量经济学模块：对标 R `highfrequency` 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08)，覆盖 RV/BPV/RSV/BNS 跳跃检验、Realized Kernel (BNS 2008 ECTA) 微结构噪声稳健估计（12 种核函数 + 噪声方差 + 最优带宽）、多资产协方差估计（Hayashi-Yoshida / Two-Scale / Pre-averaged / Robust Two-Scale / Modulated）与 HAR/HEAVY 波动率预测、流动性度量（23 种, Hasbrouck 2009）及高级跳跃检验（AJ/JO/Intraday/Rank, 含自实现 Jacobi SVD 全分解）。版本演进见下表。
 
 **版本模型（两轴，彼此独立）**
 

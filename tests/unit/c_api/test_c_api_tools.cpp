@@ -343,6 +343,20 @@ TEST(CApiTools, RejectsOversizedArgsJson) {
               std::string::npos);
 }
 
+TEST(CApiTools, AcceptsArgsJsonAtExactLimit) {
+    // ADD P3-5: 恰等 8 MiB 必须接受（锁定 `>` 严格大于语义, 防误改 >=）。
+    // 合法完整 args_json + 尾随空白补齐到 limit（JSON 尾随空白合法）。
+    const std::size_t limit = cpphub::v1::c_api::kMaxArgsJsonBytes;
+    std::string args = "{\"series\":" + num_array(make_series(80, 0.9, 5)) + "}";
+    args.resize(limit, ' ');
+    ASSERT_EQ(args.size(), limit);
+    char buf[8192];
+    size_t len = sizeof(buf);
+    EXPECT_EQ(cpphub_v1_tool_call("cpphub_unit_root_diagnose", args.c_str(),
+                                  buf, &len),
+              CPPHUB_OK);
+}
+
 TEST(CApiTools, OversizedCheckPrecedesParse) {
     // 超长 + 语法非法 → 报 "exceeds limit" 而非 JSON 语法错误（证明检查前置）
     std::string args(cpphub::v1::c_api::kMaxArgsJsonBytes + 1, '!');

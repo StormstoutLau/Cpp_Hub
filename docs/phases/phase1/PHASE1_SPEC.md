@@ -75,7 +75,7 @@ mkdir -p cmake/modules
 | nanobind | 2.3.0 | git submodule | Python 绑定 |
 | Catch2 | 3.5.3 | git submodule | 单元测试 |
 | simde | 0.8.1 | git submodule | 可移植 SIMD |
-| Random123 | 1.15 | git submodule | Philox/Threefry |
+| Random123 | 1.15 | git submodule（2026-10-22 R-027 已弃用, 改 in-tree vendor: `third_party/random123`） | Philox（Threefry 未实现） |
 | fmt | 10.2.1 | vcpkg | 日志/格式化 (可选，用 std::format 替代) |
 
 **统一依赖管理策略**: vcpkg 管理成熟库 (fmt)，submodule 管理需精确控制的头文件库 (nanobind/simde/Random123/Catch2)。

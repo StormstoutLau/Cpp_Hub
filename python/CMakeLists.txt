@@ -11,11 +11,18 @@ cmake_minimum_required(VERSION 3.25)
 
 # RISK-032: Python 发行版本单一源 = pyproject.toml。
 # wheel 构建时 scikit-build-core 注入 SKBUILD_PROJECT_VERSION;
-# 直接构建 python/ 目录时回退到仓库根 VERSION (库版本), 保证无硬编码。
+# 直接构建 python/ 目录时解析 pyproject.toml 的 project.version —— __version__
+# 恒等 Python 发行轴 (与 python/tests/test_version.py 断言一致, ADD 审计 P2-3)。
 if(DEFINED SKBUILD_PROJECT_VERSION)
     set(CPPHUB_PY_VERSION "${SKBUILD_PROJECT_VERSION}")
 else()
-    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" CPPHUB_PY_VERSION LIMIT_COUNT 1)
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml" _pyproject_version_line
+         REGEX "^version[ \t]*=" LIMIT_COUNT 1)
+    if(_pyproject_version_line MATCHES "\"([0-9]+\\.[0-9]+\\.[0-9]+[^\"]*)\"")
+        set(CPPHUB_PY_VERSION "${CMAKE_MATCH_1}")
+    else()
+        message(FATAL_ERROR "cannot parse project.version from pyproject.toml (R-032 single source)")
+    endif()
 endif()
 project(cpphub_python VERSION ${CPPHUB_PY_VERSION} LANGUAGES CXX)
 

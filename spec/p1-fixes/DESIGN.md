@@ -2,7 +2,7 @@
 
 > **Feature**: p1-fixes
 > **Spec 步骤**: Step 3（DESIGN）— 上游 [RESEARCH.md](./RESEARCH.md)（Step 1–2，U-1~U-5 已裁定）
-> **状态**: **Step 8 文档一致性对齐完成**（2026-10-22，7 处不一致已闭环：1×P2 计数 + 6×P3，见 [CHECKLIST.md](./CHECKLIST.md) §1.2）— 可进入 Step 9（TDD 实施）
+> **状态**: **Step 9 TDD 实施完成**（2026-10-22）+ **Step 10 ADD 审计修复已回写**（见 [AUDIT.md](./AUDIT.md)）
 > **设计日期**: 2026-10-21
 
 ---
@@ -107,6 +107,7 @@ FetchContent_Declare(
 - `python tools/sync_version.py`：读 `VERSION` → 写 `include/cpphub/core/version.hpp`。
 - `python tools/sync_version.py --check`：只校验，不一致退出码 1（CI 用）。
 - `version.hpp` **随源码树提交入库**（脚本生成后提交）：源码树 header-only 用法（clone 后直接 `-I include`）没有构建步骤可先生成它，`config.hpp` 的 include 必须在 clone 后即可解析；单一真值仍为 `VERSION`，CI `--check` 保证两者不漂移。（Step 4 补全 F8：入库策略原文未言明。）
+  **两轴注（ADD 审计 P3-2, 2026-10-22）**：本节模板与 `VERSION` 仅覆盖 **C++ 库 API 轴**；Python 发行轴独立于 `python/pyproject.toml` 的 `project.version`（wheel 由 `SKBUILD_PROJECT_VERSION` 注入，standalone 构建回退分支解析 pyproject——见 python/CMakeLists.txt R-032 块），两轴互不覆盖。
 - 生成内容（固定格式，含"请勿手改"头注释）：
 
 ```cpp
@@ -368,7 +369,7 @@ double z1, z2; gpu_box_muller(u1, u2, z1, z2);     // 仍只用 z1（保持单�
 
 | 项 | 设计 |
 |---|---|
-| 夹具 | `tests/fixtures/rng/kat_philox4x64_10.hpp`：**生成头文件**（Step 5 勘误 E-1 / §11 D-4，弃 .txt+运行时解析），从上游 `examples/kat_vectors` 抽取 `philox4x64`、10 轮的行（每行 = counter[4] key[2] answer[4]）；沿用 grunfeld 先例（生成头 + `target_include_directories`），规避 ctest 工作目录差异 |
+| 夹具 | `tests/fixtures/rng/kat_philox4x64_10.hpp`：**生成头文件**（Step 5 勘误 E-1 / §11 D-4，弃 .txt+运行时解析），从上游 `tests/kat_vectors`（E-7 勘误 2026-10-22: 上游实际在 tests/ 非 examples/）抽取 `philox4x64`、10 轮的行（每行 = counter[4] key[2] answer[4]）；沿用 grunfeld 先例（生成头 + `target_include_directories`），规避 ctest 工作目录差异 |
 | CPU 用例 | `RngKat.Philox4x64MatchesKnownAnswers`：逐行构造 ctr/key，直接调 `r123::Philox4x64`，比对 4 字 |
 | GPU 用例 | `GpuMC.PhiloxMatchesKnownAnswers`：把向量拷到设备，内核逐行计算，比对 4 字（证明设备端编译出同一实现） |
 | CPU/GPU 对齐用例 | `GpuMC.UniformStreamMatchesCpu`：对 p=0..9999，比较 CPU `next4()` 与 GPU 块输出**逐字相同**（把 E1-9 固化为回归） |
