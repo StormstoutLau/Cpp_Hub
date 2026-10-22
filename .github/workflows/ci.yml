@@ -43,12 +43,13 @@ jobs:
           submodules: recursive
 
       # RISK-033 供应链守卫 (ADD 审计 P3-1): URL 钉 commit 形态被意外回退时 CI 直接红。
-      # 旧 tag key 检测用变量拼接, 避免 guard 自身文本被 grep 命中 (自匹配)。
+      # 旧 tag 检测用字符类 [.] 拼写, guard 自身文本 (含本注释) 不得出现旧版本号字面量,
+      # 否则 grep 命中自身 (变量拼接已在 run 39755779788 实证失败)。
       - name: Guard googletest pinned to immutable commit (R-033)
         shell: bash
         run: |
           grep -q "codeload.github.com/google/googletest/tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571" CMakeLists.txt
-          P="gtest-1.14.0"; ! grep -q "$P" .github/workflows/ci.yml
+          ! grep -q "gtest-1[.]14[.]0" .github/workflows/ci.yml
 
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
@@ -216,8 +217,10 @@ jobs:
         run: python -m pip install "./python[test,mcp]"
 
       - name: Show toolchain versions
+        # nanobind 是 build-only 依赖 (build isolation, 不入运行环境):
+        # import 它会在 runner 上 ModuleNotFoundError (run 39755779788 4 个 python job 实证)
         run: |
-          python -c "import sys, cpphub, nanobind; print(sys.version); print('cpphub', cpphub.__version__); print('nanobind', nanobind.__version__)"
+          python -c "import sys, cpphub; print(sys.version); print('cpphub', cpphub.__version__)"
           python -c "import mcp; print('mcp', getattr(mcp, '__version__', 'n/a'))"
 
       - name: Run Python tests
