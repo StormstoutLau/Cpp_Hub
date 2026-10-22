@@ -2988,4 +2988,37 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### RISK-025 / RISK-026 修复: GPU PIMPL 泄漏 + CUDA 调用零检查 (2026-10-21)
+
+> [gpu_mc.hpp](../include/cpphub/performance/gpu/gpu_mc.hpp) / [gpu_mc.cu](../src/performance/gpu/gpu_mc.cu) / [gpu_mc_cpu_stub.cpp](../src/performance/gpu/gpu_mc_cpu_stub.cpp) / [test_gpu_mc.cpp](../tests/unit/performance/test_gpu_mc.cpp) — 来源: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §三 RISK-025/026 (P0, 已修复)
+
+- **根因 (两类独立缺陷)**: ① RISK-025 — `GpuMCEngine` 持 `Impl*` 裸指针且 `~GpuMCEngine() = default` → `delete impl_` 从未生成, 每次构造泄漏 1 个 `Impl` + 1 个 CUDA stream (默认移动仅浅拷指针, 亦不释放); ② RISK-026 — `cudaSetDevice`/`cudaMalloc`/`cudaMemcpy`/kernel launch/`cudaStreamSynchronize` 返回码全部未检查, 且 `result.used_gpu = true` 在 launch **之前** 设置 → 失败链静默返回 `price=0, used_gpu=true` 的伪结果; `block_size` 亦未校验 (非 32 倍数 → warp 全掩码归约 UB; 超上限 → launch 静默失败)
+- **TDD 红先证 (实机 RTX 4060)**: 新增 4 用例先跑红 — `EngineDestructorReleasesImpl` 观测 `live_impl_count()` 单调累积至 **72** (64 次循环构造 + 前序用例, 全部泄漏), `EngineMoveTransfersOwnership` 观测移动后计数 73→74 只增不减; `EngineRejectsInvalidBlockSize` / `EngineRejectsUnknownDevice` 均不抛异常
+- **修复**: ① `std::unique_ptr<Impl>` + 删除与 `Impl::config` 重复的 `config_` 成员 — 释放与移动所有权一次解决, 不引入双重释放; ② `Impl` 构造期前置校验 (`block_size` 非 32 正整数倍 → `std::invalid_argument`; `device_id` 越界 → `std::runtime_error`; 超 `max_threads_per_block` → `std::invalid_argument`), 失败不创建任何资源 (含计数器); ③ `CPPHUB_CUDA_CHECK` 宏 (`cuda_check()` 附 `cudaGetErrorString` + 调用点) → 14 处检查点; ④ `DeviceBuffer` RAII 取代 4 处显式 `cudaMalloc`/`cudaFree`; ⑤ `used_gpu` 移至全部 CUDA 调用成功之后
+- **附带修正**: 析构中冗余且未检查返回值的 `cudaDeviceSynchronize` 移除 (`cudaStreamDestroy` 自带延迟回收); `stream_count` 双分支雷同的 `cudaStreamCreate` 合并为单次; 设备属性查询失败 (空 info) 由隐性降级改为显式 `std::runtime_error`
+- **对处置方案的修正 (掩码项)**: 评审建议 `__shfl_down_sync` 改用 `__activemask()`, 实际不必 — `block_size` 被强制为 32 的正整数倍后, 归约点所有 lane 必然活跃, 全掩码 `0xFFFFFFFF` 语义正确; 已在 `gpu_mc.cu:165-167` 就地注明该不变量 (避免 `__activemask()` 在收敛后仅反映"当前活跃"而引入新歧义)
+- **验证**: `test_gpu_mc` **19/19 通过** (4 新用例 + 既有 15 用例全绿, 定价/确定性/SE 收敛/性能均未变, 证明 RAII 重构未触碰数值路径), MSVC 19.50 + nvcc 13.2 + CUDA arch sm_89; CPU stub 路径 (`CPPHUB_ENABLE_CUDA=OFF`) `cpphub_cuda` 编译通过
+- **未实测分支 (诚实声明)**: launch 期错误 (显存耗尽) 与 `cudaMalloc` 失败路径需故障注入, 当前仅由代码路径覆盖保证
+- **教训**: (1) PIMPL 裸指针 + `~T() = default` 是**静默泄漏模板** — 编译器不报错, 只有计数钩子/泄漏检测能暴露; 析构体在头文件内 inline 定义时有限类型限制, 完整类型应用 `unique_ptr`. (2) "CUDA 返回码不重要"的直觉是错的 — `cudaMalloc`/launch 失败若只影响数值, 上层拿到的是**静默错误结果**而非异常, 比崩溃更危险. (3) 配置合法性校验必须放在资源创建**之前**, 计数器/统计的增减必须放在全部可抛操作**之后**, 否则异常路径破坏不变量
+- **交叉引用**: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §二 主表 RISK-025/026 状态 → **已修复**; 同族 P0 项 RISK-023/024/028 (backtesting 三件套) 尚未开始
+
+---
+
+### RISK-023 / RISK-024 / RISK-028 修复: 回测三件套 (2026-10-21)
+
+> [backtesting.hpp](../include/cpphub/risk/var/backtesting.hpp) / [test_backtesting.cpp](../tests/unit/risk/var/test_backtesting.cpp) — 来源: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §三 RISK-023/024/028 (P0, 已修复)
+
+- **根因 (三处独立缺陷)**: ① RISK-023 — `joint_test` 算完独立性分量即丢弃 (被丢的 `ind_LR` 还用 `violation_rate` 冒充转移概率), `LR_cc_total = LR_cc` 只含覆盖率分量却按 χ²(2) 取值 → 等率聚集序列 p≈1 (静默不拒绝); ② RISK-024 — 似然按连乘 `Π p^x (1-p)^(N-x)` 计算, N ≳ 3850 时下溢为 0 → Kupiec `log(0/0)` = NaN (reject_null 恒 false); Christoffersen 更隐蔽: 守卫 `L_IID>0 && L_nonIID>0` 把"完美聚集"误判为数值退化 → `LR_ind` 置 0; ③ RISK-028 — χ² CDF 用 Wilson-Hilferty 三次根近似, k=1 临界带偏差 ~3e-3 (LR=3.800 → 0.0486 vs 真值 0.0513, 结论翻转)
+- **TDD 红先证**: 新增 11 用例 + 收紧 1 用例 → **首轮 11 红** (第 12 例首版因聚簇过极端、新旧 p 均低于浮点下限而"假通过", 已改写为温和聚簇 (LR_ind≈3.71) 并加 `EXPECT_GT(expected, 1e-3)` 自检)
+- **修复**: ① `detail::xlogy`/`xlog1m`/`log_lik_binomial` (0·log0 = 0 约定) → 三处似然全部对数空间; Kupiec 的 `v=0`/`v=N` 特判分支删除 (约定自然覆盖); ② 守卫**删除**而非重写 (对数域中完美聚集给出 logL_non = 0 → LR_ind > 0, 证据保留); ③ `chi2_cdf(x,k) = regularized_lower_gamma(k/2, x/2)` (精确 ~1e-14); ④ `joint_test` 重写为 `LR_cc = LR_pof + LR_ind`, `LR_ind` 与 `test()` 共用 `independence_lr()` 单一实现, 伪变量全删; ⑤ 输入边界 (N=0 / v>N / confidence ∉ (0,1) / 观测<2) → `std::invalid_argument` (原静默 NaN)
+- **附带修正 (口径统一)**: `ChristoffersenIID::test` 的 `n_violations` 由 `n01+n11` (漏计首期) 改为全样本直接计数, 与 Kupiec/`joint_test` 一致
+- **验证**: `test_backtesting` **21/21 通过**; 相邻消费方零回归 — `test_var_engine` 25/25, `test_integration_phase7b` 5/5 (GARCH→VaR→Kupiec 端到端), `test_python_cross_validation` 16/16; MSVC 19.50 Release
+- **参考值策略 (避免用实现验证实现)**: 测试内独立重建对数似然 (教科书公式) + χ² 上尾闭式 (k=1 `erfc(√(x/2))`, k=2 `exp(-x/2)`), 与库实现互为双重来源; 该组闭式与本库 `econometrics/core/special_functions.hpp:179-184` 的精确实现逐式一致 (跨来源佐证)
+- **同族核查**: `econometrics/core/special_functions.hpp` 的 χ² 上尾已是精确实现 (erfc/exp/gammq), 其 WF 分位函数已显式限定"仅用于临界值显示, 不用于精确推断" → 无需处理
+- **未覆盖 (诚实声明)**: 用例均为构造序列, 未接入真实回测数据, 未与 R (`rugarch::vaRtest` 等) 对照; 上尾仍按 `1-P` 计算, p ≲ 1e-16 归零 (判定不受影响, 已登记 RISK-036, P3); Python wheel 需重建才含本次修复 (CI python job 覆盖该路径)
+- **教训**: (1) 似然比检验**一律对数空间** — 连乘形式的失效是"静默 0/NaN"而非报错, 且 0 与"完美拟合"在连乘域不可区分; (2) "数值守卫"是危险设计: 用 `>0` 判退化会把合法极端情形一并吞掉, 正确解是换到不退化表示 (对数域) 而非加守卫; (3) 弱断言 (旧 `ind.p ≤ joint.p + 1e-6`) 在 bug 下依然通过 — 断言必须锚定**可观测期望值** (LR 分解 + 闭式尾概率), 不能只锚方向
+- **交叉引用**: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §二 主表 RISK-023/024/028 → **已修复**; [USAGE_GUIDE.md](./USAGE_GUIDE.md) §3.9.2 回测行同步更新 (去除 Wilson-Hilferty 描述)
+
+---
+
 
