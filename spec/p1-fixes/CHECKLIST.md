@@ -82,12 +82,12 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-11 | 无 tag 归档 URL 依赖 | `Select-String -Path CMakeLists.txt -Pattern 'archive/refs/tags'` | 0 命中 | 计数 0 | ☐ |
-| C-12 | 以 commit 为不可变身份 | 读 `CMakeLists.txt` googletest 块 | URL 形如 `https://codeload.github.com/google/googletest/tar.gz/<40 位 SHA>`（URL@commit 形态，D-5）；无 tag 名、无 `GIT_REPOSITORY` | 代码片段 | ☐ |
-| C-13 | 全新 configure 解析到同一份源码 | 全新目录 `cmake -S . -B build_verify`；读 `build_verify\_deps\googletest-src\CMakeLists.txt` | configure 无下载错误；`GOOGLETEST_VERSION 1.14.0`；且 URL 路径 SHA = `f8d7d77c06936315286eb55f8de22cd23c188571`（URL 解包无 `.git`，身份证据 = SHA 路径 + 版本指纹，E-6） | configure 日志 + 版本行 | ☐ |
-| C-14 | cache key 同步且计数正确 | `Select-String -Path .github/workflows/ci.yml -Pattern 'gtest-1.14.0'`；再查 `gtest-f8d7d77c` | 旧 key 0 命中；新 key **2** 命中（:59 build-test、:110 c-api） | 两次计数 | ☐ |
-| C-15 | python job 未被误改 | 读 ci.yml :132-177 | 仍为 pip cache，无 `_deps` | diff 为空 | ☐ |
-| C-16 | 清缓存后测试全绿 | `ctest --test-dir build_verify -C Release -j 8` | 0 失败；验完删除 `build_verify` | 通过数 | ☐ |
+| C-11 | 无 tag 归档 URL 依赖 | `Select-String -Path CMakeLists.txt -Pattern 'archive/refs/tags'` | 0 命中 | **0 命中**（2026-10-22 实测） | ✅ |
+| C-12 | 以 commit 为不可变身份 | 读 `CMakeLists.txt` googletest 块 | URL 形如 `https://codeload.github.com/google/googletest/tar.gz/<40 位 SHA>`（URL@commit 形态，D-5）；无 tag 名、无 `GIT_REPOSITORY` | `CMakeLists.txt:63-71`：URL = `.../tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571` + `DOWNLOAD_EXTRACT_TIMESTAMP TRUE` | ✅ |
+| C-13 | 全新 configure 解析到同一份源码 | 全新目录 `cmake -S . -B build_verify`；读 `build_verify\_deps\googletest-src\CMakeLists.txt` | configure 无下载错误；`GOOGLETEST_VERSION 1.14.0`；且 URL 路径 SHA = `f8d7d77c06936315286eb55f8de22cd23c188571`（URL 解包无 `.git`，身份证据 = SHA 路径 + 版本指纹，E-6） | configure exit 0；`urlinfo.txt`: `url(s)=https://codeload.github.com/google/googletest/tar.gz/f8d7d77c…8571`；`set(GOOGLETEST_VERSION 1.14.0)` | ✅ |
+| C-14 | cache key 同步且计数正确 | `Select-String -Path .github/workflows/ci.yml -Pattern 'gtest-1.14.0'`；再查 `gtest-f8d7d77c` | 旧 key 0 命中；新 key **2** 命中（:59 build-test、:110 c-api） | 旧 **0** / 新 **2**（2026-10-22 实测） | ✅ |
+| C-15 | python job 未被误改 | 读 ci.yml :132-177 | 仍为 pip cache，无 `_deps` | python job 段 `_deps` 命中 **0** | ✅ |
+| C-16 | 清缓存后测试全绿 | `ctest --test-dir build_verify -C Release -j 8` | 0 失败；验完删除 `build_verify` | **2536/2536**（2026-10-22；含 2 项 NOT_BUILT 残留重建后全绿）；`build_verify` 已删除 | ✅ |
 
 ---
 
@@ -97,35 +97,35 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-21 | `VERSION` 存在且格式合法 | `Get-Content VERSION` | 单行 `1.0.0`（LF 结尾） | 内容 | ☐ |
-| C-22 | `version.hpp` 为生成物且已入库 | `git ls-files include/cpphub/core/version.hpp`；读文件头 | 已被跟踪；含"请勿手改"头注释 + 4 个宏 | `git ls-files` 输出 | ☐ |
-| C-23 | `--check` 门禁生效 | `python tools/sync_version.py --check; echo $LASTEXITCODE` | exit 0；篡改 version.hpp 后重跑 exit 1 且 stderr 指明不一致 | 两次 exit code | ☐ |
-| C-24 | config.hpp 不再手写版本 | `Select-String -Path include/cpphub/core/config.hpp -Pattern 'define CPPHUB_VERSION'` | 仅 `#include "cpphub/core/version.hpp"`，宏定义 0 命中 | 计数 0 + include 行 | ☐ |
-| C-25 | 根 CMake 从 VERSION 取版本 | `cmake -S . -B build` 后读 `build/CMakeCache.txt` 或 `cmake -LA` | `CppHub` 项目版本 = 1.0.0（无第二处硬编码） | configure 输出 | ☐ |
-| C-26 | Python 轴注入正确 | 读 `python/CMakeLists.txt` | 有 `SKBUILD_PROJECT_VERSION` 分支 + `../VERSION` 回退；`_core` 带 `CPPHUB_PY_VERSION` 编译定义 | 两段代码 | ☐ |
-| C-27 | `__version__` 与 pyproject 一致 | `pip install "./python[test]"`；`python -m pytest python/tests/test_version.py -v` | 1 passed；`__version__` == pyproject `version` | pytest 输出 | ☐ |
-| C-28 | C-27 为真红→绿 | 先在旧 wheel（`__version__="1.4.0"`）上跑该测试 | 改 pyproject 后、改代码前：**FAILED**；改 3.2 E/F 后重装：**PASSED** | 两次输出 | ☐ |
-| C-29 | 无第三处版本硬编码 | `Select-String -Path python/src/cpphub_python.cpp -Pattern '1\.4\.0'`；全仓 `src/` 查 `1\.4\.0` | 0 命中（`docs/` 历史记录除外） | 计数 0 | ☐ |
+| C-21 | `VERSION` 存在且格式合法 | `Get-Content VERSION` | 单行 `1.0.0`（LF 结尾） | 内容 | ✅ 6 字节 `31 2E 30 2E 30 0A`，仅 LF 无 CR |
+| C-22 | `version.hpp` 为生成物且已入库 | `git ls-files include/cpphub/core/version.hpp`；读文件头 | 已被跟踪；含"请勿手改"头注释 + 4 个宏 | `git ls-files` 输出 | ✅ 由 `tools/sync_version.py` 生成（356 B，CR 计数 0）；入库随提交 2 |
+| C-23 | `--check` 门禁生效 | `python tools/sync_version.py --check; echo $LASTEXITCODE` | exit 0；篡改 version.hpp 后重跑 exit 1 且 stderr 指明不一致 | 两次 exit code | ✅ 原态 exit 0（"一致: 1.0.0"）；篡改 `"1.0.0"`→`"0.9.9"` 后 exit 1 + stderr "不一致 — 运行:"；恢复后 exit 0 |
+| C-24 | config.hpp 不再手写版本 | `Select-String -Path include/cpphub/core/config.hpp -Pattern 'define CPPHUB_VERSION'` | 仅 `#include "cpphub/core/version.hpp"`，宏定义 0 命中 | 计数 0 + include 行 | ✅ 宏定义 0 命中；:4-5 为注释 + `#include "cpphub/core/version.hpp"` |
+| C-25 | 根 CMake 从 VERSION 取版本 | `cmake -S . -B build` 后读 `build/CMakeCache.txt` 或 `cmake -LA` | `CppHub` 项目版本 = 1.0.0（无第二处硬编码） | configure 输出 | ✅ configure exit 0；`CMAKE_PROJECT_VERSION:STATIC=1.0.0`（MAJOR=1 / MINOR=0 / PATCH=0） |
+| C-26 | Python 轴注入正确 | 读 `python/CMakeLists.txt` | 有 `SKBUILD_PROJECT_VERSION` 分支 + `../VERSION` 回退；`_core` 带 `CPPHUB_PY_VERSION` 编译定义 | 两段代码 | ✅ :12-20 分支；:80-81 `target_compile_definitions(_core PRIVATE CPPHUB_PY_VERSION=...)`。回退分支实测：standalone configure exit 0 且 `CMAKE_PROJECT_VERSION=1.0.0`（来自 `../VERSION`） |
+| C-27 | `__version__` 与 pyproject 一致 | `pip install "./python[test]"`；`python -m pytest python/tests/test_version.py -v` | 1 passed；`__version__` == pyproject `version` | pytest 输出 | ✅ wheel 重装成功（1.9.0）；`__version__ = 1.9.0`；`test_version_matches_pyproject PASSED`。python 全量 `111 passed, 1 skipped` |
+| C-28 | C-27 为真红→绿 | 先在旧 wheel（`__version__="1.4.0"`）上跑该测试 | 改 pyproject 后、改代码前：**FAILED**；改 3.2 E/F 后重装：**PASSED** | 两次输出 | ✅ 红：`AssertionError: assert '1.4.0' == '1.9.0'`（旧 wheel）；绿：重装 1.9.0 后 `PASSED` |
+| C-29 | 无第三处版本硬编码 | `Select-String -Path python/src/cpphub_python.cpp -Pattern '1\.4\.0'`；全仓 `src/` 查 `1\.4\.0` | 0 命中（`docs/` 历史记录除外） | 计数 0 | ✅ `python/src/cpphub_python.cpp` 0 命中；`src/` 全树 0 命中 |
 
 ### 4.2 README 事实修正
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-31 | 冻结总数清零 | `Select-String -Path README.md -Pattern '1412'` | 0 命中 | 计数 0 | ☐ |
-| C-32 | GPU 测试数失真清除 | `Select-String -Path README.md -Pattern '15 GPU MC'` | 0 命中；:107 改为"stub 编译 + `test_gpu_mc` skipped"表述 | 计数 0 + :107 全文 | ☐ |
-| C-33 | RNG 承诺分层（:40） | 读 README :40 | uniform bit-exact + normal 1e-15 双承诺 | 行全文 | ☐ |
-| C-34 | 跨平台限定（:121） | 读 README :121 | 注明"同 RNG 版本 + 同编译选项" | 行全文 | ☐ |
-| C-35 | 顶部版本模型说明 | 读 README 顶部 | 3 行：C++ API 版本见 `VERSION` / Python 发行版本见 `pyproject.toml` / tag 独立 | 段落 | ☐ |
+| C-31 | 冻结总数清零 | `Select-String -Path README.md -Pattern '1412'` | 0 命中 | 计数 0 | ✅ 0 命中；:27 改为"全量测试通过（见 CI）；位精确复现限**同编译器族内 + 同 RNG 版本 + 同编译选项**" |
+| C-32 | GPU 测试数失真清除 | `Select-String -Path README.md -Pattern '15 GPU MC'` | 0 命中；:107 改为"stub 编译 + `test_gpu_mc` skipped"表述 | 计数 0 + :107 全文 | ✅ 0 命中；:113 "a CPU stub is compiled and `test_gpu_mc` is **skipped** (`test_gpu_mc: SKIPPED (no CUDA)`); GPU entry points throw `std::runtime_error`" |
+| C-33 | RNG 承诺分层（:40） | 读 README :40 | uniform bit-exact + normal 1e-15 双承诺 | 行全文 | ⏸ 归提交 4（R-027，避免同段二次修改；见 IMPLEMENTATION §3.2 I） |
+| C-34 | 跨平台限定（:121） | 读 README :121 | 注明"同 RNG 版本 + 同编译选项" | 行全文 | ✅ :127 "Cross-platform float determinism \| bit-exact \| ✅ (MSVC + 2× GCC；同 RNG 版本 + 同编译选项)" |
+| C-35 | 顶部版本模型说明 | 读 README 顶部 | 3 行：C++ API 版本见 `VERSION` / Python 发行版本见 `pyproject.toml` / tag 独立 | 段落 | ✅ :9-13 "版本模型（两轴，彼此独立）"三行齐全 |
 
 ### 4.3 CI 可执行性
 
 | # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
 |---|---|---|---|---|---|
-| C-36 | C API 过滤缺口已修 | `Select-String -Path .github/workflows/ci.yml -Pattern '-R "CApi"'` | 0 命中；Run C API Tests 步骤无 `-R` | 计数 0 + 步骤全文 | ☐ |
-| C-37 | 版本漂移门禁进 CI | 查 ci.yml build-test job | 含 `python3 tools/sync_version.py --check`（`if: runner.os == 'Linux'`） | 步骤全文 | ☐ |
-| C-38 | coverage job 存在且可跑 | 查 ci.yml | Debug + `--coverage` + `--filter 'include/cpphub/'` + **`python3 -m pip install gcovr`** + artifact `coverage*.html` / `coverage.xml` | job 全文 | ☐ |
-| C-39 | YAML 语法有效 | `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml',encoding='utf-8')); print('ok')"`（无 PyYAML 时以推送后 Actions 解析为准） | ok / Actions 不报 syntax error | 输出 | ☐ |
-| C-40 | A5 实证：JsonMin/ToolRegistry 在 CI 真跑 | 看 c-api job 日志 | 日志出现 `JsonMinBudget.*`、`ToolRegistry.*`、`CApiTools.*` | 日志片段 | ☐ |
+| C-36 | C API 过滤缺口已修 | `Select-String -Path .github/workflows/ci.yml -Pattern '-R "CApi"'` | 0 命中；Run C API Tests 步骤无 `-R` | 计数 0 + 步骤全文 | ✅ 0 命中；:128-130 `ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure --parallel 4`（无 `-R`）。干净目录实测：`CApi*` 26 个 + `JsonMin\|ToolRegistry` 28 个（合计 54）在无过滤下全部执行 |
+| C-37 | 版本漂移门禁进 CI | 查 ci.yml build-test job | 含 `python3 tools/sync_version.py --check`（`if: runner.os == 'Linux'`） | 步骤全文 | ✅ :74-77 build-test job 内 "Check version header (RISK-032)"，`if: runner.os == 'Linux'`，`python3 tools/sync_version.py --check` |
+| C-38 | coverage job 存在且可跑 | 查 ci.yml | Debug + `--coverage` + `--filter 'include/cpphub/'` + **`python3 -m pip install gcovr`** + artifact `coverage*.html` / `coverage.xml` | job 全文 | ✅ :132-164 独立 `coverage` job：Debug、`--coverage -O0 -g`、`gcovr --filter 'include/cpphub/' --exclude 'third_party'`、`python3 -m pip install gcovr`、artifact `coverage.xml` + `coverage*.html` |
+| C-39 | YAML 语法有效 | `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml',encoding='utf-8')); print('ok')"`（无 PyYAML 时以推送后 Actions 解析为准） | ok / Actions 不报 syntax error | 输出 | ✅ `yaml ok`（PyYAML，Python 3.12） |
+| C-40 | A5 实证：JsonMin/ToolRegistry 在 CI 真跑 | 看 c-api job 日志 | 日志出现 `JsonMinBudget.*`、`ToolRegistry.*`、`CApiTools.*` | 日志片段 | ⏸ 待推送后以 Actions 日志取证（本地已证注册存在：`JsonMin\|ToolRegistry` = 28 个用例） |
 
 ---
 

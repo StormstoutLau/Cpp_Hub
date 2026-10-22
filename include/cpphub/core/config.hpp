@@ -1,11 +1,8 @@
 // SOURCE: PHASE1_SPEC §2.4 - 编译配置、SIMD检测、版本
 #pragma once
 
-// 版本
-#define CPPHUB_VERSION_MAJOR 1
-#define CPPHUB_VERSION_MINOR 0
-#define CPPHUB_VERSION_PATCH 0
-#define CPPHUB_VERSION "1.0.0"
+// 版本（单一源: 仓库根 VERSION → tools/sync_version.py 生成, RISK-032）
+#include "cpphub/core/version.hpp"
 
 // 编译器检测
 #if defined(_MSC_VER)

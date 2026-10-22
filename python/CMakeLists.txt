@@ -8,7 +8,16 @@
 # Python 包: src/cpphub/__init__.py (re-export)
 
 cmake_minimum_required(VERSION 3.25)
-project(cpphub_python VERSION 1.4.0 LANGUAGES CXX)
+
+# RISK-032: Python 发行版本单一源 = pyproject.toml。
+# wheel 构建时 scikit-build-core 注入 SKBUILD_PROJECT_VERSION;
+# 直接构建 python/ 目录时回退到仓库根 VERSION (库版本), 保证无硬编码。
+if(DEFINED SKBUILD_PROJECT_VERSION)
+    set(CPPHUB_PY_VERSION "${SKBUILD_PROJECT_VERSION}")
+else()
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" CPPHUB_PY_VERSION LIMIT_COUNT 1)
+endif()
+project(cpphub_python VERSION ${CPPHUB_PY_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -67,6 +76,9 @@ nanobind_add_module(_core
 )
 
 target_link_libraries(_core PRIVATE cpphub_headers)
+
+# RISK-032: __version__ 由构建系统注入 (cpphub_python.cpp 消费 CPPHUB_PY_VERSION 宏)
+target_compile_definitions(_core PRIVATE CPPHUB_PY_VERSION="${CPPHUB_PY_VERSION}")
 
 # MSVC UTF-8 (扩展模块)
 if(MSVC)

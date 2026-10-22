@@ -6,6 +6,12 @@
 >
 > v1.4.0 起新增高频计量经济学模块 (HFE), 对标 R `highfrequency` 1.0.3 (Boudt, Kleen, Sjørup 2022, JSS doi:10.18637/jss.v104.i08), 提供 C++ 工程级 RV/BPV/RSV/BNS 跳跃检验实现. v1.4.1 新增 Realized Kernel (BNS 2008 ECTA) 微结构噪声稳健估计, 含 12 种核函数 + 噪声方差 + 最优带宽选择. v1.4.2 新增多资产协方差估计 (5 方法: Hayashi-Yoshida / Two-Scale / Pre-averaged / Robust Two-Scale / Modulated) + HAR/HEAVY 波动率预测模型. v1.4.3 新增流动性度量 (23 种, Hasbrouck 2009) + 高级跳跃检验 (AJ/JO/Intraday/Rank, 含自实现 Jacobi SVD 全分解).
 
+**版本模型（两轴，彼此独立）**
+
+- C++ 库 API 版本：见仓库根 [`VERSION`](VERSION)（生成物 `include/cpphub/core/version.hpp`）
+- Python 发行版本：见 [`python/pyproject.toml`](python/pyproject.toml) 的 `project.version`
+- 仓库 tag 独立于上述两者：tag 标记发布节点，不自动等于任一版本号
+
 ---
 
 ## Status
@@ -18,7 +24,7 @@
 | **Phase 5 v1.4.1** | HFE: Realized Kernel (BNS 2008) / 12 核函数 / 噪声方差 ω² / 最优带宽 H* | 14 / 14 ✅ (R baseline 对标, 11 核函数 + 3 R baseline) |
 | **Phase 5 v1.4.2** | HFE: 多资产 Cov (Hayashi-Yoshida/Two-Scale/Pre-averaged/Robust Two-Scale/Modulated) + HAR/HEAVY 预测模型 | 62 / 62 ✅ (R baseline 对标, Wave A 6 + Wave B 28 + Wave C 28) |
 | **Phase 5 v1.4.3** | HFE: 流动性度量 (23 种) + 高级跳跃检验 (AJ/JO/Intraday/Rank, Jacobi SVD) | 50 / 50 ✅ (R 源码排幻觉 D1-D23, 流动性 12 + 跳跃检验 38) |
-| **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 1412 / 1412 位精确一致 ✅ (v1.4.0-v1.4.3 三平台验证通过) |
+| **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 全量测试通过（见 CI）；位精确复现限**同编译器族内 + 同 RNG 版本 + 同编译选项** |
 
 跨平台浮点确定性由 `-ffp-contract=off` (GCC) + `/fp:precise` (MSVC) 保证 IEEE-754 严格模式。
 
@@ -104,7 +110,7 @@ cmake -S . -B build_cuda -DCMAKE_BUILD_TYPE=Release -DCPPHUB_ENABLE_CUDA=ON
 cmake --build build_cuda --config Release
 ```
 
-Without CUDA, a CPU stub is compiled automatically and 15 GPU MC tests still run on CPU.
+Without CUDA, a CPU stub is compiled and `test_gpu_mc` is **skipped** (`test_gpu_mc: SKIPPED (no CUDA)`); GPU entry points throw `std::runtime_error`. GPU tests require `-DCPPHUB_ENABLE_CUDA=ON`.
 
 ---
 
@@ -118,7 +124,7 @@ Without CUDA, a CPU stub is compiled automatically and 15 GPU MC tests still run
 | Sobol QMC variance reduction | ≥ 10x | ✅ |
 | AAD Greeks vs analytic | 1e-10 | ✅ |
 | Pathwise / LR / Analytic / AAD Greeks cross-check | 1e-6 | ✅ |
-| Cross-platform float determinism | bit-exact | ✅ (MSVC + 2× GCC) |
+| Cross-platform float determinism | bit-exact | ✅ (MSVC + 2× GCC；同 RNG 版本 + 同编译选项) |
 | HFE Realized Measures vs R `highfrequency` 1.0.3 | 1e-12 | ✅ (RV/RVol/RQ/BPV/RSV, 9 case baseline) |
 | HFE BNS Jump Test vs R `BNSjumpTest` | 1e-10 | ✅ (Z statistic + p-value, no-jump + jump 双向) |
 | HFE Realized Kernel vs R `rKernelCov` | 1e-12 | ✅ (BNS 2008, 12 核函数, 17 case B1/B2 baseline) |

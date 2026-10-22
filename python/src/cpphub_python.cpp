@@ -2040,6 +2040,9 @@ NB_MODULE(_core, m) {
     // =========================================================================
     // 22. 版本信息
     // =========================================================================
-    m.attr("__version__") = "1.4.0";
+#ifndef CPPHUB_PY_VERSION
+#define CPPHUB_PY_VERSION "unknown"  // 构建系统未注入时的兜底 (RISK-032)
+#endif
+    m.attr("__version__") = CPPHUB_PY_VERSION;  // 由构建系统注入, 不再硬编码
     m.attr("__author__") = "Scott (鹏)";
 }

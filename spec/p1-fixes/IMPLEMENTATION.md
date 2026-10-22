@@ -1045,6 +1045,8 @@ TEST(GpuMC, NormalSamplesWithinTolerance) {
 | E-8 | philox4x64 10 轮向量条数 | 设计预期"抽取 20~40 行"；上游**仅 3 行**（已验证覆盖 0/0、全 f、pi-digits 三类边界），`kKatCount = 3`，无需人工补充 |
 | E-9 | `build/` 实际配置 | IMPLEMENTATION §0.1 假设 `build/` 为默认（无 C_API）；实测 **C_API=ON**（与 `build_capi` 重复）。基线按实际配置记录（2553 项）；不改变门禁语义 |
 | E-10 | Random123 nvcc 宏守卫 | 见 DESIGN §11 D-6：`gpu_mc.cu` 与探针段必须在 include 前定义 device pass 守卫，否则 device 代码调用 host-only `_umul128` 编译失败 |
+| E-11 | CMake 4.4 `gtest_discover_tests` JSON 临时文件竞争 | 全新目录高并行构建（`--parallel 8`）时，`GoogleTestAddTests` 的 `cmake_test_discovery_<hash>.json` 文件名 hash 不含 target 名 → 多 target 争抢同一文件，POST_BUILD 读到编译日志而 JSON 解析失败（`MSB3073` + `ParseTestList.cmake:96`）。**既有基建缺陷，与本次改动无关**；串行构建（`--parallel 1`）或低并行度可规避。CI 用 `--parallel 4`，风险存在但非本次范围 |
+| E-12 | CTest 注册表代际污染（build/ vs 全新目录） | 事实：① exe 层面两目录**完全一致**（逐 exe `--gtest_list_tests`：各 157 exe / **2590 用例**）；② `build/` 注册 2573 项，其中**248 组同名重复**（多代发现文件共存：3032 个 `*.cmake` vs 干净目录 1406 个）→ 唯一注册仅 2325，反漏 265 个真实用例（如 `CGMYCharactericFunction.*` 9 个全缺）；③ 干净目录 `tmp/verify_capi`（C_API=ON）经"删除 exe + 发现文件 → 串行重链"后注册 **2590**，与 exe 用例数逐一相等、零重复。判定：**R-032 回归证据以干净目录 2590/2590 全绿为准**（`tmp/ctest_r032_final.log`）；`build/` 的 2573/2573 亦全绿，但既跑重复又漏用例，属既有目录污染（同 E-9/E-11 族），**后续 C-91 三目录回归必须用干净目录**，否则数字不可信 |
 
 ---
 

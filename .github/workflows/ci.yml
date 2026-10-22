@@ -71,6 +71,11 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel 4
 
+      - name: Check version header (RISK-032)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 tools/sync_version.py --check
+
       - name: Run Tests
         working-directory: build
         run: ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure --parallel 4
@@ -122,7 +127,41 @@ jobs:
 
       - name: Run C API Tests
         working-directory: build
-        run: ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} -R "CApi" --output-on-failure --parallel 4
+        run: ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure --parallel 4
+
+  # ---------------------------------------------------------------------------
+  # 覆盖率报告 (U-3: 仅报告, 无阈值)
+  # Debug 避开 Release 的 -march 硬编码; 只统计 include/cpphub/。
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Coverage (ubuntu-latest, GCC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build gcc g++ && python3 -m pip install gcovr
+      - name: Configure (coverage)
+        run: |
+          cmake -S . -B build_cov -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+      - name: Build
+        run: cmake --build build_cov --parallel 4
+      - name: Test
+        working-directory: build_cov
+        run: ctest --output-on-failure --parallel 4
+      - name: gcovr report
+        run: |
+          gcovr --root . --filter 'include/cpphub/' --exclude 'third_party' \
+                --xml coverage.xml --html-details coverage.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            coverage*.html
 
   # ---------------------------------------------------------------------------
   # Python bindings + MCP shell: nanobind extension build + pytest
