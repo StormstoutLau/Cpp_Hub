@@ -148,7 +148,7 @@ int cpphub_v1_tool_call(const char* tool_name,
 ### 4.3 Python 薄壳（B1）
 
 ```python
-# python/src/mcp_server.py  (SDK v2 实测 API; 见 §4.3 注)
+# python/src/cpphub/mcp_server.py  (SDK v2 实测 API; 见 §4.3 注)
 from mcp.server import MCPServer              # SDK 2.3.0 入口 (页面级取证)
 from mcp.types import ToolAnnotations
 

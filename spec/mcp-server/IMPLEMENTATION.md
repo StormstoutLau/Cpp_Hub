@@ -61,14 +61,18 @@ cpphub/                                  # 仓库根
 ├── src/c_api/
 │   └── c_api.cpp                        # [改] 实现 cpphub_v1_tool_list / cpphub_v1_tool_call
 ├── python/src/
-│   ├── cpphub_python.cpp                # [不变] 既有 nanobind 绑定
-│   └── mcp_server.py                    # [新] B1 协议壳 (官方 SDK)
+│   ├── cpphub_python.cpp                # [改] +mcp_tool_list / mcp_tool_call 透传 (S4)
+│   └── cpphub/mcp_server.py             # [新] B1 协议壳 (官方 SDK)
 ├── python/tests/
 │   └── test_mcp_tools.py                # [新] 工具契约 + schema 快照测试
-├── tests/c_api/
+├── tests/unit/c_api/
 │   └── test_c_api_tools.cpp             # [新] JSON 往返 + 缓冲协商 + 错误码契约
 └── spec/mcp-server/                     # 本 feature 文档 (四件套)
 ```
+
+> **⚠️ F8 订正（2026-10-20，S4 实施期，P3）**：初版路径有两处与实际构建布局不符——
+> (1) `python/src/mcp_server.py` → 实为 **`python/src/cpphub/mcp_server.py`**：`pyproject.toml` 的 `wheel.packages = ["src/cpphub"]`，只有 `src/cpphub/` 下的模块会进 wheel；放在 `src/` 根会被丢弃。
+> (2) `tests/c_api/` → 实为 **`tests/unit/c_api/`**（S1–S3 实际落盘位置，`tests/CMakeLists.txt` 已注册）。
 
 ## 3. 模块实施
 
@@ -122,10 +126,10 @@ int cpphub_v1_tool_call(const char* tool_name, const char* args_json,
 
 **职责**：协议实现、工具注册、转发。
 
-**接口签名**（**已按 SDK v2 实测 API 订正**，见 §9.1 F3）：
+**接口签名**（**已按 SDK v2 实测 API 订正**，见 §9.1 F3；**S4 已落地**，路径见 F8）：
 
 ```python
-# python/src/mcp_server.py
+# python/src/cpphub/mcp_server.py
 from mcp.server import MCPServer              # SDK v2 入口 (2.3.0 实测)
 from mcp.types import ToolAnnotations
 
@@ -133,23 +137,26 @@ mcp = MCPServer("cpphub")
 
 @mcp.tool(
     name="cpphub_unit_root_diagnose",         # 覆盖式命名 (SDK 默认取函数名)
-    description=CPPHUB_TOOL_DOCS["unit_root_diagnose"],   # 含陷阱注释
+    description=_describe("cpphub_unit_root_diagnose"),   # 取自 C++ 注册表, 含陷阱注释
     annotations=ToolAnnotations(readOnlyHint=True),        # 映射 DESIGN §8 不变式 4 (只读)
 )
 def unit_root_diagnose(
-    series: Annotated[list[float], Field(description="价格/收益序列")],
-    spec: Literal["c", "ct", "ctt"] = "c",
-) -> DiagnosticEnvelope:
-    """单位根六检验一揽子诊断。"""
-    return cpphub_abi.tool_call("unit_root_diagnose", {"series": series, "spec": spec})
+    series: Annotated[list[float], Field(description="价格/收益水平序列")],
+    trend: Literal["auto", "nc", "c", "ct"] = "auto",
+) -> ToolResult:                              # TypedDict → 自动产出 structured_content
+    return _call("cpphub_unit_root_diagnose", series=series, trend=trend)
 ```
 
 **实施要点**：
-- **返回类型化对象** → SDK 自动同时产出 `content`（模型读）与 `structured_content`（客户端读）——正是 DESIGN §6.1 信封的落地形态。
-- 参数用 `Annotated[..., Field(...)]` / `Literal` / Pydantic 模型描述，schema 由 SDK 生成，无需手写 JSON Schema。
-- 透传层为唯一业务入口：壳内**不**做数值逻辑（DESIGN §2.3 职责边界）。
+- **返回类型化对象** → SDK 自动同时产出 `content`（模型读）与 `structured_content`（客户端读）——正是 DESIGN §6.1 信封的落地形态。返回类型用 **`TypedDict`**（`ToolResult`），SDK 对 TypedDict **不再包 `{"result": ...}`**；若用 `dict` 会被包一层，故不用 `dict`。
+- 参数用 `Annotated[..., Field(...)]` / `Literal` 描述，schema 由 SDK 生成，无需手写 JSON Schema。
+- **描述与工具名的唯一真值源是 C++ 注册表**：壳在 import 时调 `_core.mcp_tool_list()` 建索引，`description=_describe(name)` 逐字取用，避免两处描述漂移；工具名仍以字面量写在装饰器上（SDK 需要静态 `name=`），并由测试断言与注册表一致。
+- Python 函数名用短名（`unit_root_diagnose`），与暴露名 `cpphub_*` 不同 → `name=` 覆盖确实生效（可被测试识别）。
+- 透传层为唯一业务入口：壳内**不**做数值逻辑（DESIGN §2.3 职责边界）；参数非法/内核失败统一转 `mcp.server.mcpserver.exceptions.ToolError`，使错误文本对模型可见（SDK 对非 `ToolError` 异常只回泛化消息）。
+- **构建接入**：`src/c_api/c_api.cpp` 作为**独立 TU** 编入 `_core`（`python/CMakeLists.txt`），Python 侧直接 `from . import _core` 调 `mcp_tool_list` / `mcp_tool_call`，无 ctypes、无额外 `.so` 分发。
+- **可选依赖**：`pyproject.toml` 增 `mcp = ["mcp>=2.3.0"]` extra；`import cpphub` 不触发该依赖（`mcp_server` 不在 `__init__` 导入）。
 
-**待核项（联调轮）**：`@mcp.tool()` 的 `name` / `description` / `annotations` 精确 kwargs 形式以实际安装版本为准（SDK 文档 §"Names, titles, and annotations" 已确认可覆盖，但未逐字取证 kwargs 名）。
+**实测补充（S4，E1）**：`ToolAnnotations` 字段名为 `readOnlyHint`（camelCase），实例属性为 `read_only_hint`；`ToolError` 仅从 `mcp.server.mcpserver.exceptions` 导入（`mcp.server.mcpserver.__init__` 未导出）。
 
 ### 3.5 `input_validator`
 
@@ -197,10 +204,13 @@ class ToolResult:
 
 @dataclass
 class Conclusion:
-    reject_null: bool
-    n_reject: int
-    n_total: int
+    # F6 订正 (2026-10-18, 实现前冻结): 方向显式, 不做跨方法 reject 计数
+    primary_method: str   # 主检验方法名 (= results 中某项的 method)
+    reject_null: bool     # 恒等于主检验行
+    n_total: int          # 纯计数
 ```
+
+> **S4 落地形态**：Python 壳以 **`TypedDict`**（同名 `ToolResult` / `DiagnosticEnvelope` / `Conclusion`）声明，字段与本块一致；`statistic`/`p_value`/`cv_5pct` 标注为 `Optional[float]`，因 C++ 侧以 JSON `null` 表示 NaN 或缺省。
 
 **字段基准**：与 `TestResultBase`（`statistic` / `p_value` / `method_name` / `reject_null`，读码 E3 实测 4 字段）对齐；`cv_5pct` 为库内既有用法（5 处）。**签名一致性**：信封（`DiagnosticEnvelope`）与 DESIGN §6.1 一致 ✅；**容器层（`ToolResult` / `Conclusion`）为 F5 新增**，承接 DESIGN §6.2。C++ 侧装配路径：`tool_call` → handler 产出 `ToolResult` → `json_min::Value::object` 顶层 + `Value::array` 装 `results` → `json_min::dump`。
 
@@ -225,9 +235,10 @@ class Conclusion:
 
 | 依赖组合 | 兼容性 | 验证 |
 |---|---|---|
-| `mcp 2.3.0` + Pydantic | ✅ | SDK 文档示例即用 Pydantic |
-| `mcp` + 既有 nanobind 绑定 | ⚠️ 待验证 | 二者共处同一 Python 环境，须在 Step 9 验证 import 无冲突 |
+| `mcp 2.3.0` + Pydantic | ✅ | SDK 文档示例即用 Pydantic；S4 实测 `pydantic 2.13.4` 生成 schema 正常 |
+| `mcp` + 既有 nanobind 绑定 | ✅ **S4 已验证** | 同一 Python 环境下 `import cpphub._core` 先加载 C++（`mcp_tool_list`/`mcp_tool_call`），`from cpphub import mcp_server` 再加载 `mcp`/`mcp_types`，无 import 冲突（wheel 2.3.0 实测） |
 | C++20 (MSVC/GCC) + `json_min.hpp` | ✅ | 纯头文件、无第三方 |
+| `nanobind` 版本 | ⚠️ **S4 实测发现** | 既有绑定使用 **2.x 的 `nb::arg(...).none(bool)`** 写法；pip 默认解析到的 **3.1.0 编译失败**（`arg_t::none` 签名变更）。已在 `pyproject.toml` 的 `build-system.requires` 收紧为 `nanobind>=2.0,<3`，本机以 `2.13.0` 通过 MSVC 19.50 编译 |
 
 ### 5.3 向后兼容
 
@@ -261,17 +272,24 @@ class Conclusion:
 
 ### 8.1 单元测试
 
-| 模块 | 测试文件 | 目标用例数 | 覆盖点 |
-|---|---|---|---|
-| `json_min.hpp` | `tests/c_api/test_json_min.cpp` | ≥15 | 往返位精度 / 转义 / 嵌套 / 边界 |
-| `tool_registry` | `tests/c_api/test_tool_registry.cpp` | ≥10 | 唯一性 / 规模 ≤10 / schema 快照 |
-| `c_api_ext` | `tests/c_api/test_c_api_tools.cpp` | ≥12 | 缓冲协商 / 错误码 / JSON 往返 |
-| B1 壳 | `python/tests/test_mcp_tools.py` | ≥9 | 7 工具冒烟 + 信封字段 + 只读注解 |
+| 模块 | 测试文件 | 目标用例数 | 实际（S1–S4） | 覆盖点 |
+|---|---|---|---|---|
+| `json_min.hpp` | `tests/unit/c_api/test_json_min.cpp` | ≥15 | **14** | 往返位精度 / 转义 / 嵌套 / 边界 |
+| `tool_registry` | `tests/unit/c_api/test_tool_registry.cpp` | ≥10 | **14** | 唯一性 / 规模 ≤10 / schema 快照 |
+| `c_api_ext` | `tests/unit/c_api/test_c_api_tools.cpp` | ≥12 | **8** ⚠️ | 缓冲协商 / 错误码 / JSON 往返 |
+| B1 壳 | `python/tests/test_mcp_tools.py` | ≥9 | **52** | 7 工具冒烟 + 信封字段 + 只读注解 + 错误路径 + 纯透传 + golden 一致性 |
+
+> **S4 记录**：`json_min`（14 vs ≥15）与 `c_api_ext`（8 vs ≥12）用例数低于目标；缓冲四档、7 工具闭环、错误映射已覆盖，缺口属**用例密度**而非覆盖空洞。是否补足留 Step 10 ADD 审计裁定（不阻塞 S5）。
 
 ### 8.2 集成测试
 
-- **ABI 契约测试**（扩既有 `tests/c_api/`）：`tool_list` → 解析 → 逐工具 `tool_call` 闭环。
-- **三平台一致性**：沿用既有 CI 矩阵（Win10 MSVC / Ubuntu GCC×2），JSON 输出须**逐字节一致**。
+- **ABI 契约测试**（`tests/unit/c_api/`）：`tool_list` → 解析 → 逐工具 `tool_call` 闭环。
+- **跨平台一致性（S5 定案，取代初版「逐字节一致」）**：golden 快照 `python/tests/fixtures/mcp_golden.json`，口径为**结构 byte-exact + 数值容差**——
+  - 结构：键序 / 键集 / 类型 / 字符串 / 布尔 / 整数 / null 逐字节一致；浮点在结构中置为 `<num>`，`notes` 内**浮点字面量**同样置为 `<num>`（整数保留原值，`n_lags=16` 之类仍逐字节比对）。
+  - 数值：按遍历序逐项比较，默认 `rtol=1e-9 / atol=1e-12`；`cpphub_garch_diagnose`（QMLE 迭代）放宽至 `rtol=1e-3 / atol=1e-9`。
+  - 输入：整数 LCG 生成（不调用 libm），保证各平台输入逐位相同；Linux 侧编译加 `-ffp-contract=off`。
+  - 复算：`CPPHUB_MCP_REGEN_GOLDEN=1 pytest python/tests/test_mcp_tools.py -k write_golden`（两次生成 SHA256 相同，E1）。
+- **执行平台**：CI job `python`（windows-2022 / ubuntu-latest × py3.11 / py3.12）。
 
 ### 8.3 属性测试
 
@@ -310,7 +328,7 @@ class Conclusion:
 
 ### 10.1 实施步骤
 
-1. **S1** `json_min.hpp` + 单测 → 2. **S2** `cpphub_tool_registry.hpp` + 2 符号声明（含新增错误码）→ 3. **S3** `c_api.cpp` 实现 + ABI 契约测试 → 4. **S4** B1 壳 `mcp_server.py`（7 工具）→ 5. **S5** pytest + 三平台 JSON 逐字节一致验证 → 6. **S6** 与真实 MCP 客户端联调（U-4）。
+1. **S1** `json_min.hpp` + 单测 → 2. **S2** `cpphub_tool_registry.hpp` + 2 符号声明（含新增错误码）→ 3. **S3** `c_api.cpp` 实现 + ABI 契约测试 → 4. **S4** B1 壳 `mcp_server.py`（7 工具）→ 5. **S5** pytest + 跨平台一致性（结构 byte-exact + 数值容差，golden 快照）+ CI `python` job → 6. **S6** 与真实 MCP 客户端联调（U-4）。
 
 ### 10.2 未决项登记（四元块）
 
@@ -321,7 +339,13 @@ class Conclusion:
   - **触发条件**：Step 9 首次 CI 运行（可机械识别：3.10 job 结果）
   - **当前倾向**：取 **>=3.11** 为 CI 目标；`pyproject.toml` 声明 `>=3.10` 以匹配 PyPI 元数据
   - **证据等级**：E1（页面级双源，冲突已登记）
+  - **S5 更新**：CI `python` job 矩阵 = 3.11 / 3.12（不含 3.10），故本条按"取 3.11 为下限"执行；`requires-python` 仍为 `>=3.9`。
 - **U-6 JSON 序列化路线** — **本轮已闭合**：C++ 侧自实现最小 JSON；Python 侧交 SDK/Pydantic（见 §3.2/§3.3）。
+- **U-8 sdist 不含 `src/c_api/`（S4 引入，登记未解）**
+  - **判据**：`python -m build` 生成的 sdist 解包后仍能构建出 `_core`
+  - **触发条件**：若发布 sdist 到 PyPI（当前仅本地 / cibuildwheel 直建 wheel，不受影响）
+  - **当前倾向**：暂不处理（`pip install ./python` 与 cibuildwheel 均直接读源码树）；若需发 sdist，改为在 `python/` 下建符号链接或把 c_api 源移入包内
+  - **证据等级**：E1（`[tool.scikit-build]` 无 `sdist.include` 配置；`../src/c_api/c_api.cpp` 在项目根之外）
 
 ---
 

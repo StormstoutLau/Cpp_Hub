@@ -27,8 +27,11 @@ add_library(cpphub_headers INTERFACE)
 target_include_directories(cpphub_headers INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party  # autodiff header-only
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/eigen  # Eigen3 3.4.0 (MPL2)
 )
 target_compile_features(cpphub_headers INTERFACE cxx_std_20)
+# 与根 CMakeLists.txt 的 eigen3_interface 保持一致: 仅启用 MPL2.0 许可部分
+target_compile_definitions(cpphub_headers INTERFACE EIGEN_MPL2_ONLY)
 
 # ----------------------------------------------------------------------------
 # 2. 寻找 Python + nanobind
@@ -58,6 +61,9 @@ find_package(nanobind CONFIG REQUIRED)
 # ----------------------------------------------------------------------------
 nanobind_add_module(_core
     src/cpphub_python.cpp
+    # MCP 工具面 (spec/mcp-server): JSON-through-C-ABI 实现作为独立 TU 编入,
+    # 避免与 nanobind TU 的 calibrator.hpp 宏重命名冲突; 无 ctypes/无独立 .so。
+    ../src/c_api/c_api.cpp
 )
 
 target_link_libraries(_core PRIVATE cpphub_headers)

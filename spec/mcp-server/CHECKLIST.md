@@ -67,6 +67,8 @@ upstream: null
 | **P2（F5）核对维度缺失** | Step 8 核对表**未含**「出参粒度语义」维度 → §4.1 的一揽子（7/7 多统计量）与 §6.1 的单方法信封的**粒度冲突漏检**；Step 9 编写 registry handler 时触发发现 | DESIGN §4.1 出参要点列 vs §6.1 字段（7/7 复核，复算命令见 MATRIX §9） | **补入核对项**（见 §1.2 第 3 行）；粒度冲突经 Type-1 七维矩阵裁定为**方案 (a) 容器层**，并回写 DESIGN §6.2 / DESIGN §4.1 / IMPL §4.1 → **已闭环**（[DECISION_MATRIX.md](./DECISION_MATRIX.md) §9–§12） |
 | **P3（F6）Conclusion 方向语义** | `Conclusion.n_reject` 跨方法计数会**错误**（KPSS 的 H0 是平稳性，与 ADF 族相反，U12） | 读码 E3：`kpss_test.hpp` L92-95、`unit_root` U12 陷阱 | **实现前**细化为方向显式（`primary_method`/`reject_null`/`n_total`），回写 DESIGN §6.2 → **已闭环** |
 | **P3（F7）入参词汇未核验** | DESIGN §4.1 初版入参为拟写值，与库内实测签名不符（7/7 工具皆有差异，如 `spec.model:"ctt"` 不存在、variance-ratio 无 `bootstrap`、vecm 缺必填 `rank`） | 逐签名 E3 读码（绑 commit `4f6c74f`） | 入参列**整体重写**为实测词汇 + 加注 F7 对照表，IMPL §4.3 声明同步更正 → **已闭环** |
+| **P3（F8）文件路径未核验** | IMPL §2.3 写作 `python/src/mcp_server.py` / `tests/c_api/`，与构建布局不符：`wheel.packages=["src/cpphub"]` 只打包包目录；S1–S3 实际落盘在 `tests/unit/c_api/` | 读 `pyproject.toml` + S1–S3 实际提交路径（E1） | 实际落地 `python/src/cpphub/mcp_server.py`；IMPL §2.3 + DESIGN §4.3 注释同步订正 → **已闭环** |
+| **P3（F9）`statistic` 语义漂移**（S5 冻结 golden 时发现） | `cpphub_variance_ratio_test` 的 `chow_denning_joint` 行把**联合 p 值**填进 `statistic` 字段（与 `p_value` 同值），信封语义名不副实 | 读码 E3：[cpphub_tool_registry.hpp](../../include/cpphub/c_api/cpphub_tool_registry.hpp) L541–542（`r.chow_denning_p_value` 同时传给 statistic 与 p_value） | **登记未修，待裁定**：库内 `VarianceRatioResult` 只有 `chow_denning_p_value`，无联合统计量；正解是 `statistic=null` + note 注明"仅 p 值"，但属工具契约变更。golden `meta.known_issues` 已标注冻结值为现状 |
 
 ## 2. 功能验收
 
@@ -99,10 +101,11 @@ upstream: null
 
 | 验收项 | 测试方法 | 通过条件 | 状态 | 证据 |
 |---|---|---|---|---|
-| 壳可启动（stdio 子进程） | `pytest test_mcp_tools.py` | 进程启动且响应 `tools/list` | ☐ | |
-| 7 工具经壳暴露 | 同上 | 列表名称与注册表一致 | ☐ | |
-| 类型化返回生成 `structured_content` | 同上 | 信封字段完整出现 | ☐ | |
-| 壳内无业务逻辑 | 代码审查 | 转发层无数值计算 | ☐ | |
+| 壳可加载并注册工具（进程内） | `pytest test_mcp_tools.py` | `mcp.list_tools()` 返回 7 项 | ✅ | `test_mcp_tools.py` 23/23 通过（2026-10-20，mcp 2.3.0 + Python 3.12.10 / MSVC 19.50）；非子进程验证 |
+| 壳可启动（stdio 子进程 + 真实客户端握手） | 真实 MCP 客户端联调 | 进程启动且响应 `tools/list` | ☐ | 属 U-4，S6 联调 |
+| 7 工具经壳暴露 | `test_sdk_exposes_same_tool_names` | 列表名称与注册表一致 | ✅ | 同上 |
+| 类型化返回生成 `structured_content` | `test_call_variance_ratio_returns_container` | 信封字段完整出现（`tool`/`results[]`/`conclusion`） | ✅ | `structured_content` 自动产出，与 `outputSchema` 字段对齐；`result.content` 同时存在（双路径） |
+| 壳内无业务逻辑 | 代码审查 | 转发层无数值计算 | ✅ | `mcp_server.py` 仅 `json.dumps` + `_core.mcp_tool_call` + `json.loads`（DESIGN §2.3 职责边界） |
 
 ### 2.5 `input_validator`（IMPL §3.5）
 
@@ -110,7 +113,7 @@ upstream: null
 |---|---|---|---|---|
 | 数组长度超限拒绝 | 边界用例 | 长度 = `kMaxSeriesLength+1` 被拒 | ✅ | `test_tool_registry.cpp::RejectsInvalidInput`；>10000 元素返回错误含 "max length"（C++ 侧校验在 `cpphub_tool_registry.hpp::detail` 内联实现——IMPL §2.3 未列 `input_validator` 文件，实际落地于注册表参数校验） |
 | 非有限值（NaN/Inf）拒绝 | 同上 | 返回 INVALID_ARG | ✅ | 同上；`is_finite` 检查 → 错误信息含 "non-finite"（Python 侧 INVALID_ARG 由 S3 ABI 层映射） |
-| 必填缺失/类型错误 | Pydantic 用例 | `ValidationError` | ☐ | C++ 侧已拒绝（缺必填/类型不符 → `ToolOutcome.error`）；**Pydantic 侧待 S4 壳** |
+| 必填缺失/类型错误 | Pydantic 用例 | `ValidationError` 被 SDK 转为 `ToolError` | ✅ | `test_mcp_tools.py`：`k=[1]` → `ToolError` 携带 C++ 消息；未知工具名 → `ToolError`；NaN 入参 → `ToolError`（`allow_nan=False`）。**实测订正**：Pydantic 校验失败在 SDK 内被包装为 `ToolError`（`-32602` 语义），不向调用方抛裸 `ValidationError` |
 
 ## 3. 接口验收
 
@@ -134,12 +137,12 @@ upstream: null
 
 ### 3.3 MCP 工具声明（DESIGN §4.1）
 
-| 验收项 | 通过条件 | 状态 |
-|---|---|---|
-| 7 工具名与入参 schema 与 DESIGN §4.1 一致 | 逐项比对 | ☐ |
-| 描述含文献陷阱注释 | GR6/CI1 等注释出现在 description | ☐ |
-| 只读注解生效 | `readOnlyHint=True` | ☐ |
-| 工具名默认取函数名之覆盖生效 | 名称与预期一致 | ☐ |
+| 验收项 | 通过条件 | 状态 | 证据 |
+|---|---|---|---|
+| 7 工具名与入参 schema 与 DESIGN §4.1 一致 | 逐项比对 | ✅ | `test_input_schema_properties_match_registry` 7/7：SDK 生成 schema 的 **属性名集合** 与 **required 集合** 逐工具等于 C++ 注册表（即 DESIGN §4.1 F7 订正表）的对应集合。**证据边界**：比对的是集合而非逐字节（SDK 会补 `title`、把 `k` 的缺省写成 `null`），见 IMPL §9.3 |
+| 描述含文献陷阱注释 | GR6/CI1 等注释出现在 description | ✅ | `test_description_comes_from_registry` 7/7：壳不复制描述，直接取 `mcp_tool_list()` 的 `description`（含 GR6/CI2/U12 等），逐字相等 |
+| 只读注解生效 | `readOnlyHint=True` | ✅ | `test_read_only_annotation`：7/7 `tool.annotations.read_only_hint is True`（`mcp_types.ToolAnnotations`，wheel 实测字段名） |
+| 工具名默认取函数名之覆盖生效 | 名称与预期一致 | ✅ | Python 函数名为短名（`unit_root_diagnose` 等），SDK 实际暴露 `cpphub_*` → 覆盖确实生效（`test_sdk_exposes_same_tool_names`） |
 
 ## 4. 不变式验收
 
@@ -148,7 +151,7 @@ upstream: null
 | 1 无状态 | 同一调用连续两次结果逐位相同 | ✅ |
 | 2 工具名唯一 + 字符集 | 注册表快照断言 | ✅ |
 | 3 工具面 ≤10 | 单测断言 `size() <= 10` | ✅ |
-| 4 只读 | 注解快照 + 无副作用审查 | ☐ |
+| 4 只读 | 注解快照 + 无副作用审查 | ✅ | `test_read_only_annotation` 7/7 `read_only_hint=True`；`mcp_server.py` 无写文件/网络调用 |
 | 5 版本协商可达 | 联调（U-4）modern/legacy 双路径 | ☐ |
 | 6 出参 schema 只增不改 | 信封字段快照锁定 | ✅ |
 
@@ -157,7 +160,7 @@ upstream: null
 | 错误场景（IMPL §6） | 触发方式 | 预期行为 | 状态 | 证据 |
 |---|---|---|---|---|
 | 工具名未知 | 传不存在名称 | `CPPHUB_ERR_INVALID_ARG` | ✅ `[S3]` | `test_c_api_tools.cpp::ErrorMapping`；错误信息含 "unknown tool" + 可用工具名清单 |
-| 参数类型/范围非法 | 传错类型 | `-32602` / `ValidationError` | ✅ `[S3]` | C++ 侧由注册表参数校验拒绝（返回 -1）；`-32602`/`ValidationError` 为壳侧映射，S4 落地 |
+| 参数类型/范围非法 | 传错类型 | SDK 侧 `ToolError`（承载 C++ 消息） | ✅ `[S3+S4]` | C++ 侧注册表校验返回 -1；Python 侧 `nb::value_error` → `ToolError`（`test_invalid_argument_message_surfaces`）。**实测**：SDK 不把裸 `ValidationError` 抛给调用方，统一转 `ToolError` |
 | 缓冲不足 | 传 0 容量 | `-4` + 回填长度 | ✅ `[S3]` | `BufferNegotiationTwoPhase`：0 容量 / 恰好 need / need+1 / 过大缓冲 四档 |
 | 序列超长 | >10k 数组 | INVALID_ARG + 可操作提示 | ✅ `[S2]` | `test_tool_registry.cpp::RejectsInvalidInput`（>10000 元素 → "max length"） |
 | 协议版本不匹配 | 请求未支持版本 | `UnsupportedProtocolVersionError` | ☐ | 由 SDK 壳承载，待 S4/S5 |
@@ -175,10 +178,11 @@ upstream: null
 
 | 环境 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| Python | 3.11 | ☐ | CI 目标下限（U-7 取严） |
-| Python | 3.12 | ☐ | |
-| OS | Windows 2022 (MSVC) | ☐ | 既有 CI 矩阵 |
-| OS | Ubuntu (GCC) | ☐ | 既有 CI 矩阵 |
+| Python | 3.11 | ☐ | CI `python` job 已加入（S5），待远端首次运行 |
+| Python | 3.12 | ✅ | 本机 3.12.10 实测：MCP 套件 51 passed / 1 skipped（regen-only），既有套件 59 passed |
+| OS | Windows 2022 (MSVC) | ☐ | 本机 MSVC 19.50 已通过；CI 环境待跑 |
+| OS | Ubuntu (GCC) | ☐ | CI 新增 `python` job；本地无 Linux 环境可预验 |
+| 跨平台一致性口径 | 结构 byte-exact + 数值容差 | ☐ | S5 落地 golden `python/tests/fixtures/mcp_golden.json`（7 工具；结构含键序，浮点置 `<num>`；数值默认 `rtol=1e-9`，GARCH `1e-3`）。**本机两次 regen SHA256 相同**（E1）；双平台结论待 CI 首次运行 |
 
 ## 8. ADD 审计（Step 10）
 
@@ -228,20 +232,20 @@ upstream: null
 | 类别 | 总数 | 通过 | 失败 | 待办 |
 |---|---|---|---|---|
 | 文档一致性 | 14 | 14 | 0 | 0 |
-| 功能 | 17 | 12 | 0 | 5 |
-| 接口 | 12 | 8 | 0 | 4 |
-| 不变式 | 6 | 4 | 0 | 2 |
+| 功能 | 18 | 17 | 0 | 1 |
+| 接口 | 12 | 12 | 0 | 0 |
+| 不变式 | 6 | 5 | 0 | 1 |
 | 错误处理 | 6 | 5 | 0 | 1 |
 | 性能 | 3 | 0 | 0 | 3 |
-| 兼容性 | 4 | 0 | 0 | 4 |
+| 兼容性 | 5 | 1 | 0 | 4 |
 | ADD 审计 | 4 | 0 | 0 | 4 |
-| **总计** | **66** | **43** | **0** | **23** |
+| **总计** | **68** | **54** | **0** | **14** |
 
 > **统计口径（RULE-2）**：上表来自本文件**逐项核对**（每项含独立章节与状态单元格 `☐`/`✅`/`⚠️`），非事后汇总推算。
-> **计数可重放**（E1）：状态单元格逐节计数 = 文档一致性 §1(14) / 功能 §2(17) / 接口 §3(12) / 不变式 §4(6) / 错误处理 §5(6) / 性能 §6(3) / 兼容性 §7(4) / ADD 审计 §8.3(4)，合计 **66**；§9(12) 文档完整性 / §10.2(3) 验收决定 / §11(6) 后续行动 **不计入**本表八类。
-> **复算命令**：`(Get-Content spec\mcp-server\CHECKLIST.md | Select-String -Pattern '☐|✅|⚠️' | Measure-Object).Count`（按 `^## (\d+)\.` 分段归集；§1 已由 Step 8 独立 pass 执行并闭环 F4，Step 9 追加 1 项核对维度后闭环 F5）。
-> **规范形态**：章节号固定 `### 10.1 验收统计`；数值单元格为纯十进制整数；逐行 `总数 = 通过 + 失败 + 待办`（14 = 14+0+0；17 = 12+0+5；12 = 8+0+4；6 = 4+0+2；6 = 5+0+1；…），总计行按列求和（14+17+12+6+6+3+4+4 = 66；通过列 = 43；待办列 = 23）。
-> **进行中说明**：Step 9 TDD 逐 S 步回写——**S1** §2.1 ✅；**S2** §2.2/§2.5/§4(1-3) ✅；**S3** §2.3/§3.1/§3.2/§4(6)/§5 ✅；F5 容器层 / F6 Conclusion / F7 入参 已回写四文档；ABI 版本维持 1（加法性变更，裁定 2026-10-20）。S4–S6 + Step 10 待续。
+> **计数可重放**（E1）：状态单元格逐节计数 = 文档一致性 §1(14) / 功能 §2(18，S4 把「壳启动」拆为进程内 + 子进程两项) / 接口 §3(12) / 不变式 §4(6) / 错误处理 §5(6) / 性能 §6(3) / 兼容性 §7(5，S5 增「跨平台一致性口径」一行) / ADD 审计 §8.3(4)，合计 **68**；§9(6) 文档完整性 / §10.2(3) 验收决定 / §11(6) 后续行动 **不计入**本表八类。
+> **复算命令**：按 `^## (\d+)\.` 分段，逐行取含 `✅`/`☐`/`⚠️` 的表格行计数（注意：按**单元格整值**匹配，勿用子串 `状态` 过滤，否则会漏掉「无状态」「四件套状态」等行）。
+> **规范形态**：章节号固定 `### 10.1 验收统计`；数值单元格为纯十进制整数；逐行 `总数 = 通过 + 失败 + 待办`（14 = 14+0+0；18 = 17+0+1；12 = 12+0+0；6 = 5+0+1；6 = 5+0+1；3 = 0+0+3；5 = 1+0+4；4 = 0+0+4），总计行按列求和（14+18+12+6+6+3+5+4 = 68；通过列 = 54；待办列 = 14）。
+> **进行中说明**：Step 9 TDD 逐 S 步回写——**S1** §2.1 ✅；**S2** §2.2/§2.5/§4(1-3) ✅；**S3** §2.3/§3.1/§3.2/§4(6)/§5 ✅；**S4** §2.4(4/5)/§2.5/§3.3/§4(4) ✅；**S5** §7(1) ✅ + golden/CI 接入（§7 余 4 项待 CI 远端首次运行、S6 联调、性能实测、Step 10 ADD）；F5 容器层 / F6 Conclusion / F7 入参 / F8 路径 已回写四文档；ABI 版本维持 1（加法性变更，裁定 2026-10-20）。S6 + Step 10 待续。
 
 ### 10.2 验收决定
 
@@ -261,9 +265,9 @@ upstream: null
 | 行动 | 责任人 | 期限 | 状态 |
 |---|---|---|---|
 | Step 8 四文档一致性独立 pass | — | — | ✅ |
-| Step 9 TDD 实现（S1–S5） | | | ☐ |
+| Step 9 TDD 实现（S1–S5） | — | — | ✅ |
 | U-4 真实客户端联调 | | | ☐ |
-| U-7 Python 下限 CI 确认 | | | ☐ |
+| U-7 Python 下限 CI 确认（3.11 / 3.12 矩阵） | | | ☐ |
 | 更新 docs/README.md 索引（spec/ 四件套状态） | | | ☐ |
 | 记录 DEVELOPMENT_LOG.md | | | ☐ |
 

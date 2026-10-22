@@ -81,8 +81,53 @@
 #undef SABRParams
 #undef BatesParams
 
+// MCP 工具面 (spec/mcp-server): 仅取 C ABI 声明, 实现作为独立 TU 编入 _core
+// (见 python/CMakeLists.txt), 因此 Python 侧无需 ctypes、无需单独分发 .so。
+#include "cpphub/c_api/cpphub_c_api.h"
+
+#include <string>
+#include <vector>
+
 namespace nb = nanobind;
 using namespace cpphub::v1;
+
+namespace {
+
+// 两阶段缓冲协商: 先问所需长度, 再一次性取回 (c_api.cpp: write_json_payload)
+std::string mcp_tool_list_json() {
+    size_t need = 0;
+    int rc = cpphub_v1_tool_list(nullptr, &need);
+    if (rc != CPPHUB_OK && rc != CPPHUB_ERR_BUFFER_TOO_SMALL) {
+        throw std::runtime_error(cpphub_v1_get_last_error());
+    }
+    std::vector<char> buf(need + 1);
+    size_t cap = buf.size();
+    rc = cpphub_v1_tool_list(buf.data(), &cap);
+    if (rc != CPPHUB_OK) throw std::runtime_error(cpphub_v1_get_last_error());
+    return std::string(buf.data(), cap);
+}
+
+std::string mcp_tool_call_json(const std::string& tool_name,
+                               const std::string& args_json) {
+    size_t need = 0;
+    int rc = cpphub_v1_tool_call(tool_name.c_str(), args_json.c_str(), nullptr,
+                                 &need);
+    if (rc != CPPHUB_OK && rc != CPPHUB_ERR_BUFFER_TOO_SMALL) {
+        if (rc == CPPHUB_ERR_INVALID_ARG) throw nb::value_error(cpphub_v1_get_last_error());
+        throw std::runtime_error(cpphub_v1_get_last_error());
+    }
+    std::vector<char> buf(need + 1);
+    size_t cap = buf.size();
+    rc = cpphub_v1_tool_call(tool_name.c_str(), args_json.c_str(), buf.data(),
+                             &cap);
+    if (rc != CPPHUB_OK) {
+        if (rc == CPPHUB_ERR_INVALID_ARG) throw nb::value_error(cpphub_v1_get_last_error());
+        throw std::runtime_error(cpphub_v1_get_last_error());
+    }
+    return std::string(buf.data(), cap);
+}
+
+}  // namespace
 
 NB_MODULE(_core, m) {
     m.doc() = "Cpp_Hub: Quantitative finance library (BSM/Heston/MC/Greeks/VaR/COS/Bates/VG/CEV/SABR/Calibration)";
@@ -1980,7 +2025,20 @@ NB_MODULE(_core, m) {
                     "Auto dispatch: vanilla→Analytic, digital→LR.");
 
     // =========================================================================
-    // 21. 版本信息
+    // 21. MCP 诊断工具面 (spec/mcp-server)
+    //     透传 C ABI 的 JSON-through-ABI 骨干: 工具语义全在 C++ 注册表内,
+    //     本层不做任何数值逻辑 (DESIGN §2.3 职责边界)。
+    //     入参/出参均为 JSON 文本; 出参未解析, 保持字节级可核对性。
+    // =========================================================================
+    m.def("mcp_tool_list", &mcp_tool_list_json,
+          "返回已注册诊断工具的 JSON 数组 (name/description/inputSchema)。");
+    m.def("mcp_tool_call", &mcp_tool_call_json, nb::arg("tool_name"),
+          nb::arg("args_json"),
+          "调用诊断工具, 返回 ToolResult 容器的 JSON 文本。"
+          "参数非法 -> ValueError; 内核失败 -> RuntimeError。");
+
+    // =========================================================================
+    // 22. 版本信息
     // =========================================================================
     m.attr("__version__") = "1.4.0";
     m.attr("__author__") = "Scott (鹏)";

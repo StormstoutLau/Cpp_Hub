@@ -14,7 +14,9 @@
 #   - 无 nanobind 时 CMake 自动跳过 Python 模块 (CPPHUB_ENABLE_PYTHON=OFF)
 
 [build-system]
-requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+# nanobind 上限 <3: 既有绑定使用 2.x 的 `nb::arg(...).none(bool)` 写法,
+# 3.x 移除了该签名 (S4 实测 3.1.0 编译失败, 2.13.0 通过)。
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0,<3"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -45,6 +47,10 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "numpy>=1.20", "scipy>=1.7"]
+# spec/mcp-server B1 薄壳 (python/src/cpphub/mcp_server.py) 的可选依赖。
+# 注意: mcp 2.3.0 要求 Python >= 3.10，而本项目 requires-python 仍为 >= 3.9
+# (三源冲突 U-7); 在 3.9 上安装本 extra 会在解析阶段失败，不会静默降级。
+mcp = ["mcp>=2.3.0"]
 
 [tool.scikit-build]
 cmake.version = ">=3.25"

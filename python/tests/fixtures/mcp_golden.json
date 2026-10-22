@@ -1,0 +1,125 @@
+{
+  "meta": {
+    "note": "spec/mcp-server 跨平台一致性快照; 结构 byte-exact + 数值容差",
+    "tolerance": {
+      "default": [
+        1e-09,
+        1e-12
+      ],
+      "cpphub_garch_diagnose": [
+        0.001,
+        1e-09
+      ]
+    },
+    "rules": "浮点-><num>; notes 内浮点字面量-><num>; 整数/文本/布尔/null 原样",
+    "known_issues": [
+      "F9 (待裁定): cpphub_variance_ratio_test/chow_denning_joint 的 statistic 字段当前承载联合 p 值 (注册表 S2 实现), 冻结值反映现状而非期望语义"
+    ]
+  },
+  "tools": {
+    "cpphub_unit_root_diagnose": {
+      "skeleton": "{\"tool\":\"cpphub_unit_root_diagnose\",\"results\":[{\"tool\":\"cpphub_unit_root_diagnose\",\"method\":\"adf\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"H0=单位根(非平稳); H1=平稳 (U4: tau 非标准分布)\",\"n_lags=16; trend=ct\"]},{\"tool\":\"cpphub_unit_root_diagnose\",\"method\":\"pp\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":\"<num>\",\"reject_null\":false,\"notes\":[\"H0=单位根(非平稳); H1=平稳\",\"bandwidth=16; trend=ct\"]},{\"tool\":\"cpphub_unit_root_diagnose\",\"method\":\"kpss\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"U12 陷阱: KPSS 的 H0 是【平稳性】, 与 ADF/PP 的 H0(单位根)【相反】\",\"reject_null=true 表示拒绝平稳性(即支持单位根)\",\"bandwidth=10; trend=c\"]},{\"tool\":\"cpphub_unit_root_diagnose\",\"method\":\"df_gls\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"H0=单位根(非平稳); H1=平稳 (U21: 独立 response surface)\",\"c_bar=<num>; n_lags=0; trend=ct\"]},{\"tool\":\"cpphub_unit_root_diagnose\",\"method\":\"ng_perron\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":false,\"notes\":[\"Ng-Perron 四统计量同 H0(单位根); 本行报 MZt(索引 1)\",\"cv 数组顺序 = {MZalpha, MZt, MSB, MPT}; MZalpha=<num>; MSB=<num>; MPT=<num>\",\"selected_lag(MAIC)=1; trend=ct\"]},{\"tool\":\"cpphub_unit_root_diagnose\",\"method\":\"za\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":\"<num>\",\"reject_null\":false,\"notes\":[\"H0=带单断点单位根 (ZA1992); 临界值取论文表, p 取 MC 插值(不同源)\",\"break_index(0-based)=254; model=C; trim=<num>; n_lags=16\"]}],\"conclusion\":{\"primary_method\":\"adf\",\"reject_null\":true,\"n_total\":6}}",
+      "numbers": [
+        -3.7307221158295207,
+        0.020412165611700374,
+        -3.4261186073262926,
+        -3.1949867161076204,
+        0.08540529875134888,
+        -3.425276382171434,
+        2.630761466754569,
+        0.0001,
+        0.4614,
+        -2.981177908745398,
+        0.036334201555883724,
+        -2.911710026636121,
+        -2.680391073746477,
+        -2.91,
+        -4.632360372082344,
+        0.15987220848143824,
+        -5.08
+      ]
+    },
+    "cpphub_variance_ratio_test": {
+      "skeleton": "{\"tool\":\"cpphub_variance_ratio_test\",\"results\":[{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"lo_mackinlay_z1\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=随机游走 (Lo-MacKinlay 1988 同方差 Z1, U14)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"lo_mackinlay_z2\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=随机游走 (异方差稳健 Z2, U15; 主检验)\",\"trend=c; debiased=true\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"chow_denning_joint\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"多 horizon 联合 SMM(m,inf) (U16: 多重检验校正)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"clm_debiased\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"CLM 小样本 debiased Z2 (U17, 恒 debias)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]}],\"conclusion\":{\"primary_method\":\"lo_mackinlay_z2\",\"reject_null\":false,\"n_total\":4}}",
+      "numbers": [
+        -1.4921539883054273,
+        0.13565878133250786,
+        -1.3385846942648503,
+        0.18070591157560312,
+        0.549433098981491,
+        0.549433098981491,
+        -1.3385846942648503,
+        0.18070591157560312
+      ]
+    },
+    "cpphub_cointegration_scan": {
+      "skeleton": "{\"tool\":\"cpphub_cointegration_scan\",\"results\":[{\"tool\":\"cpphub_cointegration_scan\",\"method\":\"engle_granger\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"CI3 方向依赖: 参数顺序 (y0,y1) 中 y0 为被解释变量; 交换列会改变结果\",\"CI2: p 值(MacKinnon 1994) 与临界值(MacKinnon 2010) 不同源\",\"trend=c; n_obs=300\"]},{\"tool\":\"cpphub_cointegration_scan\",\"method\":\"johansen_trace_r0\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"H0: rank <= r; H1: rank > r (迹统计量; 拒绝方向 stat > cv)\",\"cv_source=MHM96; cv 列序 {90,95,99} -> 取 95\",\"det_order=0; k_ar_diff=1; n_obs=298\"]},{\"tool\":\"cpphub_cointegration_scan\",\"method\":\"johansen_maxeig_r0\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"H0: rank <= r; H1: rank > r (最大特征值; 拒绝方向 stat > cv)\",\"CI5: cvt/cvm 双表源 (OL1992 / MHM96)\",\"cv_source=MHM96\"]},{\"tool\":\"cpphub_cointegration_scan\",\"method\":\"johansen_trace_r1\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"H0: rank <= r; H1: rank > r (迹统计量; 拒绝方向 stat > cv)\",\"cv_source=MHM96; cv 列序 {90,95,99} -> 取 95\",\"det_order=0; k_ar_diff=1; n_obs=298\"]},{\"tool\":\"cpphub_cointegration_scan\",\"method\":\"johansen_maxeig_r1\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"H0: rank <= r; H1: rank > r (最大特征值; 拒绝方向 stat > cv)\",\"CI5: cvt/cvm 双表源 (OL1992 / MHM96)\",\"cv_source=MHM96\"]}],\"conclusion\":{\"primary_method\":\"engle_granger\",\"reject_null\":true,\"n_total\":5}}",
+      "numbers": [
+        -4.928481423771133,
+        0.0002223787746578623,
+        -3.35664143611369,
+        148.84344274213143,
+        15.4943,
+        144.27034557343129,
+        14.2639,
+        4.573097168700138,
+        3.8415,
+        4.573097168700138,
+        3.8415
+      ]
+    },
+    "cpphub_vecm_fit": {
+      "skeleton": "{\"tool\":\"cpphub_vecm_fit\",\"results\":[{\"tool\":\"cpphub_vecm_fit\",\"method\":\"ect_t_0\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"ECT t 统计量 (EM2002 5% 临界值, 双尾 |t| > cv)\",\"仅 rank=1 时可用; det=n; rank=1\"]},{\"tool\":\"cpphub_vecm_fit\",\"method\":\"ect_t_1\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":\"<num>\",\"reject_null\":true,\"notes\":[\"ECT t 统计量 (EM2002 5% 临界值, 双尾 |t| > cv)\",\"仅 rank=1 时可用; det=n; rank=1\"]},{\"tool\":\"cpphub_vecm_fit\",\"method\":\"log_likelihood\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"非检验行: VECM ML 对数似然 (供模型比较)\",\"rank=1; det=n; k_ar_diff=1; n_obs=298; PI=alpha*beta' (CI9; alpha/beta 见库内 VECMResult)\"]}],\"conclusion\":{\"primary_method\":\"ect_t_0\",\"reject_null\":true,\"n_total\":3}}",
+      "numbers": [
+        -1.151772365429838,
+        -2.5988441436975003,
+        4.644316621612664,
+        -2.5988441436975003,
+        -306.78351039816675
+      ]
+    },
+    "cpphub_garch_diagnose": {
+      "skeleton": "{\"tool\":\"cpphub_garch_diagnose\",\"results\":[{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"omega\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"参数估计 (QMLE); std_error=<num> (sandwich)\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"alpha\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"ARCH 系数; std_error=<num>\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"beta\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"GARCH 系数; std_error=<num>\",\"稳定性: alpha+beta=<num> (<1, 协方差平稳)\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"log_likelihood\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"非检验行; AIC=<num>; BIC=<num>; converged=true; dist=normal\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"ljung_box_z\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":true,\"notes\":[\"H0=标准化残差无自相关 (LB(z), G11); lag=5\",\"passes_no_autocorr=false\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"ljung_box_z_squared\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=无 ARCH 效应 (LB(z^2), G12/Li-Mak); lag=5\",\"passes_no_arch_effect=true\"]},{\"tool\":\"cpphub_garch_diagnose\",\"method\":\"jarque_bera\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=标准化残差正态 (JB; G-ADR4: p 经 Bootstrap, reps=1000)\",\"skewness=<num>; kurtosis(非超额)=<num>\",\"passes_normality=true\"]}],\"conclusion\":{\"primary_method\":\"omega\",\"reject_null\":false,\"n_total\":7}}",
+      "numbers": [
+        1.80531256745944e-05,
+        0.12519309918030425,
+        0.834214223826707,
+        1024.9024895904818,
+        14.66251658534863,
+        0.011906010513367272,
+        3.9466168725790993,
+        0.5571271901567102,
+        1.7008724314614945,
+        0.4045954045954046
+      ]
+    },
+    "cpphub_granger_causality": {
+      "skeleton": "{\"tool\":\"cpphub_granger_causality\",\"results\":[{\"tool\":\"cpphub_granger_causality\",\"method\":\"ssr_f\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":true,\"notes\":[\"H0=cause 不 Granger-cause effect (statsmodels ssr_ftest, 主检验)\",\"GR6 方向陷阱: 参数顺序显式 (cause, effect); 与 statsmodels 列序相反\",\"df1=2; df2=293\"]},{\"tool\":\"cpphub_granger_causality\",\"method\":\"ssr_chi2\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":true,\"notes\":[\"H0 同上 (ssr_chi2test, 渐近 chi2)\"]},{\"tool\":\"cpphub_granger_causality\",\"method\":\"lr\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":true,\"notes\":[\"H0 同上 (likelihood-ratio)\"]},{\"tool\":\"cpphub_granger_causality\",\"method\":\"hac_wald\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":true,\"notes\":[\"HAC 稳健 Wald (Newey-West); GR5: 其余统计量均非异方差稳健\",\"hac_bandwidth=0 (0=NW 经验法则)\"]}],\"conclusion\":{\"primary_method\":\"ssr_f\",\"reject_null\":true,\"n_total\":4}}",
+      "numbers": [
+        67.66104277612367,
+        6.945967540713848e-25,
+        137.63133615894097,
+        1.29937672910642e-30,
+        113.15144628670235,
+        2.6882869830781183e-25,
+        179.91069871441655,
+        8.568171613687277e-40
+      ]
+    },
+    "cpphub_dy_spillover": {
+      "skeleton": "{\"tool\":\"cpphub_dy_spillover\",\"results\":[{\"tool\":\"cpphub_dy_spillover\",\"method\":\"tci\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"总溢出指数 TCI (Diebold-Yilmaz, 全部 x100/K 口径; 非检验, 无 H0)\",\"变量序 = series 列序 (TO/FROM/NET 按变量)\",\"K=3; T=300; horizon=10; lag=1; 全样本静态\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"to_v0\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"变量 0 的 TO 溢出 (对外)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"from_v0\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"变量 0 的 FROM 溢出 (接收)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"net_v0\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"NET = TO - FROM (>0 净输出)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"to_v1\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"变量 1 的 TO 溢出 (对外)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"from_v1\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"变量 1 的 FROM 溢出 (接收)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"net_v1\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"NET = TO - FROM (>0 净输出)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"to_v2\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"变量 2 的 TO 溢出 (对外)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"from_v2\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"变量 2 的 FROM 溢出 (接收)\"]},{\"tool\":\"cpphub_dy_spillover\",\"method\":\"net_v2\",\"statistic\":\"<num>\",\"p_value\":null,\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"NET = TO - FROM (>0 净输出)\"]}],\"conclusion\":{\"primary_method\":\"tci\",\"reject_null\":false,\"n_total\":10}}",
+      "numbers": [
+        42.6921405879811,
+        26.357906744705428,
+        11.098038685276908,
+        15.25986805942852,
+        15.273259673866393,
+        19.956128971374042,
+        -4.682869297507649,
+        1.0609741694092907,
+        11.637972931330163,
+        -10.576998761920873
+      ]
+    }
+  }
+}
