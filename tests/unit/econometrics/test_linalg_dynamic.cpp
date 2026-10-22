@@ -234,7 +234,10 @@ TEST(LinalgDynamicTest, SVD_Full_Decompose) {
     MatrixXD V;
     svd_full(A, U, S, V);
     // A ≈ U * diag(S) * V'
-    Eigen::MatrixXd reconstructed = U.eigen() * S.eigen().asDiagonal() * V.eigen().transpose();
+    // full 语义: U 为 m×m, S 仅 min(m,n) 元素 → 标准重构取 full U 前 r 列 (= thin U);
+    // 直接 U.eigen() * S.asDiagonal() 在 m≠n 时维度不匹配 (m×m × r×r),
+    // Release(NDEBUG) 碰巧按 rhs 维度迭代出正确值, Debug 断言即抓 (run 39755779788 coverage 实证)
+    Eigen::MatrixXd reconstructed = U.eigen().leftCols(S.size()) * S.eigen().asDiagonal() * V.eigen().transpose();
     EXPECT_NEAR((reconstructed - emA).cwiseAbs().maxCoeff(), 0.0, TOL);
     // U 和 V 正交
     Eigen::MatrixXd UtU = U.eigen().transpose() * U.eigen();

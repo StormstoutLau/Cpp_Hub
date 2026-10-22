@@ -109,7 +109,13 @@ inline std::vector<Real> css_residuals(const std::vector<Real>& z,
     for (Size t = t0; t < T; ++t) {
         Real e = z[t] - drift;
         for (Size i = 0; i < p; ++i) e -= phi[i] * z[t - 1 - i];
-        for (Size j = 0; j < q; ++j) e -= theta[j] * eps[t - 1 - j];
+        for (Size j = 0; j < q; ++j) {
+            // q > p 时 t−1−j 可为负 (t=t0=p, j=q−1 → p−q<0): pre-sample ε=0
+            // (R stats::arima CSS 语义, eps 前 t0 位本就置 0);
+            // Size 无符号, 直接 eps[t−1−j] 会回绕成巨大索引 (CI run 39755779788
+            // coverage Debug 实证 ArimaModel.Css* 14 abort)
+            if (t >= 1 + j) e -= theta[j] * eps[t - 1 - j];
+        }
         eps[t] = e;
     }
     return eps;

@@ -83,13 +83,16 @@ inline std::vector<Real> mls_column(const std::vector<Real>& x, Size h,
     }
     const Size n = x.size() / m;
     std::vector<Real> col(n);
-    // 1-based: 元素 = x[m·t − h]; 0-based 索引 = m·t − h − 1 ≥ 0 需校验
+    // 1-based: 元素 = x[m·t − h]; 0-based 索引 = m·t − h − 1 ≥ 0 需校验。
+    // 下溢防护: h > m·t 时 m·t − h 无符号回绕成巨大值, idx<1 guard 失效
+    // (CI run 39755779788 coverage Debug 实证 MidasModel.MlsRejectsOversizedLag
+    // abort) — 先做无下溢比较再减
     for (Size t = 1; t <= n; ++t) {
-        const Size idx = m * t - h;  // 1-based
-        if (idx < 1) {
+        if (m * t <= h) {
             throw std::invalid_argument(
                 "mls_column: lag exceeds available pre-sample (h too big)");
         }
+        const Size idx = m * t - h;  // 1-based, 此时 ≥ 1
         col[t - 1] = x[idx - 1];
     }
     return col;
