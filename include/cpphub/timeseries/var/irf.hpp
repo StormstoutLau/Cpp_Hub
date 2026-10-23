@@ -210,7 +210,10 @@ inline IRFResult var_irf_bootstrap(const MultivariateTSData& data,
             if (kt >= 1) acc += fit.coefficients.col(0);
             if (kt >= 2) acc += fit.coefficients.col(1) * static_cast<Real>(t - p + 1);
             for (Size l = 0; l < p; ++l) acc += A[l] * ystar.row(t - l - 1).transpose();
-            ystar.row(t) = acc + eall.row(t - p);
+            // acc 为 K×1 列向量, eall.row 为 1×K 行块 — 直接相加维度不匹配,
+            // Release 不检查碰巧算对, Debug eigen_assert 抓出 (CI run 39784068194
+            // coverage 实证 VarIrfFevd.BootstrapBands abort) → transpose 对齐
+            ystar.row(t) = acc.transpose() + eall.row(t - p);
         }
         // 重估
         MultivariateTSData dstar;
