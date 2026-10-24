@@ -30,6 +30,7 @@
 | ADR-018 | SLSQP 优化器实现边界 | Accepted | 2026-08-15 | Phase 7B |
 | ADR-019 | v1.7 多变量时序与混频实施边界 (26+3 项) | Accepted | 2026-08-17 | Phase 7C |
 | ADR-020 | v1.8 ARDL/PSS 边限检验与 Kalman 状态空间实施边界 (12 项) | Accepted | 2026-08-21 | Phase 8 |
+| ADR-021 | PDE 引擎并发安全与障碍边界实施边界 (RISK-030/031, 6 项) | Accepted | 2026-10-24 | P2 风险修复批 |
 
 ---
 
