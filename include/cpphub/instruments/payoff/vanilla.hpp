@@ -18,6 +18,7 @@ public:
         return std::make_unique<CallPayOff>(*this);
     }
     std::string name() const override { return "Call"; }
+    PayOffKind kind() const override { return PayOffKind::Call; }  // RISK-031
 };
 
 class PutPayOff : public PayOff {
@@ -31,6 +32,7 @@ public:
         return std::make_unique<PutPayOff>(*this);
     }
     std::string name() const override { return "Put"; }
+    PayOffKind kind() const override { return PayOffKind::Put; }  // RISK-031
 };
 
 class DigitalCallPayOff : public PayOff {
@@ -46,6 +48,7 @@ public:
         return std::make_unique<DigitalCallPayOff>(*this);
     }
     std::string name() const override { return "DigitalCall"; }
+    PayOffKind kind() const override { return PayOffKind::DigitalCall; }  // RISK-031
 };
 
 class DigitalPutPayOff : public PayOff {
@@ -61,6 +64,7 @@ public:
         return std::make_unique<DigitalPutPayOff>(*this);
     }
     std::string name() const override { return "DigitalPut"; }
+    PayOffKind kind() const override { return PayOffKind::DigitalPut; }  // RISK-031
 };
 
 class DoubleDigitalPayOff : public PayOff {
@@ -77,6 +81,7 @@ public:
         return std::make_unique<DoubleDigitalPayOff>(*this);
     }
     std::string name() const override { return "DoubleDigital"; }
+    PayOffKind kind() const override { return PayOffKind::DoubleDigital; }  // RISK-031
 };
 
 }  // namespace v1

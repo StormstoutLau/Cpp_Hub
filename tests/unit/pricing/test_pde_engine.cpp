@@ -695,8 +695,9 @@ TEST(pde_psor_adaptive, AdaptiveOmegaFasterThanGaussSeidel) {
     cfg_gs.n_time = 200;
     cfg_gs.psor_omega = 1.0;
     PDEEngine engine_gs(cfg_gs);
-    engine_gs.price_american(payoff, S0, K, T, r, q, sigma);
-    Size iter_gs = engine_gs.last_total_iterations();
+    // RISK-030: last_total_iterations() 已删除 (data race UB), 改用 PricingResult
+    auto res_gs = engine_gs.price_american_result(payoff, S0, K, T, r, q, sigma);
+    Size iter_gs = res_gs.psor_iterations;
 
     // 自适应 (ω=0.0)
     PDEEngineConfig cfg_adaptive;
@@ -704,8 +705,8 @@ TEST(pde_psor_adaptive, AdaptiveOmegaFasterThanGaussSeidel) {
     cfg_adaptive.n_time = 200;
     cfg_adaptive.psor_omega = 0.0;  // 自适应
     PDEEngine engine_adaptive(cfg_adaptive);
-    engine_adaptive.price_american(payoff, S0, K, T, r, q, sigma);
-    Size iter_adaptive = engine_adaptive.last_total_iterations();
+    auto res_adaptive = engine_adaptive.price_american_result(payoff, S0, K, T, r, q, sigma);
+    Size iter_adaptive = res_adaptive.psor_iterations;
 
     EXPECT_LT(iter_adaptive, iter_gs)
         << "自适应 ω 迭代次数=" << iter_adaptive
@@ -746,14 +747,203 @@ TEST(pde_psor_adaptive, UserOverrideOmegaRespected) {
     cfg.n_time = 200;
     cfg.psor_omega = 1.2;
     PDEEngine engine(cfg);
-    Real price = engine.price_american(payoff, S0, K, T, r, q, sigma);
+    auto res = engine.price_american_result(payoff, S0, K, T, r, q, sigma);
+    Real price = res.value;
 
     // 价格应为正且合理 (美式 Put 在 ATM 时约为 5-7)
     EXPECT_GT(price, 0.0);
     EXPECT_LT(price, K);
 
     // 用户指定 ω=1.2 应产生与自适应不同的迭代次数
-    Size iter_user = engine.last_total_iterations();
+    Size iter_user = res.psor_iterations;
     EXPECT_GT(iter_user, 0);
+}
+
+// =====================================================================
+// RISK-030/031 (ADR-021 P6): 测试锚
+// (a) 数字障碍域宽收敛对比  (b) 障碍路径 Neumann≠Dirichlet
+// (c) Unknown kind fail-fast + override 走 discount
+// (d) PricingResult 迭代数 + 位相同  (e) vanilla 路径自定义 payoff 回归
+// =====================================================================
+
+namespace {
+
+// 测试用自定义 payoff: 不 override kind() → PayOffKind::Unknown (默认)
+// name() 故意冒名 "Call" — 验证 P3 杜绝 name() 字符串劫持
+class Risk031SqPayOff : public PayOff {
+public:
+    double operator()(double spot) const override { return spot * spot; }
+    std::unique_ptr<PayOff> clone() const override {
+        return std::make_unique<Risk031SqPayOff>(*this);
+    }
+    std::string name() const override { return "Call"; }
+};
+
+// 测试用自定义 payoff: override kind() → 走 discount 远场边界
+class Risk031DigitalLikePayOff : public PayOff {
+public:
+    double operator()(double spot) const override {
+        return spot > 100.0 ? 1.0 : 0.0;
+    }
+    std::unique_ptr<PayOff> clone() const override {
+        return std::make_unique<Risk031DigitalLikePayOff>(*this);
+    }
+    std::string name() const override { return "Weird"; }
+    PayOffKind kind() const override { return PayOffKind::DigitalCall; }
+};
+
+}  // namespace
+
+// (a) 数字障碍远场边界正确性: 默认域 vs 宽域收敛对比
+// bug 形态: Digital* 被字符串分派落入 bsm_put 远场边界 — Up 场景远场在低端,
+// bsm_put(S_min) (深实值, ~K) ≫ payoff(S_min)·e^{-rτ} (~1), 错误边界逐时间步
+// 强加 → 错误在网格细化下收敛到同一错误极限, 自收敛测试抓不出, 必须对照宽域。
+// s_multiplier 为 RISK-031 接入的域宽配置 (原硬编码 5.0, 默认行为不变)。
+TEST(PDEEngineBarrierRisk031, DigitalBarrierDomainConvergence) {
+    Real S0 = 95.0, K = 100.0, H = 130.0, T = 0.5;
+    Real r = 0.05, q = 0.02, sigma = 0.25;
+
+    DigitalPutPayOff payoff(K);  // Up-Out digital put
+
+    PDEEngineConfig cfg_default;
+    cfg_default.n_spatial = 400;
+    cfg_default.n_time = 800;
+    cfg_default.scheme = FDMSchemeType::CrankNicolson;
+    cfg_default.alpha = 0.3;
+    PDEEngine engine_default(cfg_default);
+    Real p_default = engine_default.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                                    PDEEngine::BarrierSide::Up);
+
+    PDEEngineConfig cfg_wide = cfg_default;
+    cfg_wide.s_multiplier = 20.0;  // 宽域: 远场边界远离 S0
+    PDEEngine engine_wide(cfg_wide);
+    Real p_wide = engine_wide.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                              PDEEngine::BarrierSide::Up);
+
+    // payment=1 的数字期权价格上界为 payment·e^{-rT} ≈ 0.975 (荒谬值防线:
+    // bug 下 bsm_put 深实值边界灌入 ~65 → 两侧均远超上界)
+    EXPECT_GT(p_wide, 0.0) << "宽域价格应为正, 实际=" << p_wide;
+    EXPECT_LT(p_wide, 1.0) << "宽域价格超数字期权折现上界, 实际=" << p_wide;
+
+    // 默认域与宽域应收敛到同一正确极限 (bug 下默认域≈5, 宽域≈10+ 或两者皆错)
+    EXPECT_NEAR(p_default, p_wide, 0.02)
+        << "默认域=" << p_default << " 宽域=" << p_wide
+        << " (数字障碍远场边界不应依赖域宽)";
+}
+
+// (b) 障碍路径 BoundaryType::Neumann 不再被静默忽略
+// bug 形态: price_barrier 完全不读 config_.boundary → Neumann 与 Dirichlet
+// 结果在浮点噪声内相同; 修复后远场端线性外推 vs 解析边界, 结果应有实质差异
+TEST(PDEEngineBarrierRisk031, NeumannBarrierPathDiffersFromDirichlet) {
+    Real S0 = 110.0, K = 100.0, H = 85.0, T = 0.5;
+    Real r = 0.05, q = 0.02, sigma = 0.25;
+    Real analytic = barrier_option_price(S0, K, H, T, r, q, sigma,
+                                           BarrierType::DownOutCall);
+
+    PDEEngineConfig cfg;
+    cfg.n_spatial = 200;
+    cfg.n_time = 500;
+    cfg.scheme = FDMSchemeType::CrankNicolson;
+    cfg.boundary = BoundaryType::Dirichlet;
+    PDEEngine engine_dir(cfg);
+
+    PDEEngineConfig cfg_neu = cfg;
+    cfg_neu.boundary = BoundaryType::Neumann;
+    PDEEngine engine_neu(cfg_neu);
+
+    CallPayOff payoff(K);
+    Real p_dir = engine_dir.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                            PDEEngine::BarrierSide::Down);
+    Real p_neu = engine_neu.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                            PDEEngine::BarrierSide::Down);
+
+    // 两种边界条件必须产生不同结果 (bug 下差异 ~1e-15)
+    EXPECT_GT(std::abs(p_neu - p_dir), 1e-8)
+        << "Neumann=" << p_neu << " Dirichlet=" << p_dir
+        << " (Neumann 被静默忽略时两者相同)";
+
+    // 两种边界都应保持对解析解的合理精度 (防"实现了但实现错")
+    EXPECT_LT(std::abs(p_dir - analytic) / analytic, 0.015)
+        << "Dirichlet 基线偏离解析解, p=" << p_dir << " analytic=" << analytic;
+    EXPECT_LT(std::abs(p_neu - analytic) / analytic, 0.015)
+        << "Neumann 结果偏离解析解, p=" << p_neu << " analytic=" << analytic;
+}
+
+// (c1) 自定义 payoff (kind()==Unknown) 在 price_barrier 必须 fail-fast throw
+// bug 形态: 字符串分派下 name()=="Call" 冒名即静默劫持 bsm_call 边界
+TEST(PDEEngineBarrierRisk031, UnknownKindThrowsInPriceBarrier) {
+    Real S0 = 110.0, K = 100.0, H = 85.0, T = 0.5;
+    Real r = 0.05, q = 0.02, sigma = 0.25;
+
+    PDEEngine engine(PDEEngineConfig{});
+    Risk031SqPayOff payoff;  // name()="Call" 冒名, kind()=Unknown
+
+    EXPECT_THROW(engine.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                        PDEEngine::BarrierSide::Down),
+                 std::invalid_argument);
+}
+
+// (c2) 自定义 payoff override kind() → DigitalCall 走 discount 远场边界
+// 验证: 不 throw + 默认域/宽域一致 (discount 边界 payoff(S)·e^{-rτ} 在远场
+// 恒定 → 与域宽无关; 若被错误映射到 BSM 线性边界则两域发散)
+TEST(PDEEngineBarrierRisk031, OverriddenKindUsesDiscountBoundary) {
+    Real S0 = 95.0, K = 100.0, H = 130.0, T = 0.5;
+    Real r = 0.05, q = 0.02, sigma = 0.25;
+
+    Risk031DigitalLikePayOff payoff;  // kind()=DigitalCall, name()="Weird"
+
+    PDEEngineConfig cfg_default;
+    cfg_default.n_spatial = 400;
+    cfg_default.n_time = 800;
+    cfg_default.scheme = FDMSchemeType::CrankNicolson;
+    cfg_default.alpha = 0.3;
+    PDEEngine engine_default(cfg_default);
+    Real p_default = engine_default.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                                    PDEEngine::BarrierSide::Up);
+
+    PDEEngineConfig cfg_wide = cfg_default;
+    cfg_wide.s_multiplier = 20.0;
+    PDEEngine engine_wide(cfg_wide);
+    Real p_wide = engine_wide.price_barrier(payoff, S0, K, H, T, r, q, sigma,
+                                              PDEEngine::BarrierSide::Up);
+
+    EXPECT_NEAR(p_default, p_wide, 0.02)
+        << "默认域=" << p_default << " 宽域=" << p_wide
+        << " (DigitalCall kind 应走 discount 边界, 与域宽无关)";
+}
+
+// (d) price_american_result 返回迭代数, .value 与旧包装位相同 (RISK-030)
+TEST(PDEEngineRisk030, AmericanResultCarriesIterationsAndValue) {
+    Real S0 = 100, K = 100, T = 1, r = 0.05, q = 0, sigma = 0.2;
+    PutPayOff payoff(K);
+
+    PDEEngineConfig cfg;
+    cfg.n_spatial = 200;
+    cfg.n_time = 200;
+    PDEEngine engine(cfg);
+
+    auto res = engine.price_american_result(payoff, S0, K, T, r, q, sigma);
+    EXPECT_GT(res.psor_iterations, 0u)
+        << "PSOR 迭代数应 > 0 (200 时间步美式 put)";
+    EXPECT_GT(res.value, 0.0);
+    EXPECT_LT(res.value, K);
+
+    // 旧包装返回 .value: 同引擎同参数确定性 PSOR → 位相同
+    Real legacy = engine.price_american(payoff, S0, K, T, r, q, sigma);
+    EXPECT_EQ(res.value, legacy)
+        << "price_american 包装与 price_american_result().value 应位相同";
+}
+
+// (e) 回归锚: vanilla 路径自定义 payoff (Unknown kind) 行为不变
+// set_boundary 的 else 分支 payoff(S)·e^{-rτ} 对 Unknown 依然适用, 不 throw
+TEST(PDEEngineRisk031Regression, CustomPayOffVanillaPathNoThrow) {
+    Real S0 = 100, K = 100, T = 1, r = 0.05, q = 0, sigma = 0.2;
+
+    PDEEngine engine(PDEEngineConfig{});
+    Risk031SqPayOff payoff;  // Unknown kind, name()="Call" 冒名
+
+    EXPECT_NO_THROW(engine.price_european(payoff, S0, K, T, r, q, sigma));
+    Real p = engine.price_european(payoff, S0, K, T, r, q, sigma);
+    EXPECT_GT(p, 0.0) << "vanilla 路径自定义 payoff 应正常定价";
 }
 

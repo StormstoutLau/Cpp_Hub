@@ -71,8 +71,16 @@ public:
         return interpolate_at_S0(V, grid, S0);
     }
 
-    Real price_american(const PayOff& payoff, Real S0, Real K, Real T,
-                         Real r, Real q, Real sigma) const {
+    // RISK-030 (ADR-021 P1): 主入口返回 PricingResult — "本次调用的 PSOR 迭代数"
+    // 随结果一起返回, 取代 mutable 共享态 (const 方法内写 mutable 成员, 同一
+    // const PDEEngine 并发调用即 data race UB)。
+    struct PricingResult {
+        Real value;
+        Size psor_iterations;
+    };
+
+    PricingResult price_american_result(const PayOff& payoff, Real S0, Real K, Real T,
+                                          Real r, Real q, Real sigma) const {
         PDEParams params{r, q, sigma, T, K, S0};
         FDMGrid grid(config_.n_spatial, S0, K, sigma, T, config_.alpha);
         TimeGrid time(config_.n_time, T);
@@ -88,7 +96,7 @@ public:
         // RISK-006: 用户指定 omega 或自适应估计
         Real tol = config_.psor_tol;
         Size max_iter = config_.psor_max_iter;
-        last_total_iter_count_ = 0;
+        Size total_iter = 0;
 
         for (Size step = 0; step < n_steps; ++step) {
             Real tau = static_cast<Real>(step + 1) * dt;
@@ -122,12 +130,18 @@ public:
 
             V_new = V;
             set_boundary(V_new, tau, grid, payoff, r, q, K, sigma, true);
-            last_total_iter_count_ += psor_solve(V_new, payoff_vals, a, b, c, d, omega, tol, max_iter);
+            total_iter += psor_solve(V_new, payoff_vals, a, b, c, d, omega, tol, max_iter);
             finalize_boundary(V_new);
             V = V_new;
         }
 
-        return interpolate_at_S0(V, grid, S0);
+        return {interpolate_at_S0(V, grid, S0), total_iter};
+    }
+
+    // 旧签名包装 (ADR-021 P1): 只取 value, 数值路径与主入口完全一致
+    Real price_american(const PayOff& payoff, Real S0, Real K, Real T,
+                         Real r, Real q, Real sigma) const {
+        return price_american_result(payoff, S0, K, T, r, q, sigma).value;
     }
 
     struct Greeks {
@@ -141,12 +155,31 @@ public:
 
     // 障碍期权 FDM 定价 (连续监控, Out 期权)
     // 网格在障碍处截断, V[barrier] = 0 (Dirichlet)
-    // 另一端用解析 BSM 边界 (Dirichlet) 或线性外推 (Neumann)
+    // 另一端 (远场) 边界按 payoff.kind() 分派 (ADR-021 P4):
+    //   Call/Put → BSM 解析式 (线性 payoff, 含 S 项的折扣语义);
+    //   DigitalCall/DigitalPut/DoubleDigital → payoff(S_far)·e^{-rτ} (远场常值);
+    //   Unknown → throw std::invalid_argument (fail-fast, 不静默映射 BSM)。
+    // 远场域宽倍数取 config_.s_multiplier (原硬编码 5.0, 默认行为不变;
+    // P6(a) 测试锚依赖该配置实现默认域/宽域对比)。
+    // BoundaryType::Neumann 仅作用于远场端 (ADR-021 P5): step 后线性外推,
+    // 障碍端恒 Dirichlet 0 (外推会抹掉 V=0, 故不复用 finalize_boundary)。
     Real price_barrier(const PayOff& payoff, Real S0, Real K, Real H, Real T,
                         Real r, Real q, Real sigma, BarrierSide side) const {
+        // RISK-031 (ADR-021 P4): Unknown kind 无法确定安全远场边界
+        // (BSM 公式对非线性 payoff 不适用, name() 字符串分派可被冒名劫持)
+        const PayOffKind kind = payoff.kind();
+        if (kind == PayOffKind::Unknown) {
+            throw std::invalid_argument(
+                "price_barrier: payoff kind() is Unknown — override "
+                "PayOff::kind() in your PayOff-derived class to select a "
+                "far-field boundary (Call/Put map to BSM, Digital*/DoubleDigital "
+                "map to discounted payoff)");
+        }
+
         PDEParams params{r, q, sigma, T, K, S0};
         Real c = config_.alpha;
-        Real s_far = S0 * std::exp(c * sigma * std::sqrt(T) * 5.0);
+        Real m = config_.s_multiplier;
+        Real s_far = S0 * std::exp(c * sigma * std::sqrt(T) * m);
 
         // 构建截断网格: 障碍端为 H, 另一端为正常远场边界
         Real s_min, s_max;
@@ -158,7 +191,7 @@ public:
         } else {
             // Up barrier: H > S0, 网格 [s_far_inv, H]
             if (H <= S0) throw std::invalid_argument("price_barrier: Up requires H > S0");
-            s_min = S0 * std::exp(-c * sigma * std::sqrt(T) * 5.0);
+            s_min = S0 * std::exp(-c * sigma * std::sqrt(T) * m);
             s_max = H;
         }
 
@@ -167,6 +200,18 @@ public:
         Size n = grid.size();
         Size n_steps = config_.n_time;
         Real dt = time.dt();
+
+        // 远场端 Dirichlet 边界值 (kind() 分派; kind 已守卫, default 只剩 Digital*)
+        auto far_boundary = [&](Real S_far, Real tau) -> Real {
+            switch (kind) {
+                case PayOffKind::Call:
+                    return bsm_call(S_far, K, tau, r, q, sigma);
+                case PayOffKind::Put:
+                    return bsm_put(S_far, K, tau, r, q, sigma);
+                default:  // DigitalCall/DigitalPut/DoubleDigital: 远场常值 discount
+                    return payoff(S_far) * std::exp(-r * tau);
+            }
+        };
 
         std::vector<Real> V(n), V_new(n);
         for (Size i = 0; i < n; ++i) {
@@ -177,33 +222,33 @@ public:
         }
 
         auto scheme = create_scheme();
+        const bool neumann_far = (config_.boundary == BoundaryType::Neumann);
 
         for (Size step = 0; step < n_steps; ++step) {
             Real tau = static_cast<Real>(step + 1) * dt;
             V_new = V;
 
-            // 障碍侧: V = 0 (Dirichlet)
+            // 障碍侧: V = 0 (Dirichlet, 恒定)
+            // 远场侧: Dirichlet 时强加 kind() 分派边界; Neumann 时保持旧内部值
+            // (step 后由远场外推更新 — 与 set_boundary 的 Neumann 语义对齐)
             if (side == BarrierSide::Down) {
                 V_new[0] = 0.0;
-                // 远场侧: 解析边界
-                Real S_max = grid.s_max();
-                if (payoff.name() == "Call") {
-                    V_new[n - 1] = bsm_call(S_max, K, tau, r, q, sigma);
-                } else {
-                    V_new[n - 1] = bsm_put(S_max, K, tau, r, q, sigma);
-                }
+                if (!neumann_far) V_new[n - 1] = far_boundary(grid.s_max(), tau);
             } else {
                 V_new[n - 1] = 0.0;
-                // 远场侧: 解析边界
-                Real S_min = grid.s_min();
-                if (payoff.name() == "Call") {
-                    V_new[0] = bsm_call(S_min, K, tau, r, q, sigma);
-                } else {
-                    V_new[0] = bsm_put(S_min, K, tau, r, q, sigma);
-                }
+                if (!neumann_far) V_new[0] = far_boundary(grid.s_min(), tau);
             }
 
             scheme->step(V, V_new, dt, grid, params);
+
+            // Neumann 远场端后处理: Γ=0 线性外推 (方向按 Down/Up 定位远端)
+            if (neumann_far) {
+                if (side == BarrierSide::Down) {
+                    V_new[n - 1] = 2.0 * V_new[n - 2] - V_new[n - 3];
+                } else {
+                    V_new[0] = 2.0 * V_new[1] - V_new[2];
+                }
+            }
             V = V_new;
         }
 
@@ -251,12 +296,11 @@ public:
         return std::max(1.0, std::min(omega_opt, 1.95));
     }
 
-    // RISK-006: 返回上次 price_american 调用中 PSOR 累计迭代次数 (用于性能测试)
-    Size last_total_iterations() const { return last_total_iter_count_; }
+    // RISK-030 (ADR-021 P2): last_total_iterations() 与 mutable 成员已删除 —
+    // "迭代数"语义改由 price_american_result() 返回值承载
 
 private:
     PDEEngineConfig config_;
-    mutable Size last_total_iter_count_ = 0;  // RISK-006: PSOR 累计迭代次数
 
     Real price_either(const PayOff& payoff, Real S0, Real K, Real T,
                        Real r, Real q, Real sigma, bool american) const {
@@ -288,13 +332,16 @@ private:
             V[n - 1] = 2.0 * V[n - 2] - V[n - 3];
             return;
         }
-        // Dirichlet: 解析边界
+        // Dirichlet: 解析边界 (RISK-031 ADR-021 P4: 识别从 name() 换成 kind(),
+        // else 分支 payoff(S)·e^{-rτ} 对 Digital*/DoubleDigital/Unknown 依然适用,
+        // 数值行为与旧实现逐位一致, 不 throw)
         Real S_min = grid.s_min();
         Real S_max = grid.s_max();
-        if (payoff.name() == "Call") {
+        const PayOffKind kind = payoff.kind();
+        if (kind == PayOffKind::Call) {
             V[0] = bsm_call(S_min, K, tau, r, q, sigma);
             V[n - 1] = bsm_call(S_max, K, tau, r, q, sigma);
-        } else if (payoff.name() == "Put") {
+        } else if (kind == PayOffKind::Put) {
             V[0] = bsm_put(S_min, K, tau, r, q, sigma);
             V[n - 1] = bsm_put(S_max, K, tau, r, q, sigma);
         } else {
