@@ -13,13 +13,16 @@ if(MSVC)
     add_compile_definitions(_USE_MATH_DEFINES)
 endif()
 
-# Release 优化 (禁用 -ffast-math 保证位精确复现)
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(MSVC)
-        add_compile_options(/O2 /fp:precise)
-    else()
-        add_compile_options(-O3 -ffp-contract=off)
-    endif()
+# 浮点语义旗标 (禁用 -ffast-math 保证位精确复现; 与 Debug 的 /RTC1 / -O0 共存无害)
+# 优化级别不在此注入, 交给 CMake per-config 默认 flags (MSVC Release=/O2 /Ob2,
+# GCC Release=-O3): 全局 add_compile_options 会连带 Debug 配置 — MSVC 下 /O2 与
+# /RTC1 冲突 (D8016 实测); CMAKE_BUILD_TYPE 判断对多配置生成器 (VS) 不适用
+# (configure 期 -D CMAKE_BUILD_TYPE=Release 会让 if 对所有 per-config 全局 firing);
+# $<CONFIG:> genex 在 add_compile_options 中也被 VS 生成器静默丢弃 (实测 0 落点)。
+if(MSVC)
+    add_compile_options(/fp:precise)
+else()
+    add_compile_options(-ffp-contract=off)
 endif()
 
 # RISK-029: x86-64-v3 / AVX2 代码生成改为显式 opt-in (默认 OFF, 基线 x86-64-v1)。
