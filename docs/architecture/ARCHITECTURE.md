@@ -291,7 +291,7 @@ class DeterministicMC {
 | 门禁 | 工具 | 阈值 | 失败动作 |
 |------|------|------|----------|
 | 编译警告 | `-Wall -Wextra -Wpedantic -Werror` | 0 | 阻塞合并 |
-| 编译选项 | 数值路径禁用 `-ffast-math`，用 `-ffp-contract=off`；CI 用 `-march=x86-64-v3` 固定目标 | 位精确复现测试通过 | 阻塞合并 |
+| 编译选项 | 数值路径禁用 `-ffast-math`，用 `-ffp-contract=off`；x86-64-v3/AVX2 显式 opt-in（`-DCPPHUB_X86_V3=ON`，默认 OFF，RISK-029） | 位精确复现测试通过 | 阻塞合并 |
 | 静态分析 | Clang-Tidy (modernize, performance, bugprone) | 0 | 阻塞合并 |
 | 单元测试 | Catch2 | 覆盖率 > 90% | 阻塞合并 |
 | 数值验证 | `tests/validation/` | 相对误差 < 1e-8 (解析) / 1e-3 (MC) | 阻塞合并 |

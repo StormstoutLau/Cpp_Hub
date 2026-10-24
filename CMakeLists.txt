@@ -16,10 +16,49 @@ endif()
 # Release 优化 (禁用 -ffast-math 保证位精确复现)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     if(MSVC)
-        add_compile_options(/O2 /arch:AVX2 /fp:precise)
+        add_compile_options(/O2 /fp:precise)
     else()
-        add_compile_options(-O3 -march=x86-64-v3 -ffp-contract=off)
+        add_compile_options(-O3 -ffp-contract=off)
     endif()
+endif()
+
+# RISK-029: x86-64-v3 / AVX2 代码生成改为显式 opt-in (默认 OFF, 基线 x86-64-v1)。
+# 旧实现无条件在 Release 全局追加 /arch:AVX2 (MSVC) 或 -march=x86-64-v3 (GCC/Clang):
+#   - 不支持 AVX2 的 CPU 上, 静态初始化器先于 main 执行 AVX2 指令 → SIGILL
+#     (社区先例: TF#17411 / LanceDB / manylinux#1725 / cryptography#12069);
+#   - aarch64 上 GCC 直接报 unknown -march, 配置即败。
+# opt-in 后探测编译器支持, 拒绝即 FATAL_ERROR (显式选择不应静默降级);
+# CheckCXXCompilerFlag 只证 "编译器能生成", 不证 "目标 CPU 能执行" —
+# 运行时能力检测唯一真源仍是 config.hpp 的 CPPHUB_HAS_AVX2。
+# 注: 旗标用普通 add_compile_options — COMPILE_LANGUAGE genex 在 VS 生成器
+# 下被静默丢弃 (本仓库 cmake 4.4 实测); CUDA 开启时 nvcc 对该旗标会响亮报错
+# 或透传宿主编译器, 两种形态都不产生静默错配。
+option(CPPHUB_X86_V3
+    "Enable x86-64-v3 (AVX2) codegen - the binary then requires an AVX2-capable CPU"
+    OFF)
+if(CPPHUB_X86_V3)
+    string(TOUPPER "${CMAKE_SYSTEM_PROCESSOR}" _cpphub_arch)
+    if(NOT _cpphub_arch MATCHES "^(X86_64|AMD64|X86|I686|I386)$")
+        message(FATAL_ERROR
+            "CPPHUB_X86_V3=ON requires an x86 host target "
+            "(CMAKE_SYSTEM_PROCESSOR='${CMAKE_SYSTEM_PROCESSOR}'); "
+            "for cross builds configure ISA flags via toolchain file instead.")
+    endif()
+    include(CheckCXXCompilerFlag)
+    if(MSVC)
+        check_cxx_compiler_flag("/arch:AVX2" CPPHUB_COMPILER_HAS_AVX2)
+        if(NOT CPPHUB_COMPILER_HAS_AVX2)
+            message(FATAL_ERROR "CPPHUB_X86_V3=ON but the compiler rejects /arch:AVX2")
+        endif()
+        add_compile_options(/arch:AVX2)
+    else()
+        check_cxx_compiler_flag("-march=x86-64-v3" CPPHUB_COMPILER_HAS_X86_64_V3)
+        if(NOT CPPHUB_COMPILER_HAS_X86_64_V3)
+            message(FATAL_ERROR "CPPHUB_X86_V3=ON but the compiler rejects -march=x86-64-v3")
+        endif()
+        add_compile_options(-march=x86-64-v3)
+    endif()
+    message(STATUS "x86-64-v3 (AVX2) codegen: ENABLED (opt-in; binary requires AVX2-capable CPU)")
 endif()
 
 # 头文件库

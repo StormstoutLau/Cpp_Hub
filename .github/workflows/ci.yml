@@ -125,11 +125,15 @@ jobs:
 
       - name: Configure CMake (C API enabled)
         shell: bash
+        # Linux 侧开 CPPHUB_X86_V3 (RISK-029): opt-in 路径守卫 — GCC 的
+        # check_cxx_compiler_flag(-march=x86-64-v3) + Release v3 codegen
+        # 每次推送实测; Windows job 保持默认 OFF 覆盖基线路径。
         run: |
           cmake -S . -B build \
             -G "${{ runner.os == 'Windows' && 'Visual Studio 17 2022' || 'Ninja' }}" \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
-            -DCPPHUB_ENABLE_C_API=ON
+            -DCPPHUB_ENABLE_C_API=ON \
+            ${{ runner.os == 'Linux' && '-DCPPHUB_X86_V3=ON' || '' }}
 
       - name: Build
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel 4
@@ -140,7 +144,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 覆盖率报告 (U-3: 仅报告, 无阈值)
-  # Debug 避开 Release 的 -march 硬编码; 只统计 include/cpphub/。
+  # Debug + -O0: gcovr 行级计数需要无优化编译 (RISK-029 后 Release 也无 -march,
+  # 但优化仍会扭曲行计数); 只统计 include/cpphub/。
   # ---------------------------------------------------------------------------
   coverage:
     name: Coverage (ubuntu-latest, GCC)
