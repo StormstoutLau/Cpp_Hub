@@ -162,8 +162,13 @@ jobs:
         working-directory: build_cov
         run: ctest --output-on-failure --parallel 4
       - name: gcovr report
+        # gcovr 8.x 默认对 "suspicious hits" 直接抛 SuspiciousHitsError,
+        # 而该形态是 gcov 工具自身 bug (gcc.gnu.org/bugzilla 68080, for 循环行
+        # 非递减计数), 与源码无关 — 按 gcovr 建议降级为 warn (run 39990450582
+        # math.hpp:113 实证, Test 步骤已 2538/2538 全绿)
         run: |
           gcovr --root . --filter 'include/cpphub/' --exclude 'third_party' \
+                --gcov-ignore-parse-errors suspicious_hits.warn \
                 --xml coverage.xml --html-details coverage.html
       - uses: actions/upload-artifact@v4
         with:
