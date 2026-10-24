@@ -264,4 +264,18 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0）
+## 11. CI 修复批（run 39755779788 五簇 → gcovr）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-108 | 最终 CI run 全绿 | `gh run view 40068527562` | 9/9 job success | run 40068527562 | ⏳ 待终态（gcovr 修复后验证中） |
+| C-109 | guard 步骤不再自匹配 | 看 Build & Test 两平台 Guard 步骤 | success | ✅ run 39784068194 起 Guard 步骤 success（字符类 `gtest-1[.]14[.]0`） | ✅ |
+| C-110 | Show toolchain 不依赖 nanobind | 看 4 个 Python job 的 Show toolchain versions 步骤 | success | ✅ run 39784068194 四 job 该步骤 success（仅 import sys/cpphub + mcp） | ✅ |
+| C-111 | coverage Debug 全绿 | 看 coverage job Test 步骤 | `100% tests passed out of 2538` | ✅ run 39990450582 实测该行（18 项断言失败全清：14 ArimaModel + Midas + VarIrfFevd + ArimaStatespace） | ✅ |
+| C-112 | py3.11 structured_content 修复 | 看 py3.11 job pytest 汇总行 | 全绿且非 24 failed | ✅ run 39990450582 py3.11（windows/ubuntu）`111 passed, 1 skipped`；本地同版本 venv 复现修复前 24 failed → 修复后 51 passed 1 skipped | ✅ |
+| C-113 | 下溢/维度修复本地红→绿 | MSVC Debug 目标套件 | 全通过 | ✅ 修复前 14 ArimaModel + Midas + VarIrfFevd abort；修复后 test_arima_model 27/27、test_midas_model 19/19、test_linalg_dynamic 18/18、VarIrfFevd 18/18、VarModel+DySpillover 34/34、波及 8 套件 93 tests | ✅ |
+| C-114 | gcovr 步骤不再中止 | 看 coverage job gcovr report 步骤 | success | 修复 = `--gcov-ignore-parse-errors suspicious_hits.warn`（gcov bug 68080）；本地 PyYAML 校验 ok，终态随 C-108 | ⏳ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24）

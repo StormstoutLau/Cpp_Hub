@@ -3049,4 +3049,21 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### CI 修复批: run 39755779788 五簇 + irf/gcovr 两项 (2026-10-22 → 24)
+
+> [.github/workflows/ci.yml](../.github/workflows/ci.yml) / [arima_model.hpp](../include/cpphub/timeseries/arima/arima_model.hpp) / [mixed_freq_data.hpp](../include/cpphub/timeseries/midas/mixed_freq_data.hpp) / [irf.hpp](../include/cpphub/timeseries/var/irf.hpp) / [mcp_server.py](../python/src/cpphub/mcp_server.py) / [mcp_golden.json](../python/tests/fixtures/mcp_golden.json) — 来源: run 39755779788 失败取证（推送 afc9835 后 5 簇红）
+
+- **失败面（run 39755779788）**: A guard grep 自匹配；B Show toolchain `import nanobind`；C `garch_diagnose` golden 随 R-027 换流漂移；D coverage Debug **18 tests failed out of 2538**（`_GLIBCXX_ASSERTIONS` 断言）；E py3.11 **24 failed**（`structured_content` 恒 None）。
+- **簇 A**: guard 用变量拼接 `P="gtest-1.14.0"; ! grep -q "$P" ci.yml` 仍被自身注释命中 → 改字符类 `gtest-1[.]14[.]0`，且 guard 自身文本（含注释）不得出现旧版本号字面量。
+- **簇 B**: nanobind 是 build-only 依赖（build isolation，不入运行环境），runner 上 `ModuleNotFoundError` → Show toolchain 只 import `sys/cpphub` + mcp 版本行。
+- **簇 D（三处，Debug-only）**: ① `css_residuals` 在 q>p 时 `t−1−j` 为负，`Size` 无符号回绕成巨大索引 → 加 `t >= 1+j` 守卫、pre-sample ε 按 R `stats::arima` CSS 语义取 0（ArimaModel.Css* 14 用例同根因）；② `mls_column` 的 `m*t−h` 在 `h > m*t` 时回绕，原 `idx < 1` guard 位于减法之后恒失效 → 下溢比较前置；③ `var_irf_bootstrap` 递推 `acc (K×1) + eall.row (1×K)` 维度不匹配 → `acc.transpose()` 对齐（run 39784068194 coverage 唯一失败 VarIrfFevd.BootstrapBands）。SVD 重构表达式另为同族：full 语义下 `U` 为 m×m、`S` 仅 min(m,n) → 改用 `leftCols(S.size())`。
+- **簇 E**: py<3.12 上 pydantic 拒绝 `typing.TypedDict`（`PydanticUserError` 仅警告不抛），7 个 tool 的 outputSchema 创建失败 → `structured_content` 恒 None；改 `typing_extensions.TypedDict` + `mcp` extra 显式声明 `typing_extensions>=4.0`。
+- **gcovr 步骤**: run 39990450582 的 coverage Test 已 **100% tests passed out of 2538**，仅 `gcovr report` 因 gcovr 8.x 严格模式抛 `SuspiciousHitsError`（math.hpp:113）而中止；该形态是 gcov 工具自身 bug（gcc.gnu.org/bugzilla 68080，for 循环行计数），按报错提示加 `--gcov-ignore-parse-errors suspicious_hits.warn`。
+- **本地验证**: MSVC Debug — test_arima_model 27/27、test_midas_model 19/19、test_linalg_dynamic 18/18、VarIrfFevd 18/18（BootstrapBands 0.48 s）、VarModel+DySpillover 34/34、波及面 8 套件 93 tests；py3.11（uv venv，numpy 2.4.6 / scipy 1.17.1 / mcp 2.3.0，与 CI 同版本）pytest 51 passed 1 skipped，py3.12 复验同数。
+- **CI 证据**: run 39784068194 = 8/9 job 绿，coverage Test 唯一失败 VarIrfFevd.BootstrapBands；run 39990450582 = 8/9 job 绿，coverage **Test 2538/2538 通过**、py3.11/py3.12 四 job 全绿（`111 passed, 1 skipped`），唯一失败 gcovr report 步骤；run 40068527562（gcovr 修复）终态见 CHECKLIST §11 C-108。
+- **提交**: `596e8da`（A+B ci.yml）/ `8ab7207`（D 下溢+SVD）/ `bebeb42`（C+E Python）/ `fad1179`（CHECKLIST C-40/A5）/ `b79c1c6`（irf 维度）/ `4b37d9e`（gcovr）。
+- **教训**: (1) Debug-only 断言是 Release 静默错误的长尾，`_GLIBCXX_ASSERTIONS` / `_ITERATOR_DEBUG_LEVEL=2` 才能暴露维度与越界类缺陷；(2) 无符号下溢的 guard 必须写在减法**之前**，写在之后恒失效；(3) 工具链报错要区分"源码缺陷"与"工具自身 bug"，gcov 68080 属后者，不应改源码迁就；(4) py<3.12 的 pydantic TypedDict 限制以"仅警告"形态静默降级功能，必须用与 CI 同版本环境复现；(5) 失败归簇要逐条对账（前次归簇漏计 BootstrapBands，16→实际 18）。
+
+---
+
 
