@@ -3066,4 +3066,19 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### P2 风险修复批: RISK-029/030/031 (2026-10-24)
+
+> [CMakeLists.txt](../CMakeLists.txt) / [ci.yml](../.github/workflows/ci.yml) / [ARCHITECTURE.md](./architecture/ARCHITECTURE.md) / [payoff.hpp](../include/cpphub/instruments/payoff/payoff.hpp) / [vanilla.hpp](../include/cpphub/instruments/payoff/vanilla.hpp) / [pde_engine.hpp](../include/cpphub/pricing/pde/pde_engine.hpp) / [test_pde_engine.cpp](../tests/unit/pricing/test_pde_engine.cpp) — 来源: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §二 P2 主表；决策: [ADR-021](./decisions/ADR-021_PDE_CONCURRENCY_BARRIER_BOUNDARY.md)（6 项，Scott 裁决定稿）；调研: [RESEARCH_P2_RISKS.md](../spec/p1-fixes/RESEARCH_P2_RISKS.md)
+
+- **RISK-029（`b2339fd`，CI run 40093818921 = 9/9 绿签收）**: x86-64-v3/AVX2 代码生成从"Release 无条件全局注入"改为显式 opt-in `-DCPPHUB_X86_V3=ON`（默认 OFF，基线 x86-64-v1）：x86 主机守卫（regex 拒绝非 x86 目标）→ `CheckCXXCompilerFlag` 探测 → 拒绝即 `FATAL_ERROR`（显式 opt-in 不应静默降级）；CI c-api job Linux 侧开 opt-in 保住 GCC v3 codegen 覆盖。
+- **CMake 三重实测（62c64ed 回归修复，RISK-029 实施期间发现）**: ① 旧 `if(CMAKE_BUILD_TYPE STREQUAL "Release")` 在 VS 多配置生成器下按 configure 期缓存值全局 firing（UNINITIALIZED=Release 仍读出 "Release"），`/O2` 连同 Debug 配置一起注入 → 与 `/RTC1` 冲突 **D8016**，VS Debug 构建全灭（CI 未覆盖：Windows job 只跑 Release）；② `$<$<COMPILE_LANGUAGE:CXX>:` 与 `$<$<CONFIG:Debug>:`（含嵌套 NOT）两类 genex 在 `add_compile_options` 中均被 VS 生成器**静默丢弃**（vcxproj 0 落点实测）；③ 优化级别本就是 CMake per-config 默认 flags（MSVC `CMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2`，GCC `-O3 -DNDEBUG`）→ 修复 = 删除优化旗标注入，仅保留无条件浮点语义旗标（`/fp:precise` / `-ffp-contract=off`），单/多配置行为均不变。验证方法：旗标落点必须查 compile_commands.json（Ninja）或 vcxproj 语义属性（`<Optimization>MaxSpeed`/`<BasicRuntimeChecks>`），"配置成功"表象不可信。
+- **RISK-030（32b7894）**: 删除 `mutable last_total_iter_count_`（:259）+ 两处写点（:91/:125，均在 const 方法 `price_american` 内）+ 读点 `last_total_iterations()`（:255）——同一 `const PDEEngine` 并发调用即 data race UB；新增 `struct PricingResult{value, psor_iterations}` + 主入口 `price_american_result()`，旧 `price_american()` 保留为取 `.value` 的 inline 包装（数值路径逐位一致，Python 绑定签名不变）。3 处测试调用迁移。
+- **RISK-031（32b7894）**: `price_barrier` 远场按 `payoff.name()=="Call"` 字符串分派，Digital* 全落 `bsm_put` 边界（探针 Up-Out 数字 put +963% / Down-Out 数字 call −33%）→ `PayOffKind` 枚举 + `PayOff::kind()` 非纯虚（默认 Unknown，5 个 vanilla override，3 个 exotic 保持 Unknown）；远场分派 Call/Put→BSM、Digital*/DoubleDigital→`payoff(S_far)·e^{-rτ}`、Unknown→`throw std::invalid_argument`（fail-fast，杜绝 name() 冒名劫持）；域宽倍数接入 `config.s_multiplier`（原硬编码 5.0——该配置项此前全库无消费点，属死配置复活，默认行为不变）；`BoundaryType::Neumann` 障碍路径不再被静默忽略（1e-10 内与 Dirichlet 相同）：仅远场端 step 后线性外推，障碍端恒 Dirichlet 0（不复用 `finalize_boundary`——会抹掉 V=0）；`set_boundary` 识别 name()→kind()，else 分支逐位一致。
+- **TDD**: 先红（编译红：`price_american_result`/`kind` 不存在）后绿；10 个新锚——数字障碍默认域 vs 宽域收敛对比（错误边界下网格细化收敛到同一错误极限，自收敛测试无效，必须对照宽域 `s_multiplier=20`）、Neumann≠Dirichlet（>1e-8 + 双侧解析解精度 1.5% 防实现错）、Unknown throw、override kind() 走 discount（域一致性）、`psor_iterations>0` + `.value` 位相同（EXPECT_EQ）、vanilla 路径自定义 payoff 不 throw 回归；全量 test_pde_engine 39/39（MSVC Debug）。
+- **教训**: (1) `CMAKE_BUILD_TYPE` if 判断对多配置生成器（VS）本质不适用，per-config 旗标只有两条正路——`CMAKE_CXX_FLAGS_<CONFIG>` 默认值或 target 属性，genex 在 `add_compile_options` 中不可依赖；(2) 删除"仅测试使用"的 mutable 共享态时，3 处调用方迁移是 API 破坏的诚实成本，atomic/thread_local 只是掩盖归属语义混乱；(3) 字符串分派的 payoff 识别可被派生类 `name()` 冒名劫持，enum `kind()` + 默认 Unknown fail-fast 是结构解；(4) 数字期权的错误边界在网格加密下收敛到同一错误极限，收敛性测试必须配域宽对照；(5) RISK-029 的 D8016 回归说明"CI 全绿"只覆盖 CI 跑的配置组合——VS Debug 从未进 CI，旗标改动要在本地双配置核验落点。
+- **CI 证据**: run 40093818921（029，b2339fd）9/9 success；run 40107640608（030+031，32b7894）**9/9 success**——Coverage 31m16s / Build&Test MSVC 14m03s / Build&Test GCC 11m28s / C ABI（ubuntu+windows）/ Python ×4 全绿，无失败无跳过；唯一告警为 Node.js 20 弃用（actions/checkout@v4 等，非失败）。
+- **交叉引用**: CHECKLIST §12 C-115~C-119（029/030/031 证据行）；ADR-021 / RESEARCH_P2_RISKS §1-§3；RISK-035/036（第 3 批数值契约）待实施。
+
+---
+
 

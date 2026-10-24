@@ -278,4 +278,18 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24）
+## 12. P2 风险修复批（RISK-029/030/031, 2026-10-24）
+
+> 决策: [ADR-021](../../docs/decisions/ADR-021_PDE_CONCURRENCY_BARRIER_BOUNDARY.md)（Accepted, 6 项）；日志: DEVELOPMENT_LOG「P2 风险修复批」条目；提交 `b2339fd`（029）/ `0638367`（ADR）/ `62c64ed`（CMake 回归）/ `32b7894`（030+031）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-115 | RISK-029 opt-in 守卫 + CI | `gh run view 40093818921`；Ninja Release compile_commands.json 对照 | 默认 OFF 基线；ON 时旗标落点正确 | ✅ 双变体实测：OFF=0 march 命中 + /O2，ON=166 处 /arch:AVX2；run 40093818921 **9/9 job success**（c-api ubuntu 实测 opt-in 路径） | ✅ |
+| C-116 | RISK-030 共享态消除 | `grep last_total_iter` 源码清零；test_pde_engine 位相同断言 | mutable 成员/读点/写点删除，3 处测试迁移到 `price_american_result()` | ✅ 源码仅剩注释；`.value` 与旧包装 EXPECT_EQ 位相同、`psor_iterations>0`；全量 39/39（MSVC Debug） | ✅ |
+| C-117 | RISK-031 kind() 分派 + 测试锚 | 数字障碍默认域 vs 宽域（s_multiplier=20）；Neumann≠Dirichlet；Unknown throw；override discount | 10 新锚全绿；数字障碍域一致性 | ✅ 先红（编译红）后绿；域对比 NEAR 0.02、Neumann 差异 >1e-8 + 双侧解析解 1.5%、Risk031SqPayOff 冒名 name()="Call" 仍 throw | ✅ |
+| C-118 | CMake D8016 回归修复 | VS 双配置 vcxproj 语义属性核验 | Debug 无 /O2 且保留 /RTC1；Release MaxSpeed | ✅ 62c64ed：Debug `Optimization=Disabled` + `BasicRuntimeChecks=EnableFastChecks`，Release `MaxSpeed`；优化级别交 per-config 默认 flags | ✅ |
+| C-119 | 最终 CI run 全绿 | `gh run view 40107640608` | 9/9 job success | ✅ run 40107640608（head 32b7894）**9/9 job success**：Coverage 31m16s / Build&Test GCC 11m28s / Build&Test MSVC 14m03s / C ABI ×2 / Python ×4；仅 Node.js 20 弃用告警（非失败） | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24）
