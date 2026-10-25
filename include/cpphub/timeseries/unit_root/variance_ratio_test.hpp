@@ -47,6 +47,7 @@ struct VarianceRatioResult {
     Real z2_statistic = 0.0;  ///< Lo-MacKinlay Z2 (异方差稳健, U15)
     Real z2_p_value = 0.0;
     std::vector<Real> chow_denning_stats;  ///< 各 horizon 的 Z2 (U16)
+    Real chow_denning_statistic = 0.0;     ///< 联合统计量 max|Z2| (RISK-035; 单 horizon = |Z2|; CD 非负)
     Real chow_denning_p_value = 0.0;       ///< SMM(m,inf) 联合 p 值 (U16-smm)
     Real clm_debiased_statistic = 0.0;     ///< CLM debiased Z2 (U17, 恒 debias)
     Real clm_debiased_p_value = 0.0;
@@ -188,6 +189,7 @@ inline VarianceRatioResult variance_ratio_test(
 
     // 单 horizon Chow-Denning 退化为 m=1: p = 2 - 2·Phi(|Z2|) = z2_p
     r.chow_denning_stats = {c.z2};
+    r.chow_denning_statistic = std::fabs(c.z2);  // RISK-035: CD 非负, 不输出有符号 Z2
     r.chow_denning_p_value = r.z2_p_value;
     r.reject_null = r.z2_p_value < 0.05;
 
@@ -241,7 +243,8 @@ inline VarianceRatioResult variance_ratio_test_multi(
     r.clm_debiased_statistic = cd0.z2;
     r.clm_debiased_p_value = detail::vr_two_sided_p(cd0.z2);
 
-    // SMM(m, inf) 联合 p 值 (U16-smm)
+    // SMM(m, inf) 联合 p 值 (U16-smm); RISK-035: 联合统计量 CD = max|Z2| 暴露到结果
+    r.chow_denning_statistic = cd_abs;
     const Real one_sided = 2.0 * detail::normal_cdf(cd_abs) - 1.0;
     Real powm = 1.0;
     for (Size i = 0; i < k_list.size(); ++i) powm *= one_sided;

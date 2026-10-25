@@ -327,10 +327,7 @@ def test_write_golden():
                 k: list(v) for k, v in TOLERANCES.items()
             }},
             "rules": "浮点-><num>; notes 内浮点字面量-><num>; 整数/文本/布尔/null 原样",
-            "known_issues": [
-                "F9 (待裁定): cpphub_variance_ratio_test/chow_denning_joint 的 statistic "
-                "字段当前承载联合 p 值 (注册表 S2 实现), 冻结值反映现状而非期望语义"
-            ],
+            "known_issues": [],
         },
         "tools": tools,
     }

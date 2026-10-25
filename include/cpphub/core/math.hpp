@@ -92,18 +92,43 @@ inline Real inv_normal_cdf(Real p) {
 // 正则化下不完全 Gamma 函数 P(a, x) = γ(a, x) / Γ(a)
 // 满足 P(a, 0) = 0, P(a, ∞) = 1
 //
+// RISK-036: P 与 Q 严格互补 — P 走级数 (x < a+1), Q 走连分式 (x >= a+1),
+// 各自在自己支路内相对精确; 任何一侧用减法从另一侧推导都会在尾部灾难性失精度。
+//
 // 实现:
 //   x < a+1: 级数展开 γ(a,x) = x^a e^{-x} Σ_{n=0}^∞ x^n / (a(a+1)...(a+n))
 //   x >= a+1: 连分式展开 Q(a,x) = 1 - P(a,x) = e^{-x} x^a / Γ(a) · CF(x, a)
 //
 // 精度: 接近机器精度 (~1e-14)
+namespace detail {
+// Lentz 连分式直接计算 Q(a, x) = Γ(a,x)/Γ(a) (仅用于 x >= a+1 支路;
+// 单一来源供 regularized_lower/upper_gamma 共用, 保证 P/Q 逐位互补)
+inline Real gamma_q_continued_fraction(Real a, Real x) {
+    Real b = x + 1.0 - a;
+    Real c = 1.0 / std::numeric_limits<Real>::min();
+    Real d = 1.0 / b;
+    Real h = d;
+    for (int i = 1; i <= 1000; ++i) {
+        Real an = -static_cast<Real>(i) * (static_cast<Real>(i) - a);
+        b += 2.0;
+        d = an * d + b;
+        if (std::abs(d) < std::numeric_limits<Real>::min()) d = std::numeric_limits<Real>::min();
+        c = b + an / c;
+        if (std::abs(c) < std::numeric_limits<Real>::min()) c = std::numeric_limits<Real>::min();
+        d = 1.0 / d;
+        Real del = d * c;
+        h *= del;
+        if (std::abs(del - 1.0) < std::numeric_limits<Real>::epsilon()) break;
+    }
+    return std::exp(-x + a * std::log(x) - std::lgamma(a)) * h;
+}
+}  // namespace detail
+
 inline Real regularized_lower_gamma(Real a, Real x) {
     if (x < 0.0 || a <= 0.0) {
         throw std::invalid_argument("regularized_lower_gamma: a > 0 and x >= 0 required");
     }
     if (x == 0.0) return 0.0;
-
-    const Real LOG_EPS = std::log(std::numeric_limits<Real>::epsilon());
 
     if (x < a + 1.0) {
         // 级数展开
@@ -117,32 +142,39 @@ inline Real regularized_lower_gamma(Real a, Real x) {
             if (std::abs(del) < std::abs(sum) * std::numeric_limits<Real>::epsilon()) break;
         }
         return sum * std::exp(-x + a * std::log(x) - std::lgamma(a));
-    } else {
-        // 连分式 (Lentz 算法), 计算 Q(a,x) = 1 - P(a,x)
-        Real b = x + 1.0 - a;
-        Real c = 1.0 / std::numeric_limits<Real>::min();
-        Real d = 1.0 / b;
-        Real h = d;
-        for (int i = 1; i <= 1000; ++i) {
-            Real an = -static_cast<Real>(i) * (static_cast<Real>(i) - a);
-            b += 2.0;
-            d = an * d + b;
-            if (std::abs(d) < std::numeric_limits<Real>::min()) d = std::numeric_limits<Real>::min();
-            c = b + an / c;
-            if (std::abs(c) < std::numeric_limits<Real>::min()) c = std::numeric_limits<Real>::min();
-            d = 1.0 / d;
-            Real del = d * c;
-            h *= del;
-            if (std::abs(del - 1.0) < std::numeric_limits<Real>::epsilon()) break;
-        }
-        Real Q = std::exp(-x + a * std::log(x) - std::lgamma(a)) * h;
-        return 1.0 - Q;
     }
+    // 连分式: Q 在此支路直接算出, P = 1 - Q (x >= a+1 区间 P 接近 1, 减法无损)
+    return 1.0 - detail::gamma_q_continued_fraction(a, x);
 }
 
-// 正则化上不完全 Gamma 函数 Q(a, x) = 1 - P(a, x) = Γ(a,x) / Γ(a)
+// 正则化上不完全 Gamma 函数 Q(a, x) = Γ(a,x) / Γ(a)
+//
+// RISK-036: 原实现 1 - P 在 Q < ~1.1e-16 (k=1/LR≳70 的 χ² 尾部) 时舍入为 0
+// (Goldberg 1991 §2.4 cancellation; NR §6.2 gammq 在连分式支路直接返回 Q)。
+// 重写后: x >= a+1 直接返回连分式 Q (全尾精度到 underflow); x < a+1 区间
+// Q >= ~0.083, 1 - P 相对误差 <= 3e-15, 安全。
 inline Real regularized_upper_gamma(Real a, Real x) {
-    return 1.0 - regularized_lower_gamma(a, x);
+    if (x < 0.0 || a <= 0.0) {
+        throw std::invalid_argument("regularized_upper_gamma: a > 0 and x >= 0 required");
+    }
+    if (x == 0.0) return 1.0;
+    if (x < a + 1.0) {
+        return 1.0 - regularized_lower_gamma(a, x);
+    }
+    return detail::gamma_q_continued_fraction(a, x);
+}
+
+// χ²(k) 上尾生存函数 sf(x) = P(χ²_k > x) = Q(k/2, x/2)
+//
+// RISK-036: backtesting.hpp (Kupiec/Christoffersen) 的 p 值入口; 旧
+// 1 - chi2_cdf 路径在 p < ~1e-16 时归零。x <= 0 → 1 (无证据 → 不拒绝,
+// 保持"负 LR → p=1"语义)。
+inline Real chi2_sf(Real x, Real k) {
+    if (!(k > 0.0)) {
+        throw std::invalid_argument("chi2_sf: k must be positive");
+    }
+    if (x <= 0.0) return 1.0;
+    return regularized_upper_gamma(k / Real(2), x / Real(2));
 }
 
 // ==================== 非中心卡方分布 CDF ====================

@@ -15,7 +15,8 @@ namespace detail {
 /// χ²(k) 的 CDF: P(χ²_k ≤ x) = P(k/2, x/2) (正则化下不完全 Gamma, NR §6.2)
 /// RISK-028: 原 Wilson-Hilferty 三次根近似在 k=1 临界带偏差 ~3e-3 (可翻转结论),
 /// 改用 core/math.hpp 的精确实现 (精度 ~1e-14)。
-/// 注意: 上尾按 1 - P 计算, 故 p < ~1e-16 时归零 (不影响拒绝/不拒绝判定)。
+/// 注意: RISK-036 起 p 值一律走 core/math.hpp 的 chi2_sf (上尾直接算 Q,
+/// p < ~1e-16 不再归零); 本函数保留为 CDF 方向的对称入口 (测试锚定)。
 inline Real chi2_cdf(Real x, Size k) {
     if (x <= 0) return 0;  // 数值上略负的 LR 亦归零, 不抛异常
     return regularized_lower_gamma(static_cast<Real>(k) / Real(2), x / Real(2));
@@ -75,7 +76,7 @@ public:
         Real logL0 = detail::log_lik_binomial(n_observations, n_violations, p);
         Real logL1 = detail::log_lik_binomial(n_observations, n_violations, violation_rate);
         Real LR = Real(2) * (logL1 - logL0);
-        Real p_value = Real(1) - detail::chi2_cdf(LR, Size(1));
+        Real p_value = chi2_sf(LR, Real(1));
 
         return {n_violations, n_observations, violation_rate, p, p_value, p_value < Real(0.05)};
     }
@@ -104,7 +105,7 @@ public:
         Real pi = static_cast<Real>(t.v_lag) / static_cast<Real>(t.n - 1);
         Real LR_ind = independence_lr(t);
 
-        Real p_value = Real(1) - detail::chi2_cdf(LR_ind, Size(1));
+        Real p_value = chi2_sf(LR_ind, Real(1));
         return {t.v, t.n, static_cast<Real>(t.v) / static_cast<Real>(t.n),
                 pi, p_value, p_value < Real(0.05)};
     }
@@ -128,7 +129,7 @@ public:
         // LR_ind: 与 test() 共用同一实现 (单一来源)
         Real LR_cc = LR_pof + independence_lr(t);
 
-        Real p_value = Real(1) - detail::chi2_cdf(LR_cc, Size(2));
+        Real p_value = chi2_sf(LR_cc, Real(2));
         return {t.v, t.n, static_cast<Real>(t.v) / static_cast<Real>(t.n),
                 p, p_value, p_value < Real(0.05)};
     }

@@ -213,6 +213,30 @@ TEST(VarianceRatioTest, MultiChowDenningRwNotRejected) {
 }
 
 // ---------------------------------------------------------------------------
+// RISK-035: chow_denning_statistic = max|Z2| (联合统计量; 旧版把联合 p 值
+// 误填进 MCP 信封的 statistic 字段 — F9, statcheck 式复核失效)
+// ---------------------------------------------------------------------------
+
+TEST(VarianceRatioTest, ChowDenningStatisticSingleKIsAbsZ2) {
+    const auto r = ur::variance_ratio_test(p_ar(), 5, true);
+    ASSERT_EQ(r.chow_denning_stats.size(), 1u);
+    // 单 horizon: statistic = |Z2| (CD 非负; 不输出 argmax 的有符号 Z2)
+    EXPECT_EQ(r.chow_denning_statistic, std::fabs(r.chow_denning_stats[0]));
+    EXPECT_NEAR(r.chow_denning_statistic,
+                std::fabs(ur::baseline::VR_CASES[9].stat), 1e-10);
+}
+
+TEST(VarianceRatioTest, ChowDenningStatisticMultiIsMaxAbsZ2) {
+    const auto r = ur::variance_ratio_test_multi(p_ar(), {2, 5}, true);
+    const Real cd = std::max(std::fabs(ur::baseline::VR_CASES[6].stat),
+                             std::fabs(ur::baseline::VR_CASES[9].stat));
+    EXPECT_NEAR(r.chow_denning_statistic, cd, 1e-10);
+    EXPECT_GE(r.chow_denning_statistic, 0.0) << "CD 非负 (max|Z2|)";
+    // 语义防线: statistic 不再承载 p 值 (F9; 两者在该用例显著不同)
+    EXPECT_NE(r.chow_denning_statistic, r.chow_denning_p_value);
+}
+
+// ---------------------------------------------------------------------------
 // 21: 平移不变性 — 差分消除常数水平
 // ---------------------------------------------------------------------------
 TEST(VarianceRatioTest, InvarianceToLevelShift) {

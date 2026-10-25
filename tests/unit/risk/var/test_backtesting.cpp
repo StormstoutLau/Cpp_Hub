@@ -338,5 +338,40 @@ TEST(KupiecPOF, RejectsInvalidInputs) {
     EXPECT_THROW(KupiecPOF::test(1, 100, 1.0), std::invalid_argument);  // confidence ∉ (0,1)
 }
 
+// ---------------------------------------------------------------------------
+// RISK-036: 上尾精确计算 — 旧 1-P 在 Q < ~1.1e-16 (k=1/LR≳70) 时归零
+// ---------------------------------------------------------------------------
+
+TEST(KupiecPOF, TailPValueNotZeroedOut) {
+    // v=80/2500 @99%: LR≈77 → Q = erfc(√(LR/2)) ≈ 1e-18 (旧实现 1-P → 0)
+    const Size v = 80, N = 2500;
+    auto result = KupiecPOF::test(v, N, 0.99);
+    double lr = ref_kupiec_lr(v, N, 0.99);
+    ASSERT_GT(lr, 70.0) << "用例自检: LR 必须进入旧实现归零区 (LR=" << lr << ")";
+    double expected = std::erfc(std::sqrt(lr / 2.0));  // χ²(1) 上尾闭式
+    EXPECT_GT(result.p_value, 0.0) << "旧实现 1-P 在此归零 (静默 p=0)";
+    EXPECT_NEAR(result.p_value / expected, 1.0, 1e-12) << "LR=" << lr;
+    EXPECT_TRUE(result.reject_null);
+}
+
+TEST(ChristoffersenIID, JointTailPValueNotZeroedOut) {
+    // 5×5 连簇 @95%: LR_pof≈0 (违约率恰等于期望 5%), LR_ind≈118
+    // → Q = exp(-LR_cc/2) ≈ 2e-26 (旧实现 1-P → 0; 旧测试 <1e-6 无法区分)
+    std::vector<Size> idx;
+    for (Size b = 0; b < 5; ++b) {
+        for (Size k = 0; k < 5; ++k) idx.push_back(50 + 100 * b + k);
+    }
+    std::vector<Real> var_series, losses;
+    build_series(500, idx, var_series, losses);
+
+    auto joint = ChristoffersenIID::joint_test(var_series, losses, 0.95);
+    RefCounts c = ref_counts(var_series, losses);
+    double lr_cc = ref_kupiec_lr(c.v, c.n, 0.95) + ref_ind_lr(c);
+    ASSERT_GT(lr_cc, 100.0) << "用例自检: LR_cc 必须进入旧实现归零区 (LR_cc=" << lr_cc << ")";
+    double expected = std::exp(-lr_cc / 2.0);  // χ²(2) 上尾闭式
+    EXPECT_GT(joint.p_value, 0.0) << "旧实现 1-P 在此归零 (静默 p=0)";
+    EXPECT_NEAR(joint.p_value / expected, 1.0, 1e-12) << "LR_cc=" << lr_cc;
+}
+
 } // namespace v1
 } // namespace cpphub

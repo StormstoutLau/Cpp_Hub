@@ -164,7 +164,8 @@ Real eps = CPPHUB_DBL_EPSILON;  // 2.220446049250313e-16
 | `inv_normal_cdf(p)` | **Hastings 有理近似 + 3 次 Halley 类迭代** | 接近机器精度 | O(1) |
 | `bessel_i0(x)` / `bessel_i1(x)` | 幂级数展开（\|x\|<3.75 时 kmax=15，否则 kmax=50） | 迭代至收敛 | O(50) |
 | `regularized_lower_gamma(a,x)` | **Numerical Recipes §6.2**：x<a+1 级数展开，x≥a+1 Lentz 连分式 | ~1e-14 | O(N) 收敛 |
-| `regularized_upper_gamma(a,x)` | `1 - regularized_lower_gamma(a,x)` | ~1e-14 | O(N) |
+| `regularized_upper_gamma(a,x)` | **Numerical Recipes §6.2 gammq**：x≥a+1 Lentz 连分式直接算 Q（全尾精度到 underflow）；x<a+1 区间 `1 - regularized_lower_gamma(a,x)`（RISK-036） | ~1e-14（尾部不归零） | O(N) 收敛 |
+| `chi2_sf(x,k)` | χ²(k) 上尾生存函数 = `Q(k/2, x/2)`；`x<=0` 返回 1（RISK-036：backtesting p 值入口） | ~1e-14（尾部不归零） | O(N) 收敛 |
 | `noncentral_chi2_cdf(x,k,λ)` | Poisson 加权 Gamma CDF 级数；小 λ≤50 直接级数，大 λ>50 对数空间递推 | 小 λ ~1e-12，大 λ ~1e-6 | O(λ/2 ± 5σ) |
 
 **注意**：`inv_normal_cdf` 用的是 **Hastings 有理近似（Abramowitz-Stegun 26.2.23 风格）+ Halley 迭代**，**非 Acklam 算法**。Hastings 初值精度约 1e-3~1e-4，经 3 次 Halley 迭代后逼近机器精度。

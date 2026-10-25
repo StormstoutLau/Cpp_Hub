@@ -541,7 +541,7 @@ inline ToolOutcome handle_variance_ratio(const json::Value& args) {
              "trend=" + trend + "; debiased=" + (use_debiased ? "true" : "false"),
              horizon_note}));
         rows.push_back(make_envelope(
-            kTool, "chow_denning_joint", r.chow_denning_p_value,
+            kTool, "chow_denning_joint", r.chow_denning_statistic,
             r.chow_denning_p_value, std::numeric_limits<double>::quiet_NaN(),
             r.chow_denning_p_value < 0.05,
             {"多 horizon 联合 SMM(m,inf) (U16: 多重检验校正)", horizon_note}));
