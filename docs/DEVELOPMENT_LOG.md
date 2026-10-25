@@ -3081,4 +3081,20 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### P2 数值契约批: RISK-035/036 (2026-10-25)
+
+> [math.hpp](../include/cpphub/core/math.hpp) / [backtesting.hpp](../include/cpphub/risk/var/backtesting.hpp) / [variance_ratio_test.hpp](../include/cpphub/timeseries/unit_root/variance_ratio_test.hpp) / [cpphub_tool_registry.hpp](../include/cpphub/c_api/cpphub_tool_registry.hpp) / [mcp_golden.json](../python/tests/fixtures/mcp_golden.json) — 来源: [EXTERNAL_REVIEW_2026-10-20.md](./audit/EXTERNAL_REVIEW_2026-10-20.md) §二 P2 主表；调研: [RESEARCH_P2_RISKS.md](../spec/p1-fixes/RESEARCH_P2_RISKS.md) §4/§5；提交 `9c3a435`
+
+- **RISK-035**: registry :544 把 `chow_denning_p_value` 同时填进 MCP 信封 `statistic` 与 `p_value`（F9, statcheck 式复核失效）→ `VarianceRatioResult` 增 `chow_denning_statistic`（单 horizon = `|Z2|`，multi = 内部已算未暴露的 `cd_abs` = max&#124;Z2&#124;），registry 换字段；golden 第 5 数 0.549433098981491 → 1.3385846942648503（反解交叉验证: `1-(2Φ(1.3385846942648503)-1)^4 = 0.549433098981491` 与冻结 p 逐位一致 → k=2 的 &#124;Z2&#124; 即 max）；`meta.known_issues` 清空，mcp-server CHECKLIST F9 闭环。
+- **RISK-036**: `regularized_upper_gamma` 原实现 = `1 - regularized_lower_gamma`（全库无调用者）→ 原地重写为 NR §6.2 gammq 模式: `x >= a+1` 直接返回 Lentz 连分式 Q（全尾精度到 underflow），`x < a+1` 区间 Q >= ~0.083 用 1-P 相对误差 <= 3e-15；连分式提取 `detail::gamma_q_continued_fraction` 单一来源（lower 的 else 分支算术逐位不变）；新增 `chi2_sf(x,k) = Q(k/2, x/2)`（x<=0 → 1，保持"负 LR → p=1"语义）；backtesting.hpp 三处 `1 - chi2_cdf` → `chi2_sf`（旧 1-P 在 p < ~1.1e-16 即 k=1/LR≳70 时静默归零，Goldberg cancellation）。
+- **TDD**: 先红（编译红 C3861/C2039 + 行为红 2 FAILED: Kupiec v=80/2500@99% p=0 vs 期望 ~1e-18、Christoffersen 5×5 连簇 LR_cc≈117.93 p=0 vs ~2e-26）后绿（10 新锚全过）；测试锚 = 零依赖闭式 oracle（k=1 `erfc(√(LR/2))`、k=2 `exp(-LR/2)`、级数支路 a=0.5/1/2 闭式）+ 研究文档 §5.4 外部复核锚值（相对容差 1e-12）。
+- **既有问题裁定（非本批引入）**: MSVC Debug 全量构建 4 个巨型 TU（cpphub_c_api / test_integration_phase7c / test_integration_phase8 / test_vecm_model）报 C1128 节数超限（需 /bigobj，项目从未配置），并阻断 3 个 c_api 依赖测试目标（test_c_api / test_c_api_tools / test_tool_registry）——4 个直接成员均以 git stash 隔离复验为既有失败；CI 主线 `CMAKE_BUILD_TYPE: Release` 不受影响；本批不修（超范围），留档待专项。
+- **本地 ctest 实操性**: `gtest_discover_tests` POST_BUILD 发现失败会落 `<test>_NOT_BUILT` 占位——"276 例"实为发现缺口期的注册表计数，全部建成后枚举 2533 例（CI 2538 同量级）；Debug 下 MC 类用例单例 137s（GeomAsian.CallITMvsMC），全量需数小时——裁定本地以范围套件（core_math/backtesting/VR/cev 5/5 绿）+ 广义前缀 75 例 0 失败为证据，全量权威门交 CI（Release 14min + Coverage Debug GCC）。
+- **已知延迟项（按调研标注"后续可"）**: `midas_diagnostics.hpp:285` 迁移 chi2_sf；SMM p 路径 `-expm1(m·log1p(·))` 防 p 极小抵消（§4.6 建议，现路径未动）；chow_denning note 增"正相关时保守"说明（§4.5 裁定 skeleton 不变）。
+- **教训**: (1) "p 值误填 statistic" 类信封语义缺陷，正解是把内部已算未暴露的真统计量提升到结果结构（`cd_abs` 早已存在），而非信封侧置 null 丢信息；(2) χ² 上尾唯一正解是 P/Q 各走各的支路（NR gammq 模式），任何 1-P 推导在 Q < ε/2 必然归零——锚测试必须用闭式 oracle（erfc/exp）而非实现自身交叉；(3) gtest_discover_tests 的 `_NOT_BUILT` 占位使 ctest 计数在"发现缺口期"与"全建成后"差一个量级（276→2533），跨运行对比 LastTest.log 会误导，诊断先确认发现状态；(4) Debug 全量回归对 MC/PDE 重库不具实操性（单例百秒级），分层验证 = 范围套件本地全绿 + CI Release/Coverage 全量权威门。
+- **CI 证据**: run 40212222516（head 9c3a435）**9/9 success**——Coverage 31m11s / Build&Test MSVC 18m02s / Build&Test GCC 11m43s / C ABI（windows 21m53s + ubuntu 12m55s）/ Python ×4 全绿，无失败无跳过；唯一告警为 Node.js 20 弃用（非失败）。
+- **交叉引用**: CHECKLIST §13 C-120~C-123；RESEARCH_P2_RISKS §4/§5；EXTERNAL_REVIEW §二 RISK-035/036。
+
+---
+
 

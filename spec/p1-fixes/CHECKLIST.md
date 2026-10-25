@@ -292,4 +292,17 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24）
+## 13. P2 数值契约批（RISK-035/036, 2026-10-25）
+
+> 决策: [RESEARCH_P2_RISKS.md](./RESEARCH_P2_RISKS.md) §4/§5（方案①×2）；日志: DEVELOPMENT_LOG「P2 数值契约批」条目；提交 `9c3a435`（035+036）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-120 | RISK-035 statistic 语义 | registry :544 改 `r.chow_denning_statistic`；golden 第 5 数反解交叉验证 | statistic = max&#124;Z2&#124; 非负、≠ p 值；golden 容差过 | ✅ 反解交叉验证 `1-(2Φ(1.3385846942648503)-1)^4 = 0.549433098981491` 与冻结 p 逐位一致 → cd_stat = 1.3385846942648503（k=2 &#124;Z2&#124; 即 max）；`EXPECT_NE(statistic, p_value)` 语义防线 | ✅ |
+| C-121 | RISK-036 上尾精度 | math.hpp 重写 upper + `chi2_sf` 新增 + backtesting 三处迁移 | k=1/LR=74 锚 7.81e-18；k=5 三锚相对 1e-12；P 逐位不变 | ✅ 先红（C3861/C2039 编译红 + Kupiec/Christoffersen 2 FAILED p=0）后绿；test_core_math 4 新锚 / test_backtesting 23/23 / test_variance_ratio_test 24/24 / test_cev 21/21；midas_diagnostics:285 按 §5.6 留后续 | ✅ |
+| C-122 | Python golden 层 | 重建 nanobind 绑定 + pytest 全量 | 结构 byte-exact + 数值容差 | ✅ 111 passed 1 skipped（py3.12 本地，与 CI 同口径）；F9 known_issues 清空后结构一致 | ✅ |
+| C-123 | 最终 CI run 全绿 | `gh run view 40212222516` | 9/9 job success | ✅ run 40212222516（head 9c3a435）**9/9 job success**：Coverage 31m11s / Build&Test MSVC 18m02s / Build&Test GCC 11m43s / C ABI ×2（21m53s+12m55s）/ Python ×4；仅 Node.js 20 弃用告警（非失败） | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25）
