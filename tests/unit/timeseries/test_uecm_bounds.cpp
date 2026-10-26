@@ -1,6 +1,6 @@
 // =============================================================================
 // test_uecm_bounds.cpp - UECM 重参数化 + PSS 边限检验 (Phase 8 M1 Step 4,
-// 18 用例)
+// 21 用例 = 18 原有 + PSS 深尾专项批 3 用例)
 //
 // 基准: ardl_baseline.inc UECM_*/BOUNDS_*/DANISH_* (statsmodels 0.14.6
 // UECM.from_ardl().fit() + bounds_test 主基准 1e-10; R ARDL 0.2.5

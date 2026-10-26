@@ -320,4 +320,15 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26）
+## 15. PSS 深尾专项批（1−Φ 族第 4 例, 2026-10-26）
+
+> 决策: [RESEARCH_PSS_DEEPTAIL.md](./RESEARCH_PSS_DEEPTAIL.md)（mpmath 60 位实证 + 上游源码实录 + 全 100 键扫描）；日志: DEVELOPMENT_LOG「PSS 深尾专项批」条目；提交 `88fbeb3`（调研）+ `8748995`（实施）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-130 | PSS 响应面 p 值深尾修复（族第 4 例） | [pss_critical_values.hpp](../../include/cpphub/timeseries/ardl/pss_critical_values.hpp) `1-Φ(poly)` → `0.5·erfc(poly/√2)` 上尾直算（双支路同一表达式覆盖）；删除失去调用点的局部 `normal_cdf`；`.inc` 系数表/键语义不动 | TDD 行为红先；深尾锚 rtol 1e-9 + p>0 双断言；中尾守卫不破；PSS 无 C-API/Python/MCP 面（grep 0 命中）→ 无 golden REGEN | ✅ 红证据: `PssPvalue_DeepTail_Anchors` / `PssPvalue_DeepTail_LargeP_Branch` FAILED（stat=100/1000 与 key (7,5,I1)@3.16e-5 旧式全报 0，gtest 实录 "actual: 0 vs 0"）；修复后 3/3 绿（锚 8.0270903435668672315e-26 / 6.0291323510070266498e-100 / 4.1407709081409948953e-17，mpmath 60dps 从 .inc double 系数复算）；`PssPvalue_MidTail_RegressionGuard` 修复前后均绿；Debug UecmBounds **21/21**（18 旧 + 3 新）；`.inc` 零 diff | ✅ |
+| C-131 | 双配置验证 + CI 全绿 | Debug 受影响套件（C-129 口径，Debug 全量 ctest 不作门：Debug-MC 单例 140-203s 全量需数小时）+ Release 全量 ctest + `gh run view` | 本地绿；CI 9/9 | ✅ Release 全量 **2619/2619**（140.12s）；Debug rbf_fd 10/10（两次构建进程撞树 MSB6003/MSB3073 的 NOT_BUILT 残留，删目标 .dir 强制重链后定向补验）；CI: run 40322737881（head 8748995）**9/9 success**；前置调研提交 88fbeb3 run 40309611308 同绿（docs-only） | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26）

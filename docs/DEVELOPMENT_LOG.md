@@ -3113,4 +3113,19 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **交叉引用**: CHECKLIST §14 C-124~C-129；RESEARCH_P2_C1128_AND_DEFERRED §0-§7；上批条目「既有问题裁定」更正（2026-10-26）。
 - **遗留登记**: [pss_critical_values.hpp:70](../include/cpphub/timeseries/ardl/pss_critical_values.hpp) `1.0 - normal_cdf(poly)` 同型深尾（族扫第 4 例，后续批）；可选 CI Windows Debug build-only job（调研 §1.4，成本 8-10 min，防 C1128 类回归）。
 
+---
+
+### PSS 深尾专项批: pss_critical_values.hpp 1−Φ 族第 4 例 (2026-10-26)
+
+> [pss_critical_values.hpp](../include/cpphub/timeseries/ardl/pss_critical_values.hpp) / [test_uecm_bounds.cpp](../tests/unit/timeseries/test_uecm_bounds.cpp) — 来源: 上批「遗留登记」（族扫第 4 例闭环）；调研: [RESEARCH_PSS_DEEPTAIL.md](../spec/p1-fixes/RESEARCH_PSS_DEEPTAIL.md)（提交 `88fbeb3`）；实施提交 `8748995`
+
+- **缺陷定级（P1 非 P0）**: `pss_response_pvalue` 的 `1.0 - normal_cdf(poly)` 在 poly≥8.25 灾难性抵消精确归零（≥8.06 起误差>10%）；锚键 (1,3,I0) stat=52.5 起误差 10%、**stat=55.4 起精确归零**（stat=100 真值 8.027e-26 → 输出 0）；**全 100 键双支路均中招**——small_p 支路归零阈值 stat∈[10.1, 56.8]（1e15 内无一幸免），large_p 支路 key (7,5,I1) 在 stat=3.16e-5 真值 4.141e-17 归零（c₂x² 项在小 stat 侧把 poly 推入灾难窗口 8.33；锚键 large_p 支路恰无窗口——按单键抽查会漏）。严重度高于前三例（VR/SMM 需 |z|≥8，本例 stat≈52-100 是协整检验日常量级）；但 uecm_bounds.hpp 三值结论走 stat vs CV 判据（:368-374），p_values 纯信息性输出 → 结论完整性不受污染，定 P1。
+- **上游同病**: statsmodels 0.14.6 `_pss_pvalue` 源码同为 `1 - norm.cdf(x @ p)`（probe_pss_cv.py [B] 源码实录）——缺陷随转录而来；修复后本库深尾严格优于上游；probe [B]「≤1e-16 vs statsmodels」自证不受影响（数学恒等 + stat≤2 逐位一致）。
+- **修复**: `0.5 * std::erfc(poly / std::sqrt(2.0))` 恒等式上尾直算（双支路同一表达式自动覆盖）；删除失去调用点的局部 `normal_cdf`；`.inc` 系数表/键语义/stat_star 切换不动；PSS 无 C-API/Python/MCP 面（grep 0 命中）→ 无 golden REGEN。
+- **TDD**: 先红后绿——行为红 2 FAILED（三处深尾锚旧式全报 0，gtest 实录 "actual: 0 vs 0"）+ 中尾守卫修复前后均绿；锚 = mpmath 60 位从 `.inc` double 系数复算（可复现口径）rtol 1e-9（覆盖 double Horner poly 误差经 dln p=−poly·dpoly 放大 ~1e-13）；**上批 `>1e-24` 防归零断言在本例不适用**（最深锚 6.03e-100 ≪ 1e-24，正确实现也过不了），改 p>0 + rtol 双断言。
+- **验证**: Debug——UecmBounds 21/21（18 旧 + 3 新深尾锚/守卫）、rbf_fd 10/10（构建撞树 NOT_BUILT 残留定向补验）；Release——**全量 ctest 2619/2619（140.12s）**。Debug 全量 ctest 不作门（上批口径：Debug-MC 单例 140-203s，全量需数小时；本轮两次全量尝试分别因构建进程撞树残留与耗时超限终止，权威门 = CI Release/Coverage 全量）。
+- **教训**: (1) 族扫第 4 例证伪"深尾=理论边角"惯性——归零阈值与统计量的现实尺度必须逐项评估，不能按族内经验外推（前三例 |z|≥8 已属可遇，本例 stat≈52 起是协整检验日常量级）；(2) 转录验证域 ≠ 求值稳健性域——probe [B] 的 ≤1e-16 自证域是 stat∈[2,10] 中尾，深尾求值缺陷在转录验收中天然不可见；(3) 多项式双支路（small_p/large_p）都要扫，灾难窗口是否存在取决于各键系数；(4) 并行构建进程冲突（MSB6003/MSB3073）可留半写状态——exe 缺失但 MSBuild tracker 认为已最新，删目标 `.dir` 中间目录强制重链；受累目标残留 `_NOT_BUILT` 占位需定向补验，不可拿撞树期 ctest 结果当证据。
+- **CI 证据**: run 40322737881（head 8748995）9/9 success；前置调研提交 88fbeb3 run 40309611308 同绿（docs-only）。
+- **交叉引用**: CHECKLIST §15 C-130~C-131；RESEARCH_PSS_DEEPTAIL §0-§6 + 附录 A（自足复现）；上批条目「遗留登记」（第 4 例闭环，`1−Φ` 族库内扫尾——待专项复核全库是否仍有同型写法）；剩余遗留 = 可选 CI Windows Debug build-only job。
+
 
