@@ -3097,4 +3097,20 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 
 ---
 
+### P2 遗留专项批: C1128 /bigobj + 三延迟项 + D-1 (2026-10-26)
+
+> [CMakeLists.txt](../CMakeLists.txt) / [variance_ratio_test.hpp](../include/cpphub/timeseries/unit_root/variance_ratio_test.hpp) / [midas_diagnostics.hpp](../include/cpphub/timeseries/midas/midas_diagnostics.hpp) / [cpphub_tool_registry.hpp](../include/cpphub/c_api/cpphub_tool_registry.hpp) / [mcp_golden.json](../python/tests/fixtures/mcp_golden.json) — 来源: 上批「既有问题裁定 + 已知延迟项」；调研: [RESEARCH_P2_C1128_AND_DEFERRED.md](../spec/p1-fixes/RESEARCH_P2_C1128_AND_DEFERRED.md)（提交 `eb0f5d1`）；实施提交 `a32d87e`
+
+- **C1128（P0）**: MSVC Debug 下 5 个巨型 TU（cpphub_c_api / test_vecm_model / test_integration_phase7c / test_integration_phase8 / **test_tool_registry**）报 C1128 节数超限并阻断 2 个依赖目标（test_c_api / test_c_api_tools）→ 根 `CMakeLists.txt` MSVC 块加 `$<$<COMPILE_LANGUAGE:CXX>:/bigobj>`（全配置）。**数量更正**: 专项调研逐 TU 实测推翻本日志上批"4 个巨型 TU + 3 个依赖目标"记录——`test_tool_registry` 不链 `cpphub_c_api`、自身即超限（第 5 个直接 TU），真正依赖阻断只有 test_c_api / test_c_api_tools；上批条目已就地更正。根因与证据链（官方 C1128//bigobj 文档、E&C v140+ 兼容、Eigen/LadybugDB/NITRC 社区先例、genex 落点四配置 vcxproj 实证）见调研文档 §1。实施后 7 目标 Debug 构建全绿。
+- **midas HAH（P1）**: [midas_diagnostics.hpp](../include/cpphub/timeseries/midas/midas_diagnostics.hpp) `1 - regularized_lower_gamma(df/2, stat/2)` → `chi2_sf(stat, df)`（RISK-036 同源上尾化）。HAH stat=2.108/df=2 落 x/2<a+1 支路，数值逐位一致（`HahTestMatchesR` 绿）；负 stat（半正定二次型舍入）从 1-(负 P) 风险变 p=1。
+- **SMM（P2）**: [variance_ratio_test.hpp](../include/cpphub/timeseries/unit_root/variance_ratio_test.hpp) 新增 `detail::smm_joint_p`：`q = 2Φ(-CD) = erfc(CD/√2)` 直算下尾，`p = -expm1(m·log1p(-q))`（与 expm1 文档 Notes 金融复利式同构）；`variance_ratio_test_multi` 接线替换旧 `1 - [2Φ(CD)-1]^m`（双重抵消：CD=10/m=4 输出 0 vs 真值 6.1e-23；CD=8/m=4 相对误差 ~7%）。
+- **D-1（P2a，调研新增发现）**: `vr_two_sided_p` 的 `2 - 2Φ(|z|)` 同型深尾归零（|z|=10 真值 1.5239706048321052132e-23、double 下输出 0；|z|=8 相对误差 ~7%）→ 改 `2Φ(-|z|)` 上尾直算。
+- **note 保守性（P3）**: `chow_denning_joint` note 增"horizon 间正相关 → p 偏保守"（SMM(m,∞) 独立近似在正相关 horizon 下 p 偏大 = 欠拒绝；R vrtest 不返回 p 值，此 note 为库内唯一语义提醒）；[test_tool_registry.cpp](../tests/unit/c_api/test_tool_registry.cpp) 增 note 断言；note 文本在 golden skeleton 原文内 → REGEN [mcp_golden.json](../python/tests/fixtures/mcp_golden.json)（diff 审计：skeleton 仅 note 行 + 4 个数值 ULP 级变动 ≤1.4e-15 相对差，来源 vr_two_sided_p 中尾效应）。
+- **TDD**: 先红后绿——编译红 C2039/C3861（`smm_joint_p` 未实现）+ 行为红 `TwoSidedPDeepTailNoCollapse` FAILED（D-1 归零）；锚 = mpmath 60 位真值（本地重算复核）相对容差 1e-12 + `>1e-24` 防归零断言；中尾回归（MultiChowDenning 1e-8 p_ref 重构、arch 锚 1e-12）全过。
+- **验证**: Debug——7 目标构建全绿（1 lib + 6 exe）、ToolRegistry 14/14 + CApi 29/29 + VR 26/26 + Midas 全绿；Release——VR+ToolRegistry+Midas 59/59（深尾锚 /O2 下同样过）；pytest 51 passed 1 skipped；CI 见下。
+- **教训**: (1) "3 个依赖目标受累"类转述性记录必须逐目标实测——受累目标里混着 1 个直接受害者（test_tool_registry），依赖关系断言（谁链谁）比编译失败现象更该核验，否则修复方案（定向 vs 全局）会基于错误清单设计；(2) 深尾抵消是**同型缺陷族**而非孤立 bug：χ² 上尾（036）、SMM 联合 p、两尾正态 p、（遗留）pss_critical_values.hpp:70 全是 `1-P` 型写法，一次族扫比逐个救火便宜；(3) note 文本改一个字 = MCP 契约变更（skeleton 原文）——语义提醒类改动要把 golden REGEN 和 C++ 断言当作同一提交的不可拆部分；(4) Edit 工具会剥离文件首 BOM（BOM 文件编辑后需字节级核验恢复），PowerShell ReadAllText 读回时会吞 BOM 导致检测假阴性，BOM 检查必须读字节（EF BB BF）而非字符串。
+- **CI 证据**: run 40259579315（head a32d87e）**9/9 success**；前置调研提交 eb0f5d1 CI run 40257433937 同绿（docs-only）。
+- **交叉引用**: CHECKLIST §14 C-124~C-129；RESEARCH_P2_C1128_AND_DEFERRED §0-§7；上批条目「既有问题裁定」更正（2026-10-26）。
+- **遗留登记**: [pss_critical_values.hpp:70](../include/cpphub/timeseries/ardl/pss_critical_values.hpp) `1.0 - normal_cdf(poly)` 同型深尾（族扫第 4 例，后续批）；可选 CI Windows Debug build-only job（调研 §1.4，成本 8-10 min，防 C1128 类回归）。
+
 

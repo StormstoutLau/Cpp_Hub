@@ -305,4 +305,19 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25）
+## 14. P2 遗留专项批（C1128 /bigobj + 三延迟项 + D-1, 2026-10-26）
+
+> 决策: [RESEARCH_P2_C1128_AND_DEFERRED.md](./RESEARCH_P2_C1128_AND_DEFERRED.md)（官方文档/社区案例 + 本地 MSVC 实证 + mpmath 60 位锚）；日志: DEVELOPMENT_LOG「P2 遗留专项批」条目；提交 `eb0f5d1`（调研）+ `a32d87e`（实施）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-124 | C1128 根治（P0） | 根 `CMakeLists.txt` MSVC 块 `$<$<COMPILE_LANGUAGE:CXX>:/bigobj>` 全配置；复用调研文档 §1 实证链 | 5 个巨型 TU（c_api/VECM/2 集成/tool_registry）+ 2 依赖目标 Debug 全部可构建；vcxproj 四配置落点正确 | ✅ 数量更正实证: 5 直接 TU + 2 依赖（test_tool_registry 自身超限，不链 c_api）；7 目标 Debug 构建全绿（1 lib + 6 exe）；`/utf-8 /bigobj` 落 test_tool_registry / cpphub_c_api 等四配置 ClCompile `AdditionalOptions`；DEVELOPMENT_LOG 既有条目同步更正 | ✅ |
+| C-125 | midas HAH p 值迁移（P1） | [midas_diagnostics.hpp](../../include/cpphub/timeseries/midas/midas_diagnostics.hpp) `1-regularized_lower_gamma` → `chi2_sf(stat, df)` | HahTestMatchesR 锚（stat=2.108/df=2）保持绿；负 stat 语义稳健 | ✅ stat/2=1.054 < a+1=2 同支路，数值逐位一致（预测与实测相符）；`MidasModel.HahTestMatchesR` 绿；Debug/Release 均过 | ✅ |
+| C-126 | SMM 深尾修复（P2） | [variance_ratio_test.hpp](../../include/cpphub/timeseries/unit_root/variance_ratio_test.hpp) 新增 `detail::smm_joint_p` = `-expm1(m·log1p(-q))`，multi 路径接线 | TDD 红先；5 个 mpmath 60 位锚相对 1e-12；中尾回归不破 | ✅ 红证据: C2039/C3861（`smm_joint_p` 不存在）；锚 (0,4)/(3,4)/(8,1)/(8,4)/(10,4) 全过（10,4 真值 6.0958824193284208528e-23，旧式输出 0）+ `>1e-24` 防归零断言；MultiChowDenning 中尾回归绿（≤1 ULP）；mpmath 锚值本地重算复核 | ✅ |
+| C-127 | D-1 单 horizon 两尾 p（P2a） | `vr_two_sided_p` `2-2Φ(|z|)` → `2Φ(-|z|)` | 行为红先（\|z\|=10 旧式输出 0）；锚 1.5239706048321052132e-23 | ✅ 行为红证据: `TwoSidedPDeepTailNoCollapse` FAILED（旧式归零）；修复后锚相对 1e-12 过 + `>1e-24` 断言；VR 套件 26/26 | ✅ |
+| C-128 | CD note 保守性 + golden REGEN（P3） | registry note 增"horizon 间正相关 → p 偏保守"；C++ 断言 + REGEN + diff 审计 | C++ 断言绿；skeleton diff 仅 note 行；pytest 全量绿 | ✅ `ToolRegistry.VarianceRatioSmoke` note 断言绿；golden diff 审计: skeleton 仅 chow_denning_joint note 行变更 + 4 数值 ULP 级变动（vr_two_sided_p 中尾效应，相对差 ≤1.4e-15 ≪ rtol 1e-9）；nanobind `_core` 重建后 pytest 51 passed 1 skipped | ✅ |
+| C-129 | 双配置验证 + CI 全绿 | Debug 7 目标 + 相关套件；Release 关键套件；`gh run view <run>` | 本地双配置绿；CI 9/9 job success | ✅ 本地: Debug ToolRegistry 14/14 + CApi 29/29 + VR 26/26 + Midas 全绿；Release VR+ToolRegistry+Midas 59/59（深尾锚 /O2 下同样过）；CI: run 40259579315（head a32d87e）**9/9 job success** | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26）
