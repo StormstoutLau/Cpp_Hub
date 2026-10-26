@@ -49,12 +49,7 @@ constexpr Size pss_flat_index(Size k, Size pss_case, bool upper_i1) {
     return (k - 1) * 10 + (pss_case - 1) * 2 + (upper_i1 ? 1 : 0);
 }
 
-/// 正态 CDF (与 unit_root::detail::normal_cdf 同式, 局部实现避免跨模块重依赖)
-inline Real normal_cdf(Real x) noexcept {
-    return 0.5 * std::erfc(-x / std::sqrt(2.0));
-}
-
-/// 响应面 p 值: 1 − Φ(Σ cᵢ·log(stat)ⁱ), 系数按 stat 与 stat_star 比较 (原始尺度)
+/// 响应面 p 值: Φ(−Σ cᵢ·log(stat)ⁱ) 上尾直算, 系数按 stat 与 stat_star 比较 (原始尺度)
 inline Real pss_response_pvalue(Real stat, Size k, Size pss_case, bool upper_i1) {
     const Size i = pss_flat_index(k, pss_case, upper_i1);
     const Real x = std::log(stat);
@@ -67,7 +62,12 @@ inline Real pss_response_pvalue(Real stat, Size k, Size pss_case, bool upper_i1)
         poly = PSS_LARGE_P[i][0] +
                x * (PSS_LARGE_P[i][1] + x * (PSS_LARGE_P[i][2] + x * PSS_LARGE_P[i][3]));
     }
-    return 1.0 - normal_cdf(poly);
+    // 深尾上尾直算 (1−Φ 族第 4 例, RISK-036 同源): 旧式 1−Φ(poly) 在 poly
+    // ≥8.25 灾难性抵消精确归零 (锚键 stat=100 真值 8.03e-26 实测报 0; 全
+    // 100 键双支路均可达, RESEARCH_PSS_DEEPTAIL.md §2)。Φ(−x) = 0.5·erfc(x/√2)
+    // 恒等式直算上尾: 中尾与旧式逐位一致或更准 (stat≤2 diff=0), 深尾保持
+    // ≤1e-13 相对精度; stat≳1e5 真值 <1e-308 纯欠流归零, 非缺陷。
+    return 0.5 * std::erfc(poly / std::sqrt(2.0));
 }
 
 /// 键域校验 (k ∈ 1..10, case ∈ 1..5; probe [A]: 表无 k=0 键)

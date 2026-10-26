@@ -421,6 +421,37 @@ TEST(UecmBounds, PSS_OriginalTable_Anchor) {
     EXPECT_DOUBLE_EQ(rt.crit_vals[1][1], -3.22);
 }
 
+// 17b. 深尾锚 (1−Φ 族第 4 例, RESEARCH_PSS_DEEPTAIL.md §5.2):
+//     旧式 1−Φ(poly) 在 poly≥8.25 精确归零 (stat=100 真值 8.03e-26 实测报 0);
+//     锚值 = mpmath 60dps 从 .inc double 系数复算 (可复现口径), rtol 1e-9 覆盖
+//     double Horner poly 误差经 dln p = −poly·dpoly 放大 (~1e-13 ≪ 1e-9)
+TEST(UecmBounds, PssPvalue_DeepTail_Anchors) {
+    // 键 (1,3): p_values[0] = I(0) null, stat ≫ stat_star → small_p 支路
+    const auto kv1 = ardl::pss_pvalue_bounds(100.0, 1, 3);
+    EXPECT_GT(kv1[0], 0.0);  // 旧实现精确归零 → 红
+    EXPECT_NEAR(kv1[0] / 8.0270903435668672315e-26, 1.0, 1e-9);
+    const auto kv2 = ardl::pss_pvalue_bounds(1000.0, 1, 3);
+    EXPECT_GT(kv2[0], 0.0);
+    EXPECT_NEAR(kv2[0] / 6.0291323510070266498e-100, 1.0, 1e-9);
+}
+
+TEST(UecmBounds, PssPvalue_DeepTail_LargeP_Branch) {
+    // 键 (7,5) I(1) null, stat=10^-4.5 → large_p 支路 (c₂x² 项把 poly 推入
+    // 灾难窗口 8.33 — 全键扫描最严重单点, 真值 4.14e-17, 旧实现归零)
+    const auto kv = ardl::pss_pvalue_bounds(3.1622776601683795e-05, 7, 5);
+    EXPECT_GT(kv[1], 0.0);
+    EXPECT_NEAR(kv[1] / 4.1407709081409948953e-17, 1.0, 1e-9);
+}
+
+TEST(UecmBounds, PssPvalue_MidTail_RegressionGuard) {
+    // 中尾守卫 (非红锚, 修复前后均须过): 旧式误差 2.1e-14 / 上尾直算 6.7e-16
+    const auto kv = ardl::pss_pvalue_bounds(10.0, 1, 3);
+    EXPECT_NEAR(kv[0] / 7.228475924500985693e-4, 1.0, 1e-12);
+    // 与 0.1% CV 档衔接 sanity: stat = 5% CV 4.9228967 → p ≈ 0.049
+    const auto kcv = ardl::pss_pvalue_bounds(4.9228967, 1, 3);
+    EXPECT_NEAR(kcv[0] / 0.0489768270194, 1.0, 1e-9);
+}
+
 // 18. 校验: ARDL(0,0) / k=0 bounds 拒绝 / ardl_fit hb 下限 (statsmodels
 //     L586 镜像, Step 2 补校验回归)
 TEST(UecmBounds, Validation_Throws) {
