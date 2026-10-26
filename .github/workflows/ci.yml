@@ -90,6 +90,41 @@ jobs:
         run: ctest --build-config ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure --parallel 4
 
   # ---------------------------------------------------------------------------
+  # Windows Debug 编译守卫 (C1128 专项遗留项落地, RESEARCH_P2_C1128_AND_DEFERRED
+  # §1.4): Release 门禁看不见 Debug 专属问题 — C1128 COFF 节上限 (/Zi 下每
+  # COMDAT 携带调试节) 与 RISK-029/030/031 批的 Size 无符号下溢族均只在 Debug
+  # 暴露。build-only 不跑全量 ctest (Debug-MC 单例 140-203s, 全量需数小时):
+  # 只编 7 个已知重 TU 目标 (5 直接 + 2 依赖, 调研 §1.1), 成本 ~8-10 min。
+  # ---------------------------------------------------------------------------
+  windows-debug-guard:
+    name: Debug compile guard (MSVC)
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: build_debug/_deps
+          key: gtest-f8d7d77c-${{ runner.os }}-debugguard
+
+      - name: Configure (Debug, C API ON)
+        shell: bash
+        run: cmake -S . -B build_debug -G "Visual Studio 17 2022" -A x64 -DCPPHUB_ENABLE_C_API=ON
+
+      - name: Build heavy TUs (Debug)
+        shell: bash
+        run: cmake --build build_debug --config Debug --parallel 4 --target cpphub_c_api test_tool_registry test_c_api test_c_api_tools test_vecm_model test_integration_phase7c test_integration_phase8
+
+  # ---------------------------------------------------------------------------
   # C ABI build + test: validates the ADR-009 stable boundary
   # Runs on both platforms with CPPHUB_ENABLE_C_API=ON.
   # ---------------------------------------------------------------------------
