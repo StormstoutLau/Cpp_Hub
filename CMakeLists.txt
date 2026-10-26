@@ -9,7 +9,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # MSVC UTF-8 (仅 CXX, CUDA 通过 -Xcompiler 传递需单独处理)
 if(MSVC)
-    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/utf-8> $<$<COMPILE_LANGUAGE:CXX>:/W3>)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/utf-8> $<$<COMPILE_LANGUAGE:CXX>:/W3>
+        # C1128 根治: COFF .obj 默认 65,279 节上限; Debug (/Zi) 下每个 COMDAT
+        # 函数额外带调试节, 本库 5 个巨型 TU (c_api + VECM + 2 集成 +
+        # tool_registry) 实测超限。 /bigobj 仅把节容量扩到 2^32, 不改代码
+        # 生成/ABI; VS v140+ 与 /Zi 及 /ZI 兼容。 全配置启用 (非仅 Debug):
+        # $<CONFIG:> genex 在 VS 生成器下有静默丢弃先例, 且配置间格式一致
+        # 无收益; COMPILE_LANGUAGE genex 与现有 /utf-8 同款, 避免传给 nvcc。
+        $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
     add_compile_definitions(_USE_MATH_DEFINES)
 endif()
 

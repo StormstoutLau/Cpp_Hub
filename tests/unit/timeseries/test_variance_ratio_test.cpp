@@ -237,6 +237,37 @@ TEST(VarianceRatioTest, ChowDenningStatisticMultiIsMaxAbsZ2) {
 }
 
 // ---------------------------------------------------------------------------
+// RISK-037 (P2 批): SMM 联合 p 深尾 + D-1 单 horizon 两尾 p 深尾
+// 旧式 1-[2·Phi(CD)-1]^m 与 2-2·Phi(|z|) 双重抵消, 深尾归零:
+//   CD=8/m=4 旧式相对误差 ~7%; CD=10/m=4 旧式输出 0 (真值 6.1e-23)
+// 锚 = mpmath 60 位真值 (RESEARCH_P2_C1128_AND_DEFERRED §5.5), 相对容差 1e-12
+// ---------------------------------------------------------------------------
+
+// SMM(m,inf) 稳健式: q = 2·Phi(-|CD|) = erfc(|CD|/sqrt(2)); p = -expm1(m·log1p(-q))
+TEST(VarianceRatioTest, SmmJointPDeepTailAnchors) {
+    // mpmath 60 位锚 (EXPECT_NEAR 绝对容差参数承载相对容差)
+    EXPECT_NEAR(ur::detail::smm_joint_p(0.0, 4), 1.0, 0.0);  // cd=0 → q=1 → p=1 精确
+    EXPECT_NEAR(ur::detail::smm_joint_p(3.0, 4), 0.010755529521374500943,
+                0.010755529521374500943 * 1e-12);
+    EXPECT_NEAR(ur::detail::smm_joint_p(8.0, 1), 1.2441921148543568247e-15,
+                1.2441921148543568247e-15 * 1e-12);
+    EXPECT_NEAR(ur::detail::smm_joint_p(8.0, 4), 4.9767684594174180107e-15,
+                4.9767684594174180107e-15 * 1e-12);
+    EXPECT_NEAR(ur::detail::smm_joint_p(10.0, 4), 6.0958824193284208528e-23,
+                6.0958824193284208528e-23 * 1e-12);
+    // 防归零语义防线: cd=10 联合 p 必须严格非零且量级正确
+    EXPECT_GT(ur::detail::smm_joint_p(10.0, 4), 1e-24);
+}
+
+// D-1: 单 horizon 两尾 p 同型深尾 — |z|=10 真值 1.5239706048321052132e-23,
+// 旧式 2-2·Phi(|z|) 在 double 下输出 0 (|z|=8 相对误差 ~7%)
+TEST(VarianceRatioTest, TwoSidedPDeepTailNoCollapse) {
+    EXPECT_NEAR(ur::detail::vr_two_sided_p(10.0), 1.5239706048321052132e-23,
+                1.5239706048321052132e-23 * 1e-12);
+    EXPECT_GT(ur::detail::vr_two_sided_p(10.0), 1e-24);
+}
+
+// ---------------------------------------------------------------------------
 // 21: 平移不变性 — 差分消除常数水平
 // ---------------------------------------------------------------------------
 TEST(VarianceRatioTest, InvarianceToLevelShift) {

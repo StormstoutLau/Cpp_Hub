@@ -254,6 +254,20 @@ TEST(ToolRegistry, VarianceRatioSmoke) {
     EXPECT_EQ(r.find("conclusion")->find("primary_method")->as_string(),
               "lo_mackinlay_z2");
     EXPECT_EQ(r.find("results")->as_array().size(), 4u);
+    // P3: chow_denning_joint 行必须携带保守性语义提醒 (R vrtest 不返回 p 值,
+    // 此 note 是库内唯一提醒; SMM(m,inf) 独立近似在 horizon 正相关时 p 偏大)
+    for (const json::Value& row : r.find("results")->as_array()) {
+        if (row.find("method")->as_string() == "chow_denning_joint") {
+            bool has_conservative = false;
+            for (const json::Value& n : row.find("notes")->as_array()) {
+                if (n.as_string().find("偏保守") != std::string::npos) {
+                    has_conservative = true;
+                }
+            }
+            EXPECT_TRUE(has_conservative)
+                << "chow_denning_joint row must carry conservative note";
+        }
+    }
 }
 
 TEST(ToolRegistry, CointegrationScanSmoke) {

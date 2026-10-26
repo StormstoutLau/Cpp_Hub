@@ -282,8 +282,10 @@ inline HahResult hAh_test(const MidasResult& fit, const MixedFreqData& data,
     if (out.df == 0) {
         out.p = std::numeric_limits<Real>::quiet_NaN();
     } else {
-        out.p = 1.0 - regularized_lower_gamma(
-                           static_cast<Real>(out.df) / 2.0, out.stat / 2.0);
+        // χ² 上尾 sf 直算 (RISK-036 同源): 旧 1-P 写法在深尾 (stat/2 ≫ df/2)
+        // 双重抵消归零; chi2_sf 对 stat 负值 (半正定二次型舍入) 返回 p=1
+        // 而非 1-(负 P) 溢出。 中尾数值逐位一致 (stat/2 < df/2 支路同式)。
+        out.p = chi2_sf(out.stat, static_cast<Real>(out.df));
     }
     return out;
 }

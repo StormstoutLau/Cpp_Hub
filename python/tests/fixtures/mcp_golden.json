@@ -38,16 +38,16 @@
       ]
     },
     "cpphub_variance_ratio_test": {
-      "skeleton": "{\"tool\":\"cpphub_variance_ratio_test\",\"results\":[{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"lo_mackinlay_z1\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=随机游走 (Lo-MacKinlay 1988 同方差 Z1, U14)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"lo_mackinlay_z2\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=随机游走 (异方差稳健 Z2, U15; 主检验)\",\"trend=c; debiased=true\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"chow_denning_joint\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"多 horizon 联合 SMM(m,inf) (U16: 多重检验校正)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"clm_debiased\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"CLM 小样本 debiased Z2 (U17, 恒 debias)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]}],\"conclusion\":{\"primary_method\":\"lo_mackinlay_z2\",\"reject_null\":false,\"n_total\":4}}",
+      "skeleton": "{\"tool\":\"cpphub_variance_ratio_test\",\"results\":[{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"lo_mackinlay_z1\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=随机游走 (Lo-MacKinlay 1988 同方差 Z1, U14)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"lo_mackinlay_z2\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"H0=随机游走 (异方差稳健 Z2, U15; 主检验)\",\"trend=c; debiased=true\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"chow_denning_joint\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"多 horizon 联合 SMM(m,inf) (U16: 多重检验校正; horizon 间正相关 → p 偏保守)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]},{\"tool\":\"cpphub_variance_ratio_test\",\"method\":\"clm_debiased\",\"statistic\":\"<num>\",\"p_value\":\"<num>\",\"cv_5pct\":null,\"reject_null\":false,\"notes\":[\"CLM 小样本 debiased Z2 (U17, 恒 debias)\",\"VR(k) 逐 horizon: k=2 -> <num>, k=5 -> <num>, k=10 -> <num>, k=20 -> <num>\"]}],\"conclusion\":{\"primary_method\":\"lo_mackinlay_z2\",\"reject_null\":false,\"n_total\":4}}",
       "numbers": [
         -1.4921539883054273,
-        0.13565878133250786,
+        0.13565878133250794,
         -1.3385846942648503,
-        0.18070591157560312,
+        0.18070591157560287,
         1.3385846942648503,
-        0.549433098981491,
+        0.5494330989814904,
         -1.3385846942648503,
-        0.18070591157560312
+        0.18070591157560287
       ]
     },
     "cpphub_cointegration_scan": {

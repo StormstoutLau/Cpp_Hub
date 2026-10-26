@@ -148,9 +148,22 @@ inline VrCore vr_core(const std::vector<Real>& data, Size k, bool debiased,
     return c;
 }
 
-// 两尾 p 值: 2 - 2·Phi(|stat|) (arch unitroot.py:1765)
+// 两尾 p 值: 2·Phi(-|stat|) 上尾直算 (arch unitroot.py:1765 语义等价;
+// RISK-037/D-1: 旧式 2-2·Phi(|z|) 在 |z|=10 双重抵消归零, |z|=8 误差 ~7%)
 inline Real vr_two_sided_p(Real stat) noexcept {
-    return 2.0 - 2.0 * normal_cdf(std::fabs(stat));
+    return 2.0 * normal_cdf(-std::fabs(stat));
+}
+
+// SMM(m,inf) 联合 p 值 (Chow-Denning), 稳健式防深尾抵消 (RISK-037):
+//   等价式 p = 1 - [2·Phi(cd)-1]^m, 但双重抵消 (2Φ-1 吃上尾 + 1-powm 归零)
+//   在 CD=10/m=4 输出 0 (真值 6.1e-23), CD=8/m=4 相对误差 ~7%。
+//   稳健式 q = 2·Phi(-cd) = erfc(cd/√2) 直算下尾, p = -expm1(m·log1p(-q))
+//   (与 expm1 文档 Notes 的金融复利式 (1+x)^n-1 = expm1(n·log1p(x)) 同构)。
+inline Real smm_joint_p(Real cd_abs, Size m) noexcept {
+    if (m == 0) return 1.0;
+    const Real q = 2.0 * normal_cdf(-cd_abs);
+    if (q >= 1.0) return 1.0;  // cd = 0
+    return -std::expm1(static_cast<Real>(m) * std::log1p(-q));
 }
 
 }  // namespace detail
@@ -205,7 +218,8 @@ inline VarianceRatioResult variance_ratio_test(
 // 多 horizon 方差比 + Chow-Denning 联合检验 (U16)
 //
 // @param k_list horizon 列表 (如 {2, 5, 10, 20}, 全部 >= 2, 非空)
-// 注: CD 用 Z2 (异方差稳健); 联合 p 值 SMM(m,inf): 1 - [2·Phi(|CD|)-1]^m
+// 注: CD 用 Z2 (异方差稳健); 联合 p 值 SMM(m,inf) = 1 - [2·Phi(|CD|)-1]^m,
+//     实现走稳健式 -expm1(m·log1p(-q)) 防深尾抵消 (detail::smm_joint_p)
 // ---------------------------------------------------------------------------
 inline VarianceRatioResult variance_ratio_test_multi(
     const std::vector<Real>& data, const std::vector<Size>& k_list = {2, 5, 10, 20},
@@ -245,10 +259,8 @@ inline VarianceRatioResult variance_ratio_test_multi(
 
     // SMM(m, inf) 联合 p 值 (U16-smm); RISK-035: 联合统计量 CD = max|Z2| 暴露到结果
     r.chow_denning_statistic = cd_abs;
-    const Real one_sided = 2.0 * detail::normal_cdf(cd_abs) - 1.0;
-    Real powm = 1.0;
-    for (Size i = 0; i < k_list.size(); ++i) powm *= one_sided;
-    r.chow_denning_p_value = 1.0 - powm;
+    // RISK-037: 稳健式 -expm1(m·log1p(-q)) 防深尾抵消 (中尾与旧式 <=1 ULP)
+    r.chow_denning_p_value = detail::smm_joint_p(cd_abs, k_list.size());
     r.reject_null = r.chow_denning_p_value < 0.05;
 
     r.summary = "Chow-Denning joint VR test: H0 random walk (m=" +
