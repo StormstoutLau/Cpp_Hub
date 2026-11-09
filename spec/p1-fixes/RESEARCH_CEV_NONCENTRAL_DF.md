@@ -265,3 +265,12 @@ MC 复现：Euler + 吸收壁，100k 路径、16000 步、`numpy.random.default_
 | E11 | 4 个消费者测试依赖旧价格面 | B | 上批 stash 实测（6 失败，基线 21/21+15/15）+ 本轮公式面变化分析 |
 | E12 | 无 C-API/MCP golden 面 | A | grep `cev` 于 c_api/golden/python tests = 0 |
 | E13 | 批 A 独立即可消除主价错误；批 B 只影响深尾 | B | 判质推理（§6） |
+
+---
+
+## §9 实施结果（2026-11-09）
+
+- **批 A（`757a9fc`）**: `cev_analytic.hpp` 自由度修正 + 注释；4 个消费者测试重定基 + 6 个新锚（β=0 硬锚 1e-9、β=0.3 双锚 1e-6、β=0.5 回归锚 1e-8、β=0.7 锚 1e-6、12 点无套利界）。红证据与 §3 一致（`BetaZeroMatchesAbsorbedBachelier` 抛异常、19.7271 < 20 等 4 项 FAILED）。
+- **批 B（`682269d`）**: `math.hpp` 新增 `noncentral_chi2_sf` + `detail::ncchi2_mixture`（±10σ ∪ Gamma 有效区）；CEV `P₁` 切 SF；新增 4 个 D-2 锚。深 OTM P1 地板 3.17e-7 → 真值（K=120/130/150 三锚 rtol 1e-6）；深 ITM K=80 偏差 2.2e-5 → <1e-10；K=150 价格 3.17e-5 → <1e-20。
+- **与计划的偏差**: 无（批 A/B 均按 §6 实施）。实施期新增两处测试参数调整：`SyntheticDataRecovery` 的 σ 从 0.4 改为 1.0（IV 跨度 0.0041→0.0101，恢复 (σ,β) 可识别性，原 2% 容差在新价格面下不可达）；`BoundaryBetaNoCrash` 的 β=0.99 参数恢复改为 0.10 宽松守卫（β→1 时 skew→0，弱可识别）。
+- **验证**: test_cev 29/29；test_multi_calibrator 15/15（146.9s；BoundaryBetaNoCrash 70.0s < 2× 基线 57.7s）；Release 全量 2643/2643（242.73s）；CI run 42640151083（head 682269d）**10/10 success**。

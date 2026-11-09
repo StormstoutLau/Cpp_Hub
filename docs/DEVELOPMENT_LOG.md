@@ -3150,10 +3150,26 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **缺陷 A（族第 5 例, P1）**: aj/bns 局部 `normal_cdf = 0.5*(1+erf(x/√2))` 在 x<−5.86 时 erf 舍入为 −1 → 双尾 p 在 \|z\|≥8.259 精确归零（真值 1.47e-16 仍可表示）；\|z\|=8 已有 1.84% 相对误差、\|z\|=4.667 亦有 1.8e-11。影响 BNS/AJ/JO 三个 p 值出口 → 改 `0.5*erfc(-x/√2)`（归零点下移到 \|z\|≈38.47 真欠流）；bns 的该函数提为 public 供测试直调。
 - **邻接族（1−e^x）**: conditional_mc `1.0 - std::exp(exponent)` → `-std::expm1(exponent)`（exponent≈−2.62e-11 时旧式相对误差实测 1.099e-6）。
 - **TDD**: 先红后绿——临时回退修复点实测 `normal_cdf(-9.0)=0`（真值 2.2571768119076813e-19）、`|z|=8.3 → 0`（真值 1.0411139489780508e-16）、中尾 1.8004264745741239e-11 > 1e-12、CMC 1.0989993395467926e-6 > 1e-12；新增 3 条 mpmath 60dps 锚（rtol 1e-9/1e-12 + `>0` 防归零断言）；更正 test_aj_jump_test.cpp 旧注释（"下溢为 0 是浮点正常行为"仅对真欠流成立）。
-- **批 2（CEV）延后裁定**: 实施中 6 个既有测试失败（stash 基线 test_cev 21/21、test_multi_calibrator 15/15 全绿）→ 4 个消费者测试红绿依赖旧地板（P1 修复后深 ITM vega→0、IV 反推落搜索下界、β=0.10 深 OTM 真价 ~1e-440 无法反推）；且发现 **β<0.5 既有定价缺陷**（β=0.3/σ=4/K=80 解析 19.7271 < 内在价值 20，MC 真值 20.7129±0.033 ≈ 30 倍标准误；同参数 β=0.5 时解析 vs MC 一致）→ 需先调研 Schroder 公式 β<0.5 适用性（c/d 指派、小 β 边界），再连同测试重定基做独立专项批。
+- **批 2（CEV）延后裁定**: 实施中 6 个既有测试失败（stash 基线 test_cev 21/21、test_multi_calibrator 15/15 全绿）→ 4 个消费者测试红绿依赖旧地板（P1 修复后深 ITM vega→0、IV 反推落搜索下界、β=0.10 深 OTM 真价 ~1e-440 无法反推）；且发现 **β<0.5 既有定价缺陷**（β=0.3/σ=4/K=80 解析 19.7271 < 内在价值 20，MC 真值 20.7129±0.033 ≈ 30 倍标准误；同参数 β=0.5 时解析 vs MC 一致）→ 需先调研 Schroder 公式 β<0.5 适用性（c/d 指派、小 β 边界），再连同测试重定基做独立专项批。**后续专项批更正**: 实际为 β≠0.5 全域自由度错配（β=0.5 恰好是不动点），见「CEV 非中心卡方自由度专项批」条目。
 - **验证**: Release 全量 **2635/2635 passed**（265.28s）；定向 AJ 9/9 / HFE 19/19 / CMC 18/18；CI 见下。
 - **教训**: (1)「结构断言 ⇒ 与修复无关」是错误推论——`EXPECT_GT(x,0)` 型断言的绿可能完全依赖错误实现的非零地板，族修复的回归面必须按**调用链下游测试**枚举；(2) 数值修复前先验证基础定价在参数全域的正确性（CEV β<0.5 下界违反是 30 倍标准误级别，却藏在结构断言背后）；(3) Python `io.open(...,'w')` 写回会破坏 CRLF → diff 爆炸（830/596/308 行），恢复须 `git checkout` + Edit 工具重做（本轮实际踩中，已收敛为 63/7 行）。
 - **CI 证据**: run 42607774070（head b288573）**10/10 success**（Coverage job 最慢、终态全绿；其余含 MSVC/GCC 双平台构建测试、C ABI ×2、Python ×4、Debug 编译守卫）。
 - **交叉引用**: CHECKLIST §17 C-133~C-136；RESEARCH_ONEMPHI_SWEEP §3-§5 + §8（实施期发现与分批裁定）；上批条目「剩余遗留」= 族扫闭环。
+
+---
+
+### CEV 非中心卡方自由度专项批: RISK-039（2026-11-09）
+
+> [cev_analytic.hpp](../include/cpphub/pricing/analytic/cev_analytic.hpp) / [math.hpp](../include/cpphub/core/math.hpp) / [test_cev.cpp](../tests/unit/models/test_cev.cpp) / [test_multi_calibrator.cpp](../tests/unit/calibration/test_multi_calibrator.cpp) — 来源: 上批「1−Φ 族全库复核批」遗留的 CEV 批 2（用户指令建立独立专项批）；调研: [RESEARCH_CEV_NONCENTRAL_DF.md](../spec/p1-fixes/RESEARCH_CEV_NONCENTRAL_DF.md)（提交 `ab62497`）；实施提交 `757a9fc`（批 A）+ `682269d`（批 B）
+
+- **根因（D-1, P0）**: `cev_analytic.hpp` 的 Schroder 公式非中心卡方自由度错配。原文（β_S=2β 参数化）第一项 df = 2+2/(2−β_S)、第二项 df = 2/(2−β_S)；本库换算应为 **ν₁ = 2+1/(1−β)、ν₂ = 1/(1−β)**，旧实现写 `2/(1−β)` 与 `2/(1−β)−2`。两套自由度**仅在 β=0.5 重合**——历史测试全绿、且「β=0.5 对 MC 一致」均为不动点巧合；实际 **β≠0.5 全域错误**。上批「仅 β<0.5 失效」判断已在 CHECKLIST C-135 / RESEARCH §8.2 更正。
+- **证据（A 级）**: Schroder 1989 原文 df 引文；β=0 吸收壁 Bachelier 闭式硬锚差 8.5e-14（当前实现 ν₂=0 直接抛异常）；MC（Euler 吸收壁，100k 路径/16k 步）在 β=0.3/0.6/0.7 与 r≠q 下修正公式全部 ±1.4σ，旧公式偏 23%–66%（β=0.3/σ=4/K=100：3.8122 vs 6.3494；β=0.3/σ=4/K=80：19.7271 低于内在价值 20）；525 点无套利界网格修正后 0 违反；β=0.5 新旧逐位一致。
+- **批 A（`757a9fc`）**: 自由度修正 + 注释重写；4 个消费者测试重定基（test_cev `BetaBelowOneProducesSkew` 改 σ=4/K=90–110；`BetaZeroIsBachelierLike` → β=0 硬锚；test_multi_calibrator `SyntheticDataRecovery` 改 σ=1.0（IV 跨度 0.0041→0.0101）；`BetaBelowOneProducesSkew` 改 K=90/110 + 按 β 调 σ；`BoundaryBetaNoCrash` 改 β=0.10→σ=1.0 + ATM 邻近 strikes）；新增 6 个绝对锚/界测试。
+- **批 B（`682269d`）**: `math.hpp` 新增 `noncentral_chi2_sf`（上尾 Poisson 混合 + `regularized_upper_gamma` 直算），`detail::ncchi2_mixture` 把大 λ 的 5σ 固定窗口改为 **±10σ ∪ Gamma 有效区**（Q(a,x/2) 峰值在 a≈x/2，可能远离 Poisson 众数）；CEV `P₁` 切 SF。效果：深 OTM P1 地板 3.17e-7 → 真值（K=120 1.13757e-10 / K=130 5.60327e-21 / K=150 6.43537e-51，rtol 1e-6）；深 ITM K=80 偏差 2.2e-5 → <1e-10；K=150 价格 3.17e-5 → <1e-20。
+- **TDD**: 先红后绿——修正前 `BetaZeroMatchesAbsorbedBachelier`（抛异常）/ `BetaPointThreePriceAnchors` / `BetaPointSevenPriceAnchor` / `NoArbitrageBoundsHold` 全 FAILED，gtest 实录 19.7271 < 20 与 2.8914 < 2.8969；修正后全绿；β=0 锚收紧 1e-4→1e-9、β=0.7 锚 1e-4→1e-6、补 4 个 D-2 锚（SF 深尾/互补/深 ITM/地板）。
+- **验证**: test_cev **29/29**；test_multi_calibrator **15/15**（146.9s；BoundaryBetaNoCrash 70.0s < 2× 基线 57.7s）；Release 全量 **2643/2643**（242.73s，较上批 2635 +8 新例）。
+- **教训**: (1) 同一公式在单一参数点（β=0.5）与参照一致，不能证明实现正确——自由度/系数类错误可能恰好在该点抵消，绝对锚必须覆盖参数全域（含边界 β=0/β=1）；(2) 深尾「上尾直算」的窗口不能只按 Poisson 主体截取——Gamma 因子的峰值（a≈x/2）可能远离 Poisson 众数，必须按因子有效区扩展；(3) 数值层的 1e-5 级误差会藏在「结构断言」背后（IV 翼、校准形状），绝对精度锚（深 ITM |C−内在|<1e-10）比相对容差更能锁住性质。
+- **CI 证据**: run 42640151083（head 682269d）**10/10 success**（MSVC/GCC 双平台构建测试 + C ABI ×2 + Python ×4 + Coverage + Debug 编译守卫）；调研提交 ab62497 触发的 docs-only run 42636922321（被后续 push 取代）。
+- **交叉引用**: CHECKLIST §18 C-137~C-140；RESEARCH_CEV_NONCENTRAL_DF §0-§8 + 附录 A/B；上批「1−Φ 族全库复核批」CEV 批 2 延后项闭环；C-135/§8.2 的「仅 β<0.5」更正。
 
 

@@ -349,9 +349,22 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 |---|---|---|---|---|---|
 | C-133 | 缺陷 A 族第 5 例: HFE 跳检验 p 值深尾归零（P1） | [aj_jump_test.hpp](../../include/cpphub/hfecon/tests/aj_jump_test.hpp):159-160 + [bns_jump_test.hpp](../../include/cpphub/hfecon/tests/bns_jump_test.hpp):228-231 局部 `normal_cdf` `0.5*(1+erf(x/√2))` → `0.5*erfc(-x/√2)`；bns 该函数提 public 供测试直调；[test_aj_jump_test.cpp](../../tests/unit/hfecon/test_aj_jump_test.cpp) 旧注释更正；新增 3 条 mpmath 锚 | TDD 行为红先；锚 rtol 1e-9/1e-12 + `>0` 防归零；中尾（R 基线 CASE6 p=3.0489094124e-06）不破 | ✅ 红证据（临时回退实测）: `normal_cdf(-9)=0`（真值 2.2571768119076813e-19）、`\|z\|=8.3 → 0`（真值 1.0411139489780508e-16）、中尾 `\|z\|=4.6674971744735663` 相对误差 1.8004264745741239e-11；修复后 AJ 9/9、HFE 19/19 | ✅ |
 | C-134 | 邻接族 1−e^x: conditional_mc survival_prob（P2） | [conditional_mc.hpp](../../include/cpphub/monte_carlo/conditional_mc.hpp):81 `1.0 - std::exp(exponent)` → `-std::expm1(exponent)`；新增 `ConditionalMC.SurvivalProbDeepSmallExponent` | 红先；相对误差 <1e-12（ref 同式 expm1） | ✅ 红证据: 旧式相对误差 1.0989993395467926e-6（exponent≈−2.62e-11）；修复后 CMC 18/18 绿 | ✅ |
-| C-135 | 全库扫描裁定 + CEV 批 2 延后 | 581 处 `1 - …` 全量过滤（include/cpphub 100 文件 + Python/C-API 层）逐条判质；CEV 修复实施诊断 | 族内缺陷清单闭合；CEV 延后有实证依据 | ✅ 42 处良性/已修 + 族内缺陷 2 处（A/HFE、B/CEV）+ 邻接族 1 处（CMC）；CEV 批 2 延后: 4 个消费者测试依赖旧地板 + **β<0.5 既有定价缺陷**（β=0.3/σ=4/K=80 解析 19.7271 < 内在 20 vs MC 20.7129±0.033 ≈ 30 倍标准误），见 RESEARCH §8.2；AD erf 型有意保留 | ✅ |
+| C-135 | 全库扫描裁定 + CEV 批 2 延后 | 581 处 `1 - …` 全量过滤（include/cpphub 100 文件 + Python/C-API 层）逐条判质；CEV 修复实施诊断 | 族内缺陷清单闭合；CEV 延后有实证依据 | ✅ 42 处良性/已修 + 族内缺陷 2 处（A/HFE、B/CEV）+ 邻接族 1 处（CMC）；CEV 批 2 延后: 4 个消费者测试依赖旧地板 + **β≠0.5 全域定价缺陷**（后续专项批定位为自由度错配, 见 §18 / RESEARCH_CEV_NONCENTRAL_DF.md；本节原「仅 β<0.5」判断已更正），见 RESEARCH_ONEMPHI_SWEEP §8.2；AD erf 型有意保留 | ✅ |
 | C-136 | 双配置验证 + Release 全量 + CI 全绿 | Release 全量 ctest + 定向套件 + `gh run view` | 2635/2635；CI 10/10 | Release 全量 **2635/2635 passed**（265.28s）；定向 AJ 9/9 / HFE 19/19 / CMC 18/18；CI: run 42607774070（head b288573）**10/10 success**（Coverage job 全绿；其余 9 job 含 MSVC/GCC 双平台 + C ABI ×2 + Python ×4 + Debug 守卫） | ✅ |
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26; §16 CI Debug 守卫批 2026-11-09; §17 1−Φ 族全库复核批 2026-11-09）
+## 18. CEV 非中心卡方自由度专项批（RISK-039, 2026-11-09）
+
+> 决策: [RESEARCH_CEV_NONCENTRAL_DF.md](./RESEARCH_CEV_NONCENTRAL_DF.md)（Schroder 1989 原文自由度 + β=0 吸收壁硬锚 + MC 全域 + 525 点无套利界）；日志: DEVELOPMENT_LOG「CEV 非中心卡方自由度专项批」条目；提交 `ab62497`（调研）+ `757a9fc`（批 A）+ `682269d`（批 B）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-137 | D-1 自由度修正（P0） | [cev_analytic.hpp](../../include/cpphub/pricing/analytic/cev_analytic.hpp) ν₁ = 2+1/(1−β)、ν₂ = 1/(1−β)（Schroder 原文 2+2/(2−β_S)、2/(2−β_S) 换算） | TDD 行为红先；β=0 硬锚 1e-9；β=0.5 逐位不变；β=0.7 锚 1e-6；MC 全域 ±1.5σ | ✅ 红证据（修正前）: `BetaZeroMatchesAbsorbedBachelier` FAILED（旧 ν₂=0 抛异常）、`BetaPointThreePriceAnchors` FAILED、`BetaPointSevenPriceAnchor` FAILED、`NoArbitrageBoundsHold` FAILED（19.7271 < 20、2.8914 < 2.8969）；修正后 CEVAnalyticTest 11/11；β=0 与吸收壁 Bachelier 闭式差 <1e-9；β=0.5 回归锚 27.0996761741 逐位一致 | ✅ |
+| C-138 | D-2 数值层加固 | [math.hpp](../../include/cpphub/core/math.hpp) 新增 `noncentral_chi2_sf` + `detail::ncchi2_mixture`（±10σ ∪ Gamma 有效区）；CEV `P₁` 切 SF | 深尾锚 rtol 1e-6；深 ITM <1e-10；旧地板消失 | ✅ SF 锚 K=120 1.1375687030e-10 / K=130 5.6032727394e-21 / K=150 6.4353660025e-51（rtol 1e-6）；深 ITM β=0.5/σ=0.3/K=80 <1e-10（旧偏 2.2e-5）；深 OTM K=150 <1e-20（旧地板 3.17e-5）；cdf+sf=1 @1e-12 | ✅ |
+| C-139 | 消费者测试重定基 | 4 个旧测试改为可解域 + 绝对锚；新增 8 个测试 | 语义保留、非容差放宽 | ✅ test_cev: `BetaBelowOneProducesSkew` 改 σ=4/K=90–110（IV 差 0.0112）、`BetaZeroIsBachelierLike` → β=0 硬锚、新增 4 锚；test_multi_calibrator: `SyntheticDataRecovery` 改 σ=1.0（IV 跨度 0.0041→0.0101）、`BetaBelowOneProducesSkew` 改 K=90/110 + 按 β 调 σ、`BoundaryBetaNoCrash` 改 β=0.10→σ=1.0 + ATM 邻近 strikes；新增 SF 深尾/互补/深 ITM/地板 4 例 | ✅ |
+| C-140 | 验证 + CI 全绿 | Release 全量 + 定向套件 + `gh run view` | 2643/2643；CI 10/10 | test_cev **29/29**；test_multi_calibrator **15/15**（146.9s；BoundaryBetaNoCrash 70.0s < 2× 基线 57.7s）；Release 全量 **2643/2643**（242.73s）；CI: run 42640151083（head 682269d）**10/10 success**（MSVC/GCC 双平台构建测试 + C ABI ×2 + Python ×4 + Coverage + Debug 守卫） | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26; §16 CI Debug 守卫批 2026-11-09; §17 1−Φ 族全库复核批 2026-11-09; §18 CEV 非中心卡方自由度专项批 2026-11-09）
