@@ -154,13 +154,15 @@ TEST(CEVAnalyticTest, ZeroDriftSimplifiedFormMatchesGeneral) {
 
 TEST(CEVAnalyticTest, BetaBelowOneProducesSkew) {
     // β < 1: CEV 产生负偏斜 (低行权价 IV 高于高行权价 IV)
-    // 通过反推 IV 验证: ITM call 的 IV 应高于 OTM call 的 IV
-    CEVParams p{0.3, 0.3};  // β = 0.3 显著 skew
+    // RISK-039 重定基: 旧参数 (β=0.3, σ=0.3, K=80/120) 在 S=100 处相对波动率
+    // σS^{β-1}≈1.2%, 深 ITM/OTM 价格落到 IV 搜索下界 (0.001) 不可解.
+    // 改为 σ=4 (相对波动率 ≈10%), K=90/110: 价格 12.48/2.64, vega 充足;
+    // 参考 IV = 0.16527912 / 0.15406422 (scipy brentq 独立反演).
+    CEVParams p{4.0, 0.3};
     Real S = 100.0, T = 1.0, r = 0.0, q = 0.0;
 
-    // 用 BS 公式反推 IV (近似, 用于验证单调性)
-    Real K_low = 80.0;   // ITM call
-    Real K_high = 120.0; // OTM call
+    Real K_low = 90.0;
+    Real K_high = 110.0;
     Real price_low = cev_call_price(S, K_low, T, r, q, p);
     Real price_high = cev_call_price(S, K_high, T, r, q, p);
 
@@ -187,21 +189,69 @@ TEST(CEVAnalyticTest, BetaBelowOneProducesSkew) {
     // β < 1 产生 negative skew: ITM (K_low) IV > OTM (K_high) IV
     EXPECT_GT(iv_low, iv_high)
         << "iv_low=" << iv_low << " iv_high=" << iv_high;
+    // 量级守卫: 参考差 0.0112 (旧实现该参数下 IV 失真, 差值为负)
+    EXPECT_GT(iv_low - iv_high, 0.005)
+        << "iv_low=" << iv_low << " iv_high=" << iv_high;
 }
 
-TEST(CEVAnalyticTest, BetaZeroIsBachelierLike) {
-    // β = 0.3 (CEV 公式假设 β ∈ (0,1) 且 S=0 吸收壁; β=0 时 SDE dS=σdW 允许 S<0, 公式不适用)
-    // 验证中等 β 下价格在合理 strike 范围内为正且有限
-    CEVParams p{0.3, 0.3};
-    Real S = 100.0, T = 1.0, r = 0.0, q = 0.0;
+TEST(CEVAnalyticTest, BetaZeroMatchesAbsorbedBachelier) {
+    // RISK-039: β=0 硬锚. dS = (r−q)S dt + σ dW, 0 为吸收壁; r=q=0 时
+    // 由反射原理: C = (S−K)Φ((S−K)/s) + sφ((S−K)/s) − sφ((S+K)/s)
+    //                + (S+K)(1−Φ((S+K)/s)),  s = σ√T
+    // 旧实现 ν₂ = 2β/(1−β) = 0 → noncentral_chi2_cdf 抛异常 (k 必须 > 0)
+    CEVParams p{4.0, 0.0};
+    Real S = 100.0, K = 80.0, T = 1.0, r = 0.0, q = 0.0, s = 4.0;
+    Real closed = (S - K) * normal_cdf((S - K) / s) + s * normal_pdf((S - K) / s)
+                  - s * normal_pdf((S + K) / s)
+                  + (S + K) * (1.0 - normal_cdf((S + K) / s));
+    Real C = cev_call_price(S, K, T, r, q, p);
+    EXPECT_NEAR(C, closed, 1e-4)
+        << "beta=0 absorbed-Bachelier anchor: closed=" << closed;
+    EXPECT_GE(C, S - K);  // 无套利下界 (r=q=0)
+}
 
-    for (Real K : {70.0, 85.0, 100.0, 115.0, 130.0}) {
-        Real C = cev_call_price(S, K, T, r, q, p);
-        Real P = cev_put_price(S, K, T, r, q, p);
-        EXPECT_GT(C, 0.0) << "Call price should be positive at K=" << K;
-        EXPECT_GT(P, 0.0) << "Put price should be positive at K=" << K;
-        EXPECT_LT(C, S) << "Call price should be less than spot at K=" << K;
-        EXPECT_LT(P, K) << "Put price should be less than strike at K=" << K;
+TEST(CEVAnalyticTest, BetaHalfFixedPointRegression) {
+    // RISK-039: β=0.5 是旧(错误)自由度 2/(1−β) 与正确自由度 2+1/(1−β)
+    // 的唯一重合点 (ν₁=4, ν₂=2), 必须与旧值逐位一致, 防止修复引入回归.
+    CEVParams p{4.0, 0.5};
+    EXPECT_NEAR(cev_call_price(100.0, 80.0, 1.0, 0.0, 0.0, p), 27.0996761741, 1e-8);
+}
+
+TEST(CEVAnalyticTest, BetaPointThreePriceAnchors) {
+    // RISK-039: 锚 = scipy.stats.ncx2 (高精度) + 独立 MC (100k 路径/16k 步):
+    //   K=80  → 20.7042139657 (MC 20.6433±0.0465; 旧实现 19.7271 < 内在价值 20)
+    //   K=100 → 6.3494367705  (MC 6.3199±0.0301; 旧实现 3.8122, 偏 66%)
+    CEVParams p{4.0, 0.3};
+    EXPECT_NEAR(cev_call_price(100.0, 80.0, 1.0, 0.0, 0.0, p), 20.7042139657, 1e-6);
+    EXPECT_NEAR(cev_call_price(100.0, 100.0, 1.0, 0.0, 0.0, p), 6.3494367705, 1e-6);
+}
+
+TEST(CEVAnalyticTest, BetaPointSevenPriceAnchor) {
+    // RISK-039: β>0.5 同样错误 (旧实现 4.2069, 偏 40%);
+    // 正确值 3.0056458319 (MC 2.9916±0.0143)
+    CEVParams p{0.3, 0.7};
+    EXPECT_NEAR(cev_call_price(100.0, 100.0, 1.0, 0.0, 0.0, p), 3.0056458319, 1e-4);
+}
+
+TEST(CEVAnalyticTest, NoArbitrageBoundsHold) {
+    // RISK-039: 修正后公式必须自然满足无套利界 (不做钳位):
+    //   S e^{-qT} - K e^{-rT} <= C <= S e^{-qT}
+    struct Case { Real beta, sigma, K, r, q; };
+    for (const Case& cs : std::vector<Case>{
+             {0.1, 0.3, 80.0, 0.0, 0.0},   {0.1, 0.3, 120.0, 0.0, 0.0},
+             {0.3, 4.0, 80.0, 0.0, 0.0},   {0.3, 4.0, 100.0, 0.0, 0.0},
+             {0.5, 4.0, 80.0, 0.0, 0.0},   {0.5, 0.3, 120.0, 0.0, 0.0},
+             {0.7, 0.3, 100.0, 0.0, 0.0},  {0.7, 0.3, 120.0, 0.0, 0.0},
+             {0.9, 2.0, 100.0, 0.0, 0.0},  {0.3, 0.3, 100.0, 0.05, 0.02},
+             {0.7, 0.3, 100.0, 0.05, 0.02}, {0.5, 1.0, 90.0, 0.02, 0.05}}) {
+        CEVParams p{cs.sigma, cs.beta};
+        Real C = cev_call_price(100.0, cs.K, 1.0, cs.r, cs.q, p);
+        Real lo = 100.0 * std::exp(-cs.q) - cs.K * std::exp(-cs.r);
+        Real hi = 100.0 * std::exp(-cs.q);
+        EXPECT_GE(C, lo - 1e-4) << "beta=" << cs.beta << " sigma=" << cs.sigma
+                                << " K=" << cs.K << " C=" << C << " lo=" << lo;
+        EXPECT_LE(C, hi + 1e-4) << "beta=" << cs.beta << " sigma=" << cs.sigma
+                                << " K=" << cs.K << " C=" << C << " hi=" << hi;
     }
 }
 
