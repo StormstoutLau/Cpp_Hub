@@ -3126,7 +3126,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **验证**: Debug——UecmBounds 21/21（18 旧 + 3 新深尾锚/守卫）、rbf_fd 10/10（构建撞树 NOT_BUILT 残留定向补验）；Release——**全量 ctest 2619/2619（140.12s）**。Debug 全量 ctest 不作门（上批口径：Debug-MC 单例 140-203s，全量需数小时；本轮两次全量尝试分别因构建进程撞树残留与耗时超限终止，权威门 = CI Release/Coverage 全量）。
 - **教训**: (1) 族扫第 4 例证伪"深尾=理论边角"惯性——归零阈值与统计量的现实尺度必须逐项评估，不能按族内经验外推（前三例 |z|≥8 已属可遇，本例 stat≈52 起是协整检验日常量级）；(2) 转录验证域 ≠ 求值稳健性域——probe [B] 的 ≤1e-16 自证域是 stat∈[2,10] 中尾，深尾求值缺陷在转录验收中天然不可见；(3) 多项式双支路（small_p/large_p）都要扫，灾难窗口是否存在取决于各键系数；(4) 并行构建进程冲突（MSB6003/MSB3073）可留半写状态——exe 缺失但 MSBuild tracker 认为已最新，删目标 `.dir` 中间目录强制重链；受累目标残留 `_NOT_BUILT` 占位需定向补验，不可拿撞树期 ctest 结果当证据。
 - **CI 证据**: run 40322737881（head 8748995）9/9 success；前置调研提交 88fbeb3 run 40309611308 同绿（docs-only）。
-- **交叉引用**: CHECKLIST §15 C-130~C-131；RESEARCH_PSS_DEEPTAIL §0-§6 + 附录 A（自足复现）；上批条目「遗留登记」（第 4 例闭环，`1−Φ` 族库内扫尾——待专项复核全库是否仍有同型写法）；剩余遗留 = 可选 CI Windows Debug build-only job（已落地 2026-11-09，见下条）。
+- **交叉引用**: CHECKLIST §15 C-130~C-131；RESEARCH_PSS_DEEPTAIL §0-§6 + 附录 A（自足复现）；上批条目「遗留登记」（第 4 例闭环，`1−Φ` 族库内扫尾——全库同型写法已于 2026-11-09 专项复核，见「1−Φ 族全库复核批」条目）；剩余遗留 = 可选 CI Windows Debug build-only job（已落地 2026-11-09，见下条）。
 
 ---
 
@@ -3139,5 +3139,21 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **收益**: Release 门禁盲区收口——C1128 COFF 节上限类回归与 Debug-only 缺陷族（RISK-029/030/031 批 `Size` 无符号下溢族等）从此有 CI 门禁。
 - **CI 证据**: run 40334657414（head 7951a27）**10/10 success**，新 job「Debug compile guard (MSVC)」首跑即绿。
 - **交叉引用**: CHECKLIST §16 C-132；RESEARCH_P2_C1128_AND_DEFERRED §1.4（方案来源）/ §6（成本与收益）；上批条目「遗留登记」+「剩余遗留」指针。
+
+---
+
+### 1−Φ 族全库复核批: HFE 跳检验深尾归零（族第 5 例）+ conditional_mc expm1 (2026-11-09)
+
+> [aj_jump_test.hpp](../include/cpphub/hfecon/tests/aj_jump_test.hpp) / [bns_jump_test.hpp](../include/cpphub/hfecon/tests/bns_jump_test.hpp) / [conditional_mc.hpp](../include/cpphub/monte_carlo/conditional_mc.hpp) / 三个测试文件 — 来源: PSS 批「剩余遗留 = 专项复核全库是否仍有同型写法」；调研: [RESEARCH_ONEMPHI_SWEEP.md](../spec/p1-fixes/RESEARCH_ONEMPHI_SWEEP.md)（提交 `ee9ee73`）；实施提交 `b288573`
+
+- **族扫**: 581 处 `1−…` 型写法全量过滤（include/cpphub 100 文件 + Python/C-API 层）→ 族内缺陷 2 处（A: HFE 跳检验 P1；B: CEV P1/P2）+ 邻接族 1 处（CMC）；其余 42 处良性/已修（AD erf 型有意保留: autodiff 无 erfc 导数、深尾 delta~1e-16 无观察效应）。
+- **缺陷 A（族第 5 例, P1）**: aj/bns 局部 `normal_cdf = 0.5*(1+erf(x/√2))` 在 x<−5.86 时 erf 舍入为 −1 → 双尾 p 在 \|z\|≥8.259 精确归零（真值 1.47e-16 仍可表示）；\|z\|=8 已有 1.84% 相对误差、\|z\|=4.667 亦有 1.8e-11。影响 BNS/AJ/JO 三个 p 值出口 → 改 `0.5*erfc(-x/√2)`（归零点下移到 \|z\|≈38.47 真欠流）；bns 的该函数提为 public 供测试直调。
+- **邻接族（1−e^x）**: conditional_mc `1.0 - std::exp(exponent)` → `-std::expm1(exponent)`（exponent≈−2.62e-11 时旧式相对误差实测 1.099e-6）。
+- **TDD**: 先红后绿——临时回退修复点实测 `normal_cdf(-9.0)=0`（真值 2.2571768119076813e-19）、`|z|=8.3 → 0`（真值 1.0411139489780508e-16）、中尾 1.8004264745741239e-11 > 1e-12、CMC 1.0989993395467926e-6 > 1e-12；新增 3 条 mpmath 60dps 锚（rtol 1e-9/1e-12 + `>0` 防归零断言）；更正 test_aj_jump_test.cpp 旧注释（"下溢为 0 是浮点正常行为"仅对真欠流成立）。
+- **批 2（CEV）延后裁定**: 实施中 6 个既有测试失败（stash 基线 test_cev 21/21、test_multi_calibrator 15/15 全绿）→ 4 个消费者测试红绿依赖旧地板（P1 修复后深 ITM vega→0、IV 反推落搜索下界、β=0.10 深 OTM 真价 ~1e-440 无法反推）；且发现 **β<0.5 既有定价缺陷**（β=0.3/σ=4/K=80 解析 19.7271 < 内在价值 20，MC 真值 20.7129±0.033 ≈ 30 倍标准误；同参数 β=0.5 时解析 vs MC 一致）→ 需先调研 Schroder 公式 β<0.5 适用性（c/d 指派、小 β 边界），再连同测试重定基做独立专项批。
+- **验证**: Release 全量 **2635/2635 passed**（265.28s）；定向 AJ 9/9 / HFE 19/19 / CMC 18/18；CI 见下。
+- **教训**: (1)「结构断言 ⇒ 与修复无关」是错误推论——`EXPECT_GT(x,0)` 型断言的绿可能完全依赖错误实现的非零地板，族修复的回归面必须按**调用链下游测试**枚举；(2) 数值修复前先验证基础定价在参数全域的正确性（CEV β<0.5 下界违反是 30 倍标准误级别，却藏在结构断言背后）；(3) Python `io.open(...,'w')` 写回会破坏 CRLF → diff 爆炸（830/596/308 行），恢复须 `git checkout` + Edit 工具重做（本轮实际踩中，已收敛为 63/7 行）。
+- **CI 证据**: run 42607774070（head b288573）**10/10 success**（Coverage job 最慢、终态全绿；其余含 MSVC/GCC 双平台构建测试、C ABI ×2、Python ×4、Debug 编译守卫）。
+- **交叉引用**: CHECKLIST §17 C-133~C-136；RESEARCH_ONEMPHI_SWEEP §3-§5 + §8（实施期发现与分批裁定）；上批条目「剩余遗留」= 族扫闭环。
 
 

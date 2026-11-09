@@ -303,3 +303,29 @@ CEV 部分（`1 − F` + 大 λ 截断）的镜像脚本较长，核心见本文
 | E10 | `1−e^x` 相对误差曲线 | A | §5.1（double 仿真 vs mpmath） |
 | E11 | AD 的 erf 型属有意选择 | C | autodiff 导数支持约束 + 深尾 delta~1e-16 无观察效应（判断） |
 | E12 | 批 1 独立即可闭环族第 5 例 | C | 判质推理（§7） |
+
+---
+
+## §8 实施期发现与分批裁定（2026-11-09）
+
+批 1 + 批 3 已实施闭环（提交 `b288573`）；批 2（CEV）在实施中触发更深发现，整批延后专项。
+
+### 8.1 批 1（缺陷 A，族第 5 例）+ 批 3（邻接族 1−e^x）已闭环
+
+- **改动**: `aj_jump_test.hpp:160` / `bns_jump_test.hpp:229-231` 的 `normal_cdf` → `0.5*erfc(-x/√2)`（bns 同时把该函数提到 `public` 供测试直调）；`conditional_mc.hpp:81` → `-std::expm1(exponent)`；更正 `test_aj_jump_test.cpp:181-185` 旧注释；新增 3 条 TDD 锚（`AJJumpTest.NormalCdfDeepTailNoCollapse` / `HFE_BNSJumpTest.PvalueDeepTailNoCollapse` / `ConditionalMC.SurvivalProbDeepSmallExponent`）。
+- **TDD 红证据**（临时回退修复点实测）: `normal_cdf(-9.0)` 精确 0（真值 2.2571768119076813e-19）；`|z|=8.3` → 0（真值 1.0411139489780508e-16）；中尾 `|z|=4.6674971744735663` 相对误差 **1.8004264745741239e-11**（>1e-12 容差）；CMC `|surv−ref|/ref` = **1.0989993395467926e-6**（>1e-12）。
+- **验证**: 定向套件 AJ 9/9、HFE 19/19、CMC 18/18；Release 全量 **2635/2635 passed**（265.28s）。
+
+### 8.2 批 2（缺陷 B，CEV）延后裁定
+
+实施批 2 时 6 个既有测试失败（`git stash` 基线确认 test_cev 21/21、test_multi_calibrator 15/15 绿 → 均为修复引入）。诊断分两层：
+
+1. **§4.4 / E9 预测被推翻**: 现有测试虽为结构断言（`EXPECT_GT(C,0)`、IV 单调性等），但其红绿**依赖旧地板**——4 个测试（`CEVAnalyticTest.BetaZeroIsBachelierLike` / `CEVAnalyticTest.BetaBelowOneProducesSkew` / `CEVCalibratorTest.BetaBelowOneProducesSkew` / `CEVCalibratorTest.BoundaryBetaNoCrash`）在 P1 修复后语义改变：深 ITM vega→0 时反推 IV 落到搜索下界 0.001、skew 度量被饱和 ITM 腿主导、β=0.10 时 K=120 真价 ~1e-440 无法反推 IV（该测试 57.7s → 154.2s）。修复必须含测试重定基，不是容差调整。
+2. **更深的既有缺陷（与 `1−Φ` 无关）**: β<0.5 时 CEV 解析价已错误——β=0.3、σ=4、K=80、r=q=0 解析价 **19.7271**（< 内在价值 20），细网格 MC（6400 步 × 20 万路径）真值 **20.7129±0.033**，差 0.986 ≈ **30 倍标准误**；同参数 β=0.5 时解析 27.0997 vs MC 27.1136（差 0.014 < MC 误差）→ **仅 β<0.5 失效**。自由度指派假说（df₁ = 2+2/(1−β) → 23.14）已排除（离 MC 更远）。IV 曲面探针：β=0.5/σ=4 时 IV 0.4235→0.3826（K=80→120，负偏斜合理）；β=0.3/σ=0.3 时 IV ~0.007 完全不可用。
+
+**裁定**: 批 2 需先调研 β<0.5 的 Schroder 公式适用性（c/d 指派、小 β 边界、吸收壁概率质量），再连同测试重定基做独立专项批；本文档原 §7「批 2 可选」升级为「批 2 前置调研先行」。
+
+### 8.3 对本轮扫描结论的更正
+
+- E9 表述仍成立（无绝对锚），但「结构断言 ⇒ 与 P1 修复无关」的隐含推论错误——结构断言可依赖错误实现产生的非零地板；族修复的回归面必须按**调用链下游测试**枚举，而非按断言类型判断。
+- 其余扫描结论（42 处良性/已修、AD erf 型有意保留）不受影响。

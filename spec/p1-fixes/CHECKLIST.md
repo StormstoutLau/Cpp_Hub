@@ -341,4 +341,17 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26; §16 CI Debug 守卫批 2026-11-09）
+## 17. 1−Φ 族全库复核批（族第 5 例 HFE 跳检验 + 邻接族 expm1, 2026-11-09）
+
+> 决策: [RESEARCH_ONEMPHI_SWEEP.md](./RESEARCH_ONEMPHI_SWEEP.md)（581 处扫描 + mpmath 60 位实证 + CEV 深尾双层根因 + §8 实施期发现）；日志: DEVELOPMENT_LOG「1−Φ 族全库复核批」条目；提交 `ee9ee73`（调研）+ `b288573`（实施批 1+3）
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-133 | 缺陷 A 族第 5 例: HFE 跳检验 p 值深尾归零（P1） | [aj_jump_test.hpp](../../include/cpphub/hfecon/tests/aj_jump_test.hpp):159-160 + [bns_jump_test.hpp](../../include/cpphub/hfecon/tests/bns_jump_test.hpp):228-231 局部 `normal_cdf` `0.5*(1+erf(x/√2))` → `0.5*erfc(-x/√2)`；bns 该函数提 public 供测试直调；[test_aj_jump_test.cpp](../../tests/unit/hfecon/test_aj_jump_test.cpp) 旧注释更正；新增 3 条 mpmath 锚 | TDD 行为红先；锚 rtol 1e-9/1e-12 + `>0` 防归零；中尾（R 基线 CASE6 p=3.0489094124e-06）不破 | ✅ 红证据（临时回退实测）: `normal_cdf(-9)=0`（真值 2.2571768119076813e-19）、`\|z\|=8.3 → 0`（真值 1.0411139489780508e-16）、中尾 `\|z\|=4.6674971744735663` 相对误差 1.8004264745741239e-11；修复后 AJ 9/9、HFE 19/19 | ✅ |
+| C-134 | 邻接族 1−e^x: conditional_mc survival_prob（P2） | [conditional_mc.hpp](../../include/cpphub/monte_carlo/conditional_mc.hpp):81 `1.0 - std::exp(exponent)` → `-std::expm1(exponent)`；新增 `ConditionalMC.SurvivalProbDeepSmallExponent` | 红先；相对误差 <1e-12（ref 同式 expm1） | ✅ 红证据: 旧式相对误差 1.0989993395467926e-6（exponent≈−2.62e-11）；修复后 CMC 18/18 绿 | ✅ |
+| C-135 | 全库扫描裁定 + CEV 批 2 延后 | 581 处 `1 - …` 全量过滤（include/cpphub 100 文件 + Python/C-API 层）逐条判质；CEV 修复实施诊断 | 族内缺陷清单闭合；CEV 延后有实证依据 | ✅ 42 处良性/已修 + 族内缺陷 2 处（A/HFE、B/CEV）+ 邻接族 1 处（CMC）；CEV 批 2 延后: 4 个消费者测试依赖旧地板 + **β<0.5 既有定价缺陷**（β=0.3/σ=4/K=80 解析 19.7271 < 内在 20 vs MC 20.7129±0.033 ≈ 30 倍标准误），见 RESEARCH §8.2；AD erf 型有意保留 | ✅ |
+| C-136 | 双配置验证 + Release 全量 + CI 全绿 | Release 全量 ctest + 定向套件 + `gh run view` | 2635/2635；CI 10/10 | Release 全量 **2635/2635 passed**（265.28s）；定向 AJ 9/9 / HFE 19/19 / CMC 18/18；CI: run 42607774070（head b288573）**10/10 success**（Coverage job 全绿；其余 9 job 含 MSVC/GCC 双平台 + C ABI ×2 + Python ×4 + Debug 守卫） | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26; §16 CI Debug 守卫批 2026-11-09; §17 1−Φ 族全库复核批 2026-11-09）
