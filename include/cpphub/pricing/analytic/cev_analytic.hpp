@@ -124,15 +124,13 @@ inline Real cev_call_price(Real S, Real K, Real T, Real r, Real q, const CEVPara
     Real nu_1 = 2.0 + 1.0 / one_minus_beta;   // P_1 用
     Real nu_2 = 1.0 / one_minus_beta;         // P_2 用
 
-    // P_1 = 1 - χ'²(c; nu_1, d)  (生存概率, S_T > K)
+    // P_1 = Q(c; nu_1, d)  (生存概率, S_T > K) — 上尾直算 (RISK-039),
+    //   避免 1−χ'² 在深 OTM 暴露 Poisson 窗口截断 (旧 P1 地板 3.17e-7)
     //   c (K 相关) 为 chi2 参数, d (S 相关) 为非中心参数
     // P_2 = χ'²(d; nu_2, c)       (Schroder 对偶: 交换参数与非中心参数)
     //   d (S 相关) 为 chi2 参数, c (K 相关) 为非中心参数
-    Real chi2_1 = noncentral_chi2_cdf(c, nu_1, d);
-    Real chi2_2 = noncentral_chi2_cdf(d, nu_2, c);
-
-    Real P1 = 1.0 - chi2_1;
-    Real P2 = chi2_2;
+    Real P1 = noncentral_chi2_sf(c, nu_1, d);
+    Real P2 = noncentral_chi2_cdf(d, nu_2, c);
 
     // Call = S e^{-qT} P_1 - K e^{-rT} P_2
     return S * std::exp(-q * T) * P1 - K * std::exp(-r * T) * P2;

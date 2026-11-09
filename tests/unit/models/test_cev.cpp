@@ -71,6 +71,31 @@ TEST(CEVMathTest, NoncentralChi2MonotoneInLambda) {
     EXPECT_LE(cdf_2, 1.0);
 }
 
+TEST(CEVMathTest, NoncentralChi2SfDeepTailAnchors) {
+    // RISK-039 (D-2): 深 OTM 上尾锚 (scipy.stats.ncx2 高精度, mpmath 60dps 独立复核)
+    // β=0.5, σ=0.3, S=100, T=1, r=q=0: c = K/0.0225, d = 100/0.0225, ν₁ = 4
+    const Real denom = 0.3 * 0.3 * 0.25;
+    const Real d = 100.0 / denom;
+    struct Anchor { Real K, sf; };
+    for (const Anchor& a : std::vector<Anchor>{
+             {120.0, 1.1375687030435718e-10},
+             {130.0, 5.6032727394217696e-21},
+             {150.0, 6.435366002537495e-51}}) {
+        Real sf = noncentral_chi2_sf(a.K / denom, 4.0, d);
+        ASSERT_GT(sf, 0.0) << "K=" << a.K;
+        EXPECT_NEAR(sf / a.sf, 1.0, 1e-6) << "K=" << a.K << " sf=" << sf;
+    }
+}
+
+TEST(CEVMathTest, NoncentralChi2SfCdfComplement) {
+    // 上尾/下尾两条独立混合路径之和应为 1 (中尾)
+    for (Real x : {30.0, 50.0, 80.0}) {
+        Real cdf = noncentral_chi2_cdf(x, 4.0, 80.0);
+        Real sf = noncentral_chi2_sf(x, 4.0, 80.0);
+        EXPECT_NEAR(cdf + sf, 1.0, 1e-12) << "x=" << x;
+    }
+}
+
 // ==================== 2. CEV 解析定价 ====================
 
 TEST(CEVAnalyticTest, InvalidParamsThrows) {
@@ -205,7 +230,7 @@ TEST(CEVAnalyticTest, BetaZeroMatchesAbsorbedBachelier) {
                   - s * normal_pdf((S + K) / s)
                   + (S + K) * (1.0 - normal_cdf((S + K) / s));
     Real C = cev_call_price(S, K, T, r, q, p);
-    EXPECT_NEAR(C, closed, 1e-4)
+    EXPECT_NEAR(C, closed, 1e-9)
         << "beta=0 absorbed-Bachelier anchor: closed=" << closed;
     EXPECT_GE(C, S - K);  // 无套利下界 (r=q=0)
 }
@@ -230,7 +255,7 @@ TEST(CEVAnalyticTest, BetaPointSevenPriceAnchor) {
     // RISK-039: β>0.5 同样错误 (旧实现 4.2069, 偏 40%);
     // 正确值 3.0056458319 (MC 2.9916±0.0143)
     CEVParams p{0.3, 0.7};
-    EXPECT_NEAR(cev_call_price(100.0, 100.0, 1.0, 0.0, 0.0, p), 3.0056458319, 1e-4);
+    EXPECT_NEAR(cev_call_price(100.0, 100.0, 1.0, 0.0, 0.0, p), 3.0056458319, 1e-6);
 }
 
 TEST(CEVAnalyticTest, NoArbitrageBoundsHold) {
@@ -253,6 +278,23 @@ TEST(CEVAnalyticTest, NoArbitrageBoundsHold) {
         EXPECT_LE(C, hi + 1e-4) << "beta=" << cs.beta << " sigma=" << cs.sigma
                                 << " K=" << cs.K << " C=" << C << " hi=" << hi;
     }
+}
+
+TEST(CEVAnalyticTest, DeepItmAbsoluteAccuracy) {
+    // RISK-039 (D-2): β=0.5, σ=0.3, K=80 参考价 20.00000000000044 (scipy 高精度);
+    // 旧数值层 (5σ Poisson 窗口) 偏 2.2e-5
+    CEVParams p{0.3, 0.5};
+    Real C = cev_call_price(100.0, 80.0, 1.0, 0.0, 0.0, p);
+    EXPECT_NEAR(C, 20.0, 1e-10);
+}
+
+TEST(CEVAnalyticTest, DeepOtmFloorRemoved) {
+    // RISK-039 (D-2): 旧实现深 OTM P1 触底 3.17e-7 → 价格地板 3.17e-5;
+    // 参考价 K=150 = 1.04e-51, 应远低于旧地板
+    CEVParams p{0.3, 0.5};
+    Real C = cev_call_price(100.0, 150.0, 1.0, 0.0, 0.0, p);
+    EXPECT_LT(C, 1e-20) << "old window floor was 3.17e-5, C=" << C;
+    EXPECT_GE(C, 0.0);
 }
 
 // ==================== 3. CEV 随机过程 ====================

@@ -177,73 +177,100 @@ inline Real chi2_sf(Real x, Real k) {
     return regularized_upper_gamma(k / Real(2), x / Real(2));
 }
 
-// ==================== 非中心卡方分布 CDF ====================
+// ==================== 非中心卡方分布 CDF / SF ====================
 // SOURCE: Noncentral chi-squared distribution
 //   X ~ χ'²(k, λ), 自由度 k > 0, 非中心参数 λ >= 0
 //   CDF: P(X ≤ x) = e^{-λ/2} Σ_{j=0}^∞ (λ/2)^j / j! · P(k/2 + j, x/2)
-//   其中 P(a, x) 是正则化下不完全 Gamma 函数
+//   SF : P(X > x) = e^{-λ/2} Σ_{j=0}^∞ (λ/2)^j / j! · Q(k/2 + j, x/2)
+//   其中 P/Q 是正则化下/上不完全 Gamma 函数
 //
-// 实现:
-//   - 小 λ (≤ 50): 直接级数求和, exp(-λ/2) 不下溢
-//   - 大 λ (> 50): 对数空间递推 Poisson 权重, 避免 exp(-λ/2) 下溢
-//     Poisson 众数 j* ≈ λ/2, 在 [j* - 5√(λ/2), j* + 5√(λ/2)] 范围求和
-//     覆盖 > 99.9999% 概率质量
+// RISK-039 (CEV 专项批):
+//   旧实现大 λ 分支固定 5σ Poisson 窗口, CDF 绝对误差 ~1e-7; 且 CEV 的
+//   P1 = 1 - CDF 在深 OTM 暴露该误差 (P1 地板 3.17e-7, 价格地板 3.17e-5).
+//   重写: ① 新增 noncentral_chi2_sf 上尾直算; ② 大 λ 窗口加宽到 ±10σ,
+//   并扩展覆盖 Gamma 因子有效区 (a = k/2+j 直到 x/2 + 10√(x/2)),
+//   因为 Q(a, x/2) 在 a ≈ x/2 附近达到峰值, 可能远离 Poisson 众数.
 //
-// 精度: 小 λ 接近机器精度 (~1e-12); 大 λ ~1e-6 (Poisson 尾部截断)
+// 精度: 小 λ 接近机器精度; 大 λ ~1e-13 (Poisson 10σ 尾部 + Gamma 相对项)
+namespace detail {
+// 非中心卡方 Poisson 混合, upper=true 返回上尾 Q 的混合, false 返回下尾 P
+inline Real ncchi2_mixture(Real x, Real k, Real lambda, bool upper) {
+    const Real lambda_half = lambda / 2.0;
+    const Real x_half = x / 2.0;
+
+    auto gamma = [upper](Real a, Real z) -> Real {
+        return upper ? regularized_upper_gamma(a, z)
+                     : regularized_lower_gamma(a, z);
+    };
+
+    // ---- 小 λ (≤ 50): 直接级数求和 ----
+    if (lambda <= 50.0) {
+        Real poisson_weight = std::exp(-lambda_half);
+        Real sum = poisson_weight * gamma(k / 2.0, x_half);
+        for (int j = 1; j < 400; ++j) {
+            poisson_weight *= lambda_half / static_cast<Real>(j);
+            Real term = poisson_weight * gamma(k / 2.0 + j, x_half);
+            sum += term;
+            if (poisson_weight < 1e-17 && std::abs(term) < 1e-17 * sum) break;
+            if (poisson_weight < 1e-300) break;
+        }
+        return sum;
+    }
+
+    // ---- 大 λ: 对数空间 Poisson 权重 + 自适应窗口 ----
+    const Real log_lambda_half = std::log(lambda_half);
+    const Real sqrt_lambda_half = std::sqrt(lambda_half);
+
+    // 窗口下界: Poisson 主体 -10σ (更低 j 的权重 < ~1e-23)
+    long long j_lo = static_cast<long long>(std::floor(
+        std::max(Real(0.0), lambda_half - 10.0 * sqrt_lambda_half)));
+    long long j_hi_poisson = static_cast<long long>(std::floor(
+        lambda_half + 10.0 * sqrt_lambda_half + 10.0));
+    // Gamma 因子有效区: a = k/2+j 到 x/2 + 10√(x/2) (Q 的峰值在 a≈x/2)
+    long long j_hi_gamma = static_cast<long long>(std::floor(
+        x_half + 10.0 * std::sqrt(x_half + 1.0) + 10.0));
+    long long j_hi = std::max(j_hi_poisson, j_hi_gamma);
+    if (j_hi > 2000000) j_hi = 2000000;  // 病态参数保护
+
+    Real log_w = -lambda_half + static_cast<Real>(j_lo) * log_lambda_half
+                 - std::lgamma(static_cast<Real>(j_lo) + 1.0);
+
+    Real sum = 0.0;
+    for (long long j = j_lo; j <= j_hi; ++j) {
+        if (j > j_lo) {
+            log_w += log_lambda_half - std::log(static_cast<Real>(j));
+        }
+        if (log_w > -745.0) {
+            Real w = std::exp(log_w);
+            sum += w * gamma(k / 2.0 + static_cast<Real>(j), x_half);
+        }
+    }
+    return sum;
+}
+}  // namespace detail
+
 inline Real noncentral_chi2_cdf(Real x, Real k, Real lambda) {
     if (k <= 0.0) throw std::invalid_argument("noncentral_chi2_cdf: k must be positive");
     if (lambda < 0.0) throw std::invalid_argument("noncentral_chi2_cdf: lambda must be non-negative");
     if (x <= 0.0) return 0.0;
-
-    // 中心卡方 (λ=0) 直接用 Gamma CDF
     if (lambda == 0.0) {
         return regularized_lower_gamma(k / 2.0, x / 2.0);
     }
+    Real sum = detail::ncchi2_mixture(x, k, lambda, false);
+    if (sum < 0.0) return 0.0;
+    if (sum > 1.0) return 1.0;
+    return sum;
+}
 
-    const Real lambda_half = lambda / 2.0;
-
-    // ---- 小 λ (≤ 50): 直接级数求和 ----
-    if (lambda <= 50.0) {
-        Real poisson_weight = std::exp(-lambda_half);  // j=0: e^{-λ/2}
-        Real sum = poisson_weight * regularized_lower_gamma(k / 2.0, x / 2.0);
-        for (int j = 1; j < 200; ++j) {
-            poisson_weight *= lambda_half / static_cast<Real>(j);
-            Real term = poisson_weight * regularized_lower_gamma(k / 2.0 + j, x / 2.0);
-            sum += term;
-            if (poisson_weight < 1e-16 && term < 1e-16 * sum) break;
-        }
-        if (sum < 0.0) return 0.0;
-        if (sum > 1.0) return 1.0;
-        return sum;
+// 非中心卡方上尾 SF(x; k, λ) = P(X > x) — 深尾直算, 避免 1−CDF 抵消
+inline Real noncentral_chi2_sf(Real x, Real k, Real lambda) {
+    if (k <= 0.0) throw std::invalid_argument("noncentral_chi2_sf: k must be positive");
+    if (lambda < 0.0) throw std::invalid_argument("noncentral_chi2_sf: lambda must be non-negative");
+    if (x <= 0.0) return 1.0;
+    if (lambda == 0.0) {
+        return regularized_upper_gamma(k / 2.0, x / 2.0);
     }
-
-    // ---- 大 λ (> 50): 对数空间递推 ----
-    // log_w_j = -λ/2 + j·log(λ/2) - lgamma(j+1)
-    // 递推: log_w_{j+1} = log_w_j + log(λ/2) - log(j+1)
-    const Real log_lambda_half = std::log(lambda_half);
-    const Real sqrt_lambda_half = std::sqrt(lambda_half);
-
-    // 求和范围: Poisson 众数 ± 5σ (覆盖 > 99.9999%)
-    int j_start = static_cast<int>(std::max(Real(0.0), lambda_half - 5.0 * sqrt_lambda_half));
-    int j_end = static_cast<int>(lambda_half + 5.0 * sqrt_lambda_half + 10.0);
-
-    // 初始 log_w_{j_start}
-    Real log_w = -lambda_half
-                 + static_cast<Real>(j_start) * log_lambda_half
-                 - std::lgamma(static_cast<Real>(j_start) + 1.0);
-
-    Real sum = 0.0;
-    for (int j = j_start; j <= j_end; ++j) {
-        if (j > j_start) {
-            log_w += log_lambda_half - std::log(static_cast<Real>(j));
-        }
-        // w_j = exp(log_w); 对极小值用 0 (下溢保护)
-        if (log_w > -700.0) {
-            Real w = std::exp(log_w);
-            Real term = w * regularized_lower_gamma(k / 2.0 + static_cast<Real>(j), x / 2.0);
-            sum += term;
-        }
-    }
+    Real sum = detail::ncchi2_mixture(x, k, lambda, true);
     if (sum < 0.0) return 0.0;
     if (sum > 1.0) return 1.0;
     return sum;
