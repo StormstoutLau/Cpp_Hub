@@ -3111,7 +3111,7 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **教训**: (1) "3 个依赖目标受累"类转述性记录必须逐目标实测——受累目标里混着 1 个直接受害者（test_tool_registry），依赖关系断言（谁链谁）比编译失败现象更该核验，否则修复方案（定向 vs 全局）会基于错误清单设计；(2) 深尾抵消是**同型缺陷族**而非孤立 bug：χ² 上尾（036）、SMM 联合 p、两尾正态 p、（遗留）pss_critical_values.hpp:70 全是 `1-P` 型写法，一次族扫比逐个救火便宜；(3) note 文本改一个字 = MCP 契约变更（skeleton 原文）——语义提醒类改动要把 golden REGEN 和 C++ 断言当作同一提交的不可拆部分；(4) Edit 工具会剥离文件首 BOM（BOM 文件编辑后需字节级核验恢复），PowerShell ReadAllText 读回时会吞 BOM 导致检测假阴性，BOM 检查必须读字节（EF BB BF）而非字符串。
 - **CI 证据**: run 40259579315（head a32d87e）**9/9 success**；前置调研提交 eb0f5d1 CI run 40257433937 同绿（docs-only）。
 - **交叉引用**: CHECKLIST §14 C-124~C-129；RESEARCH_P2_C1128_AND_DEFERRED §0-§7；上批条目「既有问题裁定」更正（2026-10-26）。
-- **遗留登记**: [pss_critical_values.hpp:70](../include/cpphub/timeseries/ardl/pss_critical_values.hpp) `1.0 - normal_cdf(poly)` 同型深尾（族扫第 4 例，后续批）；可选 CI Windows Debug build-only job（调研 §1.4，成本 8-10 min，防 C1128 类回归）。
+- **遗留登记**: [pss_critical_values.hpp:70](../include/cpphub/timeseries/ardl/pss_critical_values.hpp) `1.0 - normal_cdf(poly)` 同型深尾（族扫第 4 例，后续批）；可选 CI Windows Debug build-only job（调研 §1.4，成本 8-10 min，防 C1128 类回归）→ 已落地（2026-11-09，见「CI Debug 守卫批」条目）。
 
 ---
 
@@ -3126,6 +3126,18 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **验证**: Debug——UecmBounds 21/21（18 旧 + 3 新深尾锚/守卫）、rbf_fd 10/10（构建撞树 NOT_BUILT 残留定向补验）；Release——**全量 ctest 2619/2619（140.12s）**。Debug 全量 ctest 不作门（上批口径：Debug-MC 单例 140-203s，全量需数小时；本轮两次全量尝试分别因构建进程撞树残留与耗时超限终止，权威门 = CI Release/Coverage 全量）。
 - **教训**: (1) 族扫第 4 例证伪"深尾=理论边角"惯性——归零阈值与统计量的现实尺度必须逐项评估，不能按族内经验外推（前三例 |z|≥8 已属可遇，本例 stat≈52 起是协整检验日常量级）；(2) 转录验证域 ≠ 求值稳健性域——probe [B] 的 ≤1e-16 自证域是 stat∈[2,10] 中尾，深尾求值缺陷在转录验收中天然不可见；(3) 多项式双支路（small_p/large_p）都要扫，灾难窗口是否存在取决于各键系数；(4) 并行构建进程冲突（MSB6003/MSB3073）可留半写状态——exe 缺失但 MSBuild tracker 认为已最新，删目标 `.dir` 中间目录强制重链；受累目标残留 `_NOT_BUILT` 占位需定向补验，不可拿撞树期 ctest 结果当证据。
 - **CI 证据**: run 40322737881（head 8748995）9/9 success；前置调研提交 88fbeb3 run 40309611308 同绿（docs-only）。
-- **交叉引用**: CHECKLIST §15 C-130~C-131；RESEARCH_PSS_DEEPTAIL §0-§6 + 附录 A（自足复现）；上批条目「遗留登记」（第 4 例闭环，`1−Φ` 族库内扫尾——待专项复核全库是否仍有同型写法）；剩余遗留 = 可选 CI Windows Debug build-only job。
+- **交叉引用**: CHECKLIST §15 C-130~C-131；RESEARCH_PSS_DEEPTAIL §0-§6 + 附录 A（自足复现）；上批条目「遗留登记」（第 4 例闭环，`1−Φ` 族库内扫尾——待专项复核全库是否仍有同型写法）；剩余遗留 = 可选 CI Windows Debug build-only job（已落地 2026-11-09，见下条）。
+
+---
+
+### CI Debug 守卫批: windows-debug-guard job 落地（C1128 遗留项收尾）(2026-11-09)
+
+> [ci.yml](../.github/workflows/ci.yml) — 来源: P2 遗留专项批「遗留登记」/ PSS 批「剩余遗留」共同指向的可选项（调研 RESEARCH_P2_C1128_AND_DEFERRED §1.4）；用户指令「执行可选的 CI Windows Debug build-only job」；提交 `7951a27`
+
+- **改动**: ci.yml 新增 `windows-debug-guard` job——Windows 2022 + VS2022 generator `-A x64` + `CPPHUB_ENABLE_C_API=ON`；**build-only 只编 7 个已知重 TU 目标**（5 直接超限 + 2 依赖，调研 §1.1），不跑全量 ctest（Debug-MC 单例 140-203s，全量需数小时）；补 GoogleTest 缓存（`build_debug/_deps`，key 后缀 `debugguard`）；成本 ~8-10 min/次。
+- **防线自证**: cache key 无旧版本号字面量（不触发 R-033 guard 自匹配 `! grep -q "gtest-1[.]14[.]0"`）；YAML 经 PyYAML safe_load 校验（5 jobs）。
+- **收益**: Release 门禁盲区收口——C1128 COFF 节上限类回归与 Debug-only 缺陷族（RISK-029/030/031 批 `Size` 无符号下溢族等）从此有 CI 门禁。
+- **CI 证据**: run 40334657414（head 7951a27）**10/10 success**，新 job「Debug compile guard (MSVC)」首跑即绿。
+- **交叉引用**: CHECKLIST §16 C-132；RESEARCH_P2_C1128_AND_DEFERRED §1.4（方案来源）/ §6（成本与收益）；上批条目「遗留登记」+「剩余遗留」指针。
 
 

@@ -331,4 +331,14 @@ upstream: EXTERNAL_REVIEW_2026-10-20
 
 ---
 
-**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26）
+## 16. CI Debug 守卫批（windows-debug-guard job 落地, 2026-11-09）
+
+> 决策: [RESEARCH_P2_C1128_AND_DEFERRED.md](./RESEARCH_P2_C1128_AND_DEFERRED.md) §1.4 可选项（§14 遗留登记收尾）；日志: DEVELOPMENT_LOG「CI Debug 守卫批」条目；提交 `7951a27`
+
+| # | 验收项 | 执行方法 | 通过条件 | 证据 | 状态 |
+|---|---|---|---|---|---|
+| C-132 | Windows Debug 编译守卫纳入门禁 | [ci.yml](../../.github/workflows/ci.yml) 新增 `windows-debug-guard` job: build-only 编 7 个已知重 TU 目标（5 直接 + 2 依赖），不跑全量 ctest（Debug-MC 单例 140-203s，成本 ~8-10 min/次）；GoogleTest 缓存（`build_debug/_deps`，key 后缀 debugguard） | 新 job 绿；cache key 无旧版本号字面量（R-033 guard 自匹配防线）；既有 9 job 无回归 | ✅ YAML 校验通过（PyYAML safe_load，5 jobs）；CI run 40334657414（head 7951a27）**10/10 success**——`Debug compile guard (MSVC)` 首跑即绿；C1128 类回归与 Debug-only 缺陷族（Size 无符号下溢等）从此有 CI 门禁 | ✅ |
+
+---
+
+**编制依据**: [DESIGN.md](./DESIGN.md) §9 + [IMPLEMENTATION.md](./IMPLEMENTATION.md) §0-§9 · **编制日期**: 2026-10-21 · **执行状态**: **已完成**（Step 7-9 全部执行并签收; Step 10 ADD 审计 21 项发现 Tier 2 全修, 跟踪表见 [AUDIT.md](./AUDIT.md) §0; §11 CI 修复批 2026-10-22→24; §12 P2 风险修复批 2026-10-24; §13 P2 数值契约批 2026-10-25; §14 P2 遗留专项批 2026-10-26; §15 PSS 深尾专项批 2026-10-26; §16 CI Debug 守卫批 2026-11-09）
