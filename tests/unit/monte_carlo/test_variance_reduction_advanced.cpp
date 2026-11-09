@@ -302,6 +302,23 @@ TEST(ConditionalMC, SurvivalProbRange) {
     EXPECT_NEAR(payoff3, 0.0, 1e-15);
 }
 
+// 3b. RISK-038 邻接族: 指数极小时 survival_prob 不得因 1−exp 抵消失真
+TEST(ConditionalMC, SurvivalProbDeepSmallExponent) {
+    Real S0 = 100, K = 100, B = 130, T = 1.0, r = 0.05, q = 0.0, sigma = 0.2;
+    Real mu = r - q - 0.5 * sigma * sigma;
+    Real b_0 = std::log(B / S0) / sigma;
+    Real b_T = (std::log(B / S0) - mu * T) / sigma;
+    // 终端贴近 t=T 障碍: b_T − W_T = 1e-11 (Sterbenz 区间内, 减法精确)
+    const Real W_T = b_T - 1e-11;
+    Real surv;
+    ConditionalMC::barrier_up_out_call_cmc(S0, K, B, T, r, q, sigma, W_T, surv);
+    const Real exponent = -2.0 * b_0 * (b_T - W_T) / T;  // ~ -2.6e-11
+    const Real ref = -std::expm1(exponent);
+    ASSERT_GT(ref, 0.0);
+    // 旧式 1-exp 在此相对误差实测 ~1.1e-6; -expm1 精确
+    EXPECT_LT(std::abs(surv - ref) / ref, 1e-12);
+}
+
 // 4. 条件期望正确性: E[A_T | W_T] 与直接计算一致
 TEST(ConditionalMC, ConditionalMeanCorrectness) {
     Real S0 = 100, K = 100, T = 1.0, r = 0.05, q = 0.0, sigma = 0.2;

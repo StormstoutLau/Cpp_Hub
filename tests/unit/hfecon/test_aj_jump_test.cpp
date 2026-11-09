@@ -178,11 +178,28 @@ TEST(AJJumpTest, AlignByMinutesAlignPeriod5) {
 
     // alignBy="minutes", alignPeriod=5 → h = 5*60 = 300
     // 注意: h=300, N=999 → 子采样仅 4 个价格 (3 收益) / 2 个价格 (1 收益)
-    // 稀疏子采样使 |z| 极大, pvalue 可能下溢为 0 (浮点正常行为)
+    // 稀疏子采样使 |z| 极大; RISK-038 后 p = 2*Phi(-|z|) 走 erfc 直算,
+    // 只有真值低于 double 下限才归零 (旧 erf 型在 |z| ≥ 8.259 提前归零)
     auto result = aj_jump_test(prices, 4, 2, "minutes", 5, 4.0, 0.975);
     EXPECT_TRUE(std::isfinite(result.ztest));
     EXPECT_GE(result.pvalue, 0.0);
     EXPECT_LE(result.pvalue, 1.0);
+}
+
+// =============================================================================
+// TEST 6b: 正态 CDF 深尾 (RISK-038, 1−Φ 族第 5 例)
+//   旧式 0.5*(1+erf(x/√2)) 在 |z| ≥ 8.259 使双尾 p 精确归零;
+//   锚 = mpmath 60dps, 2*Phi(-z)
+// =============================================================================
+TEST(AJJumpTest, NormalCdfDeepTailNoCollapse) {
+    // 旧实现此处精确返回 0 (真值 2.257e-19 仍可表示)
+    EXPECT_GT(detail::normal_cdf(-9.0), 0.0);
+    EXPECT_NEAR(2.0 * detail::normal_cdf(-9.0) / 2.2571768119076813e-19, 1.0, 1e-9);
+    // |z| = 8.3: 旧式归零, 真值 1.041e-16
+    EXPECT_NEAR(2.0 * detail::normal_cdf(-8.3) / 1.0411139489780508e-16, 1.0, 1e-9);
+    // 中尾守卫 (R 基线锚 CASE6 p=3.0489094124e-06 的 |z|)
+    EXPECT_NEAR(2.0 * detail::normal_cdf(-4.6674971744735663)
+                    / 3.0489094124391198e-06, 1.0, 1e-12);
 }
 
 // =============================================================================

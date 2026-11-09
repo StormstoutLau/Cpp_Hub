@@ -76,7 +76,9 @@ public:
         if (exponent < -700.0) {
             survival_prob = 1.0;  // 跨越概率下溢为 0, 生存概率 = 1
         } else {
-            survival_prob = 1.0 - std::exp(exponent);
+            // 1−e^x 抵消族: exponent→0 时 1-exp(exponent) 相对误差 ~eps/|exponent|
+            // (exponent=2.6e-11 时实测 1.1e-6); -expm1 精确
+            survival_prob = -std::expm1(exponent);
         }
 
         Real payoff = std::max(S_T - K, 0.0);

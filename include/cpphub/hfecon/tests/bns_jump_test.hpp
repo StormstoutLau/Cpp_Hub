@@ -222,12 +222,15 @@ private:
         return N * N_over_N_minus_2 * C * sum_q_4_3;
     }
 
-    // 标准正态 CDF Phi(x) via std::erf
-    // Phi(x) = 0.5 * (1 + erf(x / sqrt(2)))
+    // 标准正态 CDF Phi(x) = 0.5*erfc(-x/√2) — 上尾直算 (RISK-038)
+    // 旧式 0.5*(1+erf(x/√2)) 在 |z| ≥ 8.259 使 2*Phi(-|z|) 精确归零;
+    // erfc 型把归零点下移到真欠流区 (|z| ≈ 38.47)
+public:
     static Real normal_cdf(Real x) noexcept {
-        return 0.5 * (1.0 + std::erf(x / std::sqrt(2.0)));
+        return 0.5 * std::erfc(-x / std::sqrt(2.0));
     }
 
+private:
     // 逆标准正态 CDF (Acklam's algorithm + Newton 精炼, 精度 ~1e-12)
     // 对于 alpha=0.975, 返回 1.959964; alpha=0.95 返回 1.644854
     // R qnorm(0.975) = 1.9599639845400536

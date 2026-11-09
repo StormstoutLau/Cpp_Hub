@@ -400,6 +400,19 @@ TEST(HFE_BNSJumpTest, JumpRejected) {
 
 // 14. BNS 与 R 对标 (CASE 5: 无跳跃 GBM, alpha=0.975)
 //     R 基准: z=0.6927, p=0.4885, crit=1.95996
+TEST(HFE_BNSJumpTest, PvalueDeepTailNoCollapse) {
+    // RISK-038 (1−Φ 族第 5 例): 旧式 0.5*(1+erf(x/√2)) 在 |z| ≥ 8.259 使
+    // p = 2*Phi(-|z|) 精确归零; 锚 = mpmath 60dps
+    EXPECT_GT(BNSJumpTest::normal_cdf(-9.0), 0.0);
+    EXPECT_NEAR(2.0 * BNSJumpTest::normal_cdf(-9.0) / 2.2571768119076813e-19,
+                1.0, 1e-9);
+    EXPECT_NEAR(2.0 * BNSJumpTest::normal_cdf(-8.3) / 1.0411139489780508e-16,
+                1.0, 1e-9);
+    // 中尾守卫 (CASE6 实际 |z|, R 基线 p=3.0489094124e-06)
+    EXPECT_NEAR(2.0 * BNSJumpTest::normal_cdf(-4.6674971744735663)
+                    / 3.0489094124391198e-06, 1.0, 1e-12);
+}
+
 TEST(HFE_BNSJumpTest, RBaselineNoJump) {
     // 注意: C++ mt19937_64 无法位精确复现 R rnorm(seed=42)
     // 此测试验证 BNS 公式实现正确性 (用已知收益率验证 z 公式)
