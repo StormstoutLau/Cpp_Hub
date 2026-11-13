@@ -3172,4 +3172,20 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **CI 证据**: run 42640151083（head 682269d）**10/10 success**（MSVC/GCC 双平台构建测试 + C ABI ×2 + Python ×4 + Coverage + Debug 编译守卫）；调研提交 ab62497 触发的 docs-only run 42636922321（被后续 push 取代）。
 - **交叉引用**: CHECKLIST §18 C-137~C-140；RESEARCH_CEV_NONCENTRAL_DF §0-§8 + 附录 A/B；上批「1−Φ 族全库复核批」CEV 批 2 延后项闭环；C-135/§8.2 的「仅 β<0.5」更正。
 
+---
+
+### Phase 9 v1.9: KDE/KNN + KSG/TE 实施 + G 门禁闭环 (2026-11-11)
+
+> [PHASE9_SPEC.md](./phases/phase9/PHASE9_SPEC.md) v1.1 §7（G1-G8 全勾）/ [PHASE9_DOMAIN_RESEARCH.md](./research/PHASE9_DOMAIN_RESEARCH.md) v1.0 + §8（A 67/B 4/C 7/H 5）/ 头文件 `include/cpphub/timeseries/{density,information}/` / 测试 `tests/unit/timeseries/test_*_phase9*.cpp` 等 5 套件 / 黄金值生成器 [gen_phase9_baselines.py](../tests/fixtures/timeseries/gen_phase9_baselines.py)
+
+- **范围（D-2 裁决 (b), PHASE8_SCOPE §5.2.5）**: 1D Gaussian KDE（带宽四规则显式类型 + Absolute/Factor 语义 + 敏感性网格）/ Loftsgaarden-Quesenberry kNN 密度 / KSG Algorithm 1 MI + Frenzel-Pompe CMI（Chebyshev、nextafter 严格计数、可选 z-score + seeded jitter、负值不截断）/ 迁移熵（TE=CMI(Y_t;X_past|Y_past)、effective TE、circular block shuffle p 值、任意 k/l/delay 嵌入）。纯标量 header-only，零 Eigen、零 C ABI / Python 变更。
+- **交付物**: 5 头（bandwidth / kde / knn_density / ksg / transfer_entropy）+ 5 测试套件 41 例 + `gen_phase9_baselines.py` + 双 probe（sklearn KDE 8/8、KSG 9 PASS/1 SKIP）。测试注册唯一既有文件改动 = `tests/CMakeLists.txt` +17 行。
+- **数值锚（全部达成）**: sklearn/scipy KDE pdf **1e-14**（逐位）；KSG vs sklearn `_compute_mi_cc` **1e-12**（40 点 k=3/5 逐位）；Gaussian MI n=2000/k=3 **20 seeds 均值偏差 ≤0.02 nat**；TE vs GC/2 **±30%**（5 seeds 单测 + 3 seeds 集成）；标准化缩放不变 1e-12；CMI 条件独立均值 |CMI|≤0.05；p 值校准（20 条 i.i.d. p>0.05 比例 ≥60%、耦合 VAR 5 seeds p<0.1）。
+- **性能（D9-10, KDE 预算经用户批准 50→150ms 修订）**: KDE N=10k/M=1k **52-58ms**（<150）；KSG N=5000/k=3 **35ms**（<500）；TE N=2000 + ETE 100 + 块置换 100 **4.1s**（<10s，约 20ms/次 CMI 评估）。
+- **实施期发现（均为实测，已落注释/文档）**: ① **UCRT `std::exp2` 比 `std::exp` 慢 8×**（435ms vs 54ms），exp2 恒等变换在 MSVC 上是性能陷阱，已禁用并记录；② TE 内部嵌入改用连续坐标布局 `[X_past, Y_t, Y_past]`，使四个 CMI 空间均为连续区间、三次边际计数融合单次扫描，单次评估 40→20ms；③ TE 耦合 VAR 功效：n=2000 时 seed 502 p=0.157（估计 SD~0.02 nat 与块置换零分布重叠），n=4000 解决——spec §5.3.5b 未冻结 n，测试侧记录理由；④ sklearn `_compute_mi_cc` 的 `kneighbors()` 在 X=None 时**排除自身**，与本库「边际计数含自身再减 1」口径等价（K0 逐位一致验证）。
+- **口径对齐（测试→spec §6.3 收紧）**: Gaussian MI 3 seeds/0.05 → **20 seeds/0.02**；TE ±35% → **±30%**；新增 p 值 5a/5b 两个用例（此前仅有范围断言）；integration MI 改 20 seeds。全部固定 seed，确定性可复现，无 flaky。
+- **G 门禁终态**: G1 编译零警告（全量 Release EXIT=0，警告全为既有项 aad_greeks C4244 / rbf_fd C4996；Phase 9 定向 `/W4` 5 TU CLEAN，全局基线 /W3 不动）；G2 **全量 2671/2671 零失败**（2026-11-11 17:57 终态；CUDA/Python OFF、C ABI ON）+ 5 套件 41/41；G3-G8 见 spec §7.5 表。**偏差记录**: spec 预估「全库 ≥2700」作废（基于 CI 口径 2643 推算，未计本地配置差异与新增 41 例），以「全量零失败 + 计数如实记录」为判据。
+- **未闭环（诚实声明）**: GCC 双平台仅随 CI job 覆盖，本批次本地未跑 A/B 站（惯例随合并后 bundle 验证）；TE 组装层仍无第二实现对照（风险 ⑭ / H2 JIDT 对照留 verify 期最高优先）；G1 的 `ks` hpi/hscv（H1）、Alg2（H5）、块长 Politis-White（Q11）维持 P2。
+- **教训**: (1) spec 中未实测的性能/计数预算应按「实测→修订→记录」闭环，而非事后改断言通过——本轮 KDE 150ms 与 ≥2700 作废均走用户批准修订；(2) 平台数学库实现差异可完全颠倒直觉（exp2 慢 8×），性能敏感路径必须实测而非按「更接近硬件指令」推断；(3) 统计功效判据必须冻结 n，否则同一 p<0.1 判据在不同样本量下结论相反。
+
 

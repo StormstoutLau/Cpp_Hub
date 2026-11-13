@@ -814,3 +814,20 @@ cpphub_discover_tests(test_arima_statespace)
 add_executable(test_integration_phase8 unit/timeseries/test_integration_phase8.cpp)
 target_link_libraries(test_integration_phase8 PRIVATE cpphub_timeseries_mat GTest::gtest_main)
 cpphub_discover_tests(test_integration_phase8)
+
+# ---- Phase 9 v1.9 M1/M2: KDE / kNN / KSG (spec PHASE9_SPEC §3/§4) ----
+# test_kde: 带宽规则 vs 公式 1e-15 + Absolute/Factor 语义 + pdf/log_pdf
+# vs scipy gaussian_kde 黄金值 1e-14 + 敏感性网格 + 边界输入
+cpphub_add_test(test_kde unit/timeseries/test_kde.cpp)
+# test_knn_density: Loftsgaarden-Quesenberry k/(n·2r_k) 黄金值 1e-15 +
+# k=n−1 边界 + 范围外有限 + 非法输入
+cpphub_add_test(test_knn_density unit/timeseries/test_knn_density.cpp)
+# test_ksg: sklearn _compute_mi_cc 黄金值 1e-12 + Gaussian 解析均值 +
+# 标准化缩放不变/raw 敏感 + ties jitter + CMI 对称/条件独立 + 非法输入
+cpphub_add_test(test_ksg unit/timeseries/test_ksg.cpp)
+# test_transfer_entropy: Gaussian VAR TE=GC/2 ±35% + bits 换算 + 方向性 +
+# 标准化缩放不变 + 结果字段 + i.i.d. p 值范围 + 嵌入边界 + 非法输入
+cpphub_add_test(test_transfer_entropy unit/timeseries/test_transfer_entropy.cpp)
+# test_integration_phase9: KDE 积分→KSG 解析 MI→TE vs GC/2→7C Granger 互检
+# + 带宽敏感性 (spec §6.1)
+cpphub_add_test(test_integration_phase9 unit/timeseries/test_integration_phase9.cpp)

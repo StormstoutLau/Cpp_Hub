@@ -24,6 +24,7 @@
 | **Phase 5 v1.4.1** | HFE: Realized Kernel (BNS 2008) / 12 核函数 / 噪声方差 ω² / 最优带宽 H* | 14 / 14 ✅ (R baseline 对标, 11 核函数 + 3 R baseline) |
 | **Phase 5 v1.4.2** | HFE: 多资产 Cov (Hayashi-Yoshida/Two-Scale/Pre-averaged/Robust Two-Scale/Modulated) + HAR/HEAVY 预测模型 | 62 / 62 ✅ (R baseline 对标, Wave A 6 + Wave B 28 + Wave C 28) |
 | **Phase 5 v1.4.3** | HFE: 流动性度量 (23 种) + 高级跳跃检验 (AJ/JO/Intraday/Rank, Jacobi SVD) | 50 / 50 ✅ (R 源码排幻觉 D1-D23, 流动性 12 + 跳跃检验 38) |
+| **Phase 9 v1.9** | KDE/KNN 密度 (带宽语义显式) / KSG MI-CMI / 迁移熵 TE (effective + 块置换 p 值) | 41 / 41 ✅ (sklearn/scipy 黄金值 + Gaussian 解析 + TE=GC/2 内部锚) |
 | **Cross-platform** | MSVC (Win10) + GCC (Ubuntu NEX / GTR-Pro) 三平台一致 | 全量测试通过（见 CI）；位精确复现限**同编译器族内 + 同 RNG 版本 + 同编译选项** |
 
 跨平台浮点确定性由 `-ffp-contract=off` (GCC) + `/fp:precise` (MSVC) 保证 IEEE-754 严格模式。
@@ -44,6 +45,7 @@
 - **High-frequency econometrics (v1.4.3+)**: 流动性度量 23 种 (Hasbrouck 2009, effectiveSpread/realizedSpread/priceImpact/depthImbalanceRatio 等) + Lee-Ready 交易方向推断; 高级跳跃检验 — AJ (Aït-Sahalia & Jacod 2009), JO (Jiang & Oomen 2008), Intraday (Lee & Mykland 2008, RM 模式), Rank (Bollerslev & Todorov 2011, 含自实现 one-sided Jacobi SVD 全分解 + bootstrap) — 对标 R `getLiquidityMeasures`/`AJjumpTest`/`JOjumpTest`/`intradayJumpTest`/`rankJumpTest`, 23 个排幻觉点 (D1-D23) R 源码实测标注
 - **Python bindings**: `import cpphub` via nanobind (BSM / Heston / MC / Greeks / VaR)
 - **GPU MC** (optional): Philox4x64-10 (Random123): **uniform stream bit-exact** with CPU; normal samples agree to 1e-15 (CUDA/host math libraries differ in last bits)
+- **Time-series density & information (v1.9)**: 1D Gaussian KDE (带宽规则 Scott/Silverman/normal_reference 显式类型, Absolute vs DimensionlessFactor 语义区分, 对标 scipy `gaussian_kde` 1e-14), kNN 密度 (Loftsgaarden-Quesenberry), KSG 互信息/条件互信息 (Kraskov 2004 Algorithm 1, Chebyshev, 对标 sklearn `_compute_mi_cc` 1e-12), 迁移熵 (Schreiber/Barnett, effective TE + circular block shuffle p 值, Gaussian VAR 下 TE=GC/2 与 Granger 互检)
 
 ---
 
