@@ -1,5 +1,13 @@
 include(GoogleTest)
 
+# 覆盖率构建标记: Coverage CI job (ci.yml) 用 Debug + "--coverage -O0" 插桩跑
+# 全量 ctest; 性能用例预算 (PHASE9_SPEC D9-10) 口径是 MSVC Release, -O0 插桩
+# 下 KSG/TE 必然超预算 (run 43465160758: 1.3s/98.9s vs 0.5s/10s) → 定义宏让
+# perf 用例 GTEST_SKIP, Release/普通构建保留预算断言
+if(CMAKE_CXX_FLAGS MATCHES "--coverage")
+    add_compile_definitions(CPPHUB_COVERAGE_BUILD=1)
+endif()
+
 # gtest 发现超时加固 (2026-08-20): CI Windows runner 冷启动慢, 默认
 # TEST_DISCOVERY_TIMEOUT=5s 间歇性超时 → GoogleTestAddTests.cmake
 # "Error running test executable" (run #69 Build&Test / #71 C ABI 两个

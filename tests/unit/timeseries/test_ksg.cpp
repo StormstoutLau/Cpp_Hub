@@ -246,7 +246,12 @@ TEST(KsgValidation, RejectsInvalidInputs) {
 }
 
 // spec §1.3/D9-10 性能预算: KSG N=5000, k=3, 单线程 < 0.5 s (暴力 O(N²), D9-3)
+// 覆盖率 CI 为 Debug -O0 + --coverage 插桩构建, 预算口径不适用 → skip
 TEST(KsgPerformance, N5000K3UnderBudget) {
+#if defined(CPPHUB_COVERAGE_BUILD)
+    GTEST_SKIP() << "perf budget (PHASE9_SPEC D9-10) asserted on optimized "
+                    "builds; coverage job is Debug -O0 + --coverage";
+#endif
     constexpr Size n = 5000;
     constexpr Real rho = 0.5;
     const Pair p = gaussian_pair(n, rho, 3000);

@@ -166,7 +166,12 @@ TEST(KdeValidation, ReflectionNotImplemented) {
 // spec D9-10 性能预算 (2026-11-11 G 门禁修订 50→150ms): 实测 52-58ms,
 // UCRT 标量 exp ~5.5ns/次为硬下限, 暴力算法已最优 (inv_h 乘法/双累加器
 // 无增益; exp2 变换实测慢 8× 禁用); 150ms 留 CI runner 1.5-2× 慢速余量
+// 覆盖率 CI 为 Debug -O0 + --coverage 插桩构建, 预算口径不适用 → skip
 TEST(KdePerformance, N10kM1kUnderBudget) {
+#if defined(CPPHUB_COVERAGE_BUILD)
+    GTEST_SKIP() << "perf budget (PHASE9_SPEC D9-10) asserted on optimized "
+                    "builds; coverage job is Debug -O0 + --coverage";
+#endif
     std::mt19937_64 rng(3000);
     std::normal_distribution<Real> nd(0.0, 1.0);
     std::vector<Real> sample(10000);

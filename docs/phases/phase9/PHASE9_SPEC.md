@@ -100,7 +100,7 @@ tests/fixtures/timeseries/
 | D9-7 | 不做多变量 KDE / 多变量条件 TE / 离散 TE / Rényi TE | v1.9 聚焦连续双变量; 多变量条件化 P2 |
 | D9-8 | 不做边界修正 (正支撑数据) / 权重 KDE | 边界偏倚列入开放问题; 权重 P2 |
 | D9-9 | 不新增 C ABI / Python 绑定 | Phase 9 纯 C++ 内部模块; 未来按需 |
-| D9-10 | 性能预算: KDE N=10k/M=1k < 50 ms; KSG N=5k < 0.5 s; TE N=2k, ETE 100 + 块置换 100 (**共 ~200 次 TE 评估**) < 10 s | 单线程, MSVC Release; 审计 C6 明确预算含 p 值置换。**[2026-11-11 G 门禁修订, 经用户批准]** KDE 预算 50→150 ms: 实测 52-58 ms (UCRT 标量 exp ~5.5 ns/次硬下限, 暴力算法已最优; exp2 变换实测慢 8× 禁用), 150 ms 留 CI runner 1.5-2× 慢速余量; KSG 实测 35 ms / TE 实测 4.1 s 均达标不动 |
+| D9-10 | 性能预算: KDE N=10k/M=1k < 50 ms; KSG N=5k < 0.5 s; TE N=2k, ETE 100 + 块置换 100 (**共 ~200 次 TE 评估**) < 10 s | 单线程, MSVC Release; 审计 C6 明确预算含 p 值置换。**[2026-11-11 G 门禁修订, 经用户批准]** KDE 预算 50→150 ms: 实测 52-58 ms (UCRT 标量 exp ~5.5 ns/次硬下限, 暴力算法已最优; exp2 变换实测慢 8× 禁用), 150 ms 留 CI runner 1.5-2× 慢速余量; KSG 实测 35 ms / TE 实测 4.1 s 均达标不动。**[2026-11-14 CI 修订]** 预算口径仅适用于优化构建: 覆盖率 CI job 为 Debug + `--coverage -O0` 插桩构建 (run 43465160758: KSG 1.3 s / TE 98.9 s 超预算) → `tests/CMakeLists.txt` 检测 `--coverage` 定义 `CPPHUB_COVERAGE_BUILD`, 三个 perf 用例在该构建下 `GTEST_SKIP()` (Release 仍断言预算) |
 
 **不做清单**: 多核 KDE / 多维 KDE / 带宽矩阵 / SJ/ISJ / 边界修正 / 加权 KDE / k-d tree / KSG Algorithm 2 / 多变量 TE / 离散或 Rényi TE / 排列熵 / 滑窗 TE API (窗口切片由调用方实现, 审计 C5) / C ABI / Python 绑定。
 

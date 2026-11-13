@@ -227,7 +227,12 @@ TEST(TransferEntropy, Validation) {
 
 // spec D9-10 性能预算: TE N=2000, ETE 100 + 块置换 100 (共 ~200 次 CMI 评估)
 // < 10 s (MSVC Release, 单线程; 审计 C6: 预算含 p 值置换)
+// 覆盖率 CI 为 Debug -O0 + --coverage 插桩构建, 预算口径不适用 → skip
 TEST(TransferEntropy, PerformanceBudgetN2000) {
+#if defined(CPPHUB_COVERAGE_BUILD)
+    GTEST_SKIP() << "perf budget (PHASE9_SPEC D9-10) asserted on optimized "
+                    "builds; coverage job is Debug -O0 + --coverage";
+#endif
     constexpr Size n = 2000;
     const VarSample v = generate_var(n, 0.5, 0.3, 3000);
     const auto cfg = te_config(100, 100);

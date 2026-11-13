@@ -3187,5 +3187,6 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
 - **G 门禁终态**: G1 编译零警告（全量 Release EXIT=0，警告全为既有项 aad_greeks C4244 / rbf_fd C4996；Phase 9 定向 `/W4` 5 TU CLEAN，全局基线 /W3 不动）；G2 **全量 2671/2671 零失败**（2026-11-11 17:57 终态；CUDA/Python OFF、C ABI ON）+ 5 套件 41/41；G3-G8 见 spec §7.5 表。**偏差记录**: spec 预估「全库 ≥2700」作废（基于 CI 口径 2643 推算，未计本地配置差异与新增 41 例），以「全量零失败 + 计数如实记录」为判据。
 - **未闭环（诚实声明）**: GCC 双平台仅随 CI job 覆盖，本批次本地未跑 A/B 站（惯例随合并后 bundle 验证）；TE 组装层仍无第二实现对照（风险 ⑭ / H2 JIDT 对照留 verify 期最高优先）；G1 的 `ks` hpi/hscv（H1）、Alg2（H5）、块长 Politis-White（Q11）维持 P2。
 - **教训**: (1) spec 中未实测的性能/计数预算应按「实测→修订→记录」闭环，而非事后改断言通过——本轮 KDE 150ms 与 ≥2700 作废均走用户批准修订；(2) 平台数学库实现差异可完全颠倒直觉（exp2 慢 8×），性能敏感路径必须实测而非按「更接近硬件指令」推断；(3) 统计功效判据必须冻结 n，否则同一 p<0.1 判据在不同样本量下结论相反。
+- **CI 修复 (2026-11-14)**: Coverage job (Debug + `--coverage -O0` 插桩) 下 2 个 perf 用例超预算红 (run 43465160758: KSG 1.3s / TE 98.9s vs 0.5s/10s; KDE 0.12s 擦线)。`tests/CMakeLists.txt` 检测 `--coverage` 定义 `CPPHUB_COVERAGE_BUILD`, 三个 perf 用例 `GTEST_SKIP()` (预算口径 D9-10 本就限定 MSVC Release); 本地 Release 41/41 全绿且 perf 仍实测 (KDE 0.07s/KSG 0.05s/TE 4.26s), 宏定义分支经独立构建实测 SKIPPED。
 
 
