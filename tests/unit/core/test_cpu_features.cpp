@@ -1,9 +1,9 @@
 // RISK-001 验收测试: 运行时 CPU 特征检测
 #include "cpphub/core/cpu_features.hpp"
 #include "cpphub/core/config.hpp"
+#include <array>
 #include <gtest/gtest.h>
 #include <thread>
-#include <vector>
 
 using namespace cpphub;
 
@@ -34,7 +34,9 @@ TEST(CpuFeatures, CachedAfterFirstCall) {
 TEST(CpuFeatures, ThreadSafeConcurrentAccess) {
     constexpr int n_threads = 8;
     std::vector<std::thread> threads;
-    std::vector<bool> results(n_threads, false);
+    // 不能用 std::vector<bool>: 位压缩特化下不同下标的写入共享同一机器字,
+    // 并发读改写构成数据竞争 (run 43479814094 Coverage -O0 下丢更新实证)
+    std::array<bool, n_threads> results{};
     for (int t = 0; t < n_threads; ++t) {
         threads.emplace_back([&results, t]() {
             const CpuFeatures& f = runtime_cpu_features();
