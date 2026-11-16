@@ -3196,5 +3196,6 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **RISK-034 (输入面复核)**: 功能面已在早前批次落地 — 入口 `kMaxArgsJsonBytes=8 MiB` (strlen 后前置于解析/工具查找) + 节点预算 `kMaxParseNodes=1e6` (1e4×64 ≈ 6.4e5 的 1.5× 余量) + 深度 64 + 尾随垃圾拒绝。本批复跑复核: `test_json_min` **19/19**、`test_c_api_tools` **11/11** (Release MSVC)。"8 MiB 是否恰当"保留为独立安全评审动作。
   - **EXTERNAL_REVIEW 全表回填**: 主表 14 行状态与账实对齐 (RISK-027/029/030/031/033/034/035/036 全部已关闭/已修复; RISK-032 两轴模型关闭), §五 优先级表划线, §六 诚实声明补注, §七 计数改 **14/14 关闭** + 修改历史留痕。
   - **USAGE_GUIDE timeseries 章节**: 新增 §3.11 (bandwidth/KDE/kNN/KSG/TE 五模块 API + 语义易错点 + 数值锚) + §5.12 示例 + §1 目录树补 timeseries; 文档版本 1.0→1.1。要点含: 带宽同名不同物 (Scott 1.059 vs Silverman 0.9 vs NR C=1.059223840025653)、KSG 不截断负值、TE `te_effective` 仅诊断、`delay>1` 与 JIDT 不同构、强持久序列需显式块长 (Q11)。
+  - **CI 收口**: run 43854803583 十 job 中仅 C ABI (windows) 红 — `TransferEntropy.PerformanceBudgetN2000` 实测 **10131 ms vs 10 s 预算** (1.3% 越界; 同 commit Build&Test job 同用例通过)。根因 = `--parallel 4` 与 GeomAsian(134s)/CoupledVar(35.6s) 等 CPU 密集用例并发, O(N²) TE 墙钟被争用推高 → **不放宽预算** (D9-10 口径 = 无争用实测量), 新增 `cpphub_add_budget_test` (`gtest_discover_tests(... PROPERTIES RUN_SERIAL TRUE)`, [tests/CMakeLists.txt](../tests/CMakeLists.txt)) 仅用于 TE 套件 (KDE 52ms/150ms、KSG 35ms/500ms 余量 3-14× 无需串行); 修复 `6b18420`, **run 43860889777 十 job 全绿, P1 批次闭环**。
 
 
