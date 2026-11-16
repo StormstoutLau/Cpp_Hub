@@ -85,13 +85,16 @@ VarSample jidt_anchor_var(Size n, Real phi, Real a, std::uint64_t seed) {
     VarSample s;
     s.x.resize(n);
     s.y.resize(n);
-    const auto z0 = cpphub::v1::normal_simd(rng);
-    s.x[0] = z0[0] / std::sqrt(1.0 - phi * phi);
-    s.y[0] = z0[1] / std::sqrt(1.0 - phi * phi);
+    // f64x4 AVX2 分支无 operator[] — 跨平台取元素统一走 store (test_rng.cpp 同惯例)
+    alignas(32) double z0v[4];
+    cpphub::v1::store(z0v, cpphub::v1::normal_simd(rng));
+    s.x[0] = z0v[0] / std::sqrt(1.0 - phi * phi);
+    s.y[0] = z0v[1] / std::sqrt(1.0 - phi * phi);
     for (Size t = 1; t < n; ++t) {
-        const auto z = cpphub::v1::normal_simd(rng);
-        s.x[t] = phi * s.x[t - 1] + z[0];
-        s.y[t] = phi * s.y[t - 1] + a * s.x[t - 1] + z[1];
+        alignas(32) double zv[4];
+        cpphub::v1::store(zv, cpphub::v1::normal_simd(rng));
+        s.x[t] = phi * s.x[t - 1] + zv[0];
+        s.y[t] = phi * s.y[t - 1] + a * s.x[t - 1] + zv[1];
     }
     return s;
 }
