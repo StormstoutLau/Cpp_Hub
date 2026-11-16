@@ -140,13 +140,14 @@ RESEARCH.md → DESIGN.md → IMPLEMENTATION.md → CHECKLIST.md   (spec/<featur
 
 ## 🚀 项目状态
 
-### 交付进度 (v1.0 → v1.8)
+### 交付进度 (v1.0 → v1.9)
 
 - ✅ Phase 1-3 (v1.0): 286/286 测试通过 (Core/PayOff/BS/Heston/MC/Sobol QMC/PDE/Tree/Greeks/VaR/Calibration/SVI)
 - ✅ Phase 4 LITE (v1.1): 320/320 测试通过 (SSVI 跨期限 / Python 绑定 / GPU MC)
 - ✅ Phase 5 (v1.4.0–v1.4.3): HFE 高频计量 144 项 (RV/BPV/RSV · 12 核函数 Realized Kernel · 5 多资产 Cov · HAR/HEAVY · 流动性 23 · 跳跃检验 AJ/JO/Intraday/Rank)
 - ✅ Phase 6/7 (v1.5–v1.7): 证伪统计量 + 时序/多变量 (单位根 · 协整 · VECM · Granger/DY · GARCH 族 · MIDAS)
 - ✅ Phase 8 (tag `v1.8.0`): ARDL/PSS 边限检验 + Kalman 状态空间精确似然
+- ✅ Phase 9 (tag `v1.9.0`): KDE/KNN + KSG/TE 信息论基础设施 41 项 (1D Gaussian KDE 四带宽规则 · LQ kNN 密度 · KSG Alg1 MI/CMI 逐位对齐 sklearn · TE=CMI+块置换 p 值)
 - ✅ 跨平台: MSVC (Win10) + GCC (Ubuntu 22.04/24.04) 位精确一致 (HFE 1412/1412)
 - ✅ ADR: 20 项 (ADR-001~020)
 
@@ -154,7 +155,7 @@ RESEARCH.md → DESIGN.md → IMPLEMENTATION.md → CHECKLIST.md   (spec/<featur
 
 | 版本 | 范围 | 状态 |
 |------|------|------|
-| **v1.9 (Phase 9)** | KDE/KNN + KSG/TE 信息论估计器（D-2 裁决载体） | 规划中 |
+| **v1.9 (Phase 9)** | KDE/KNN + KSG/TE 信息论估计器（D-2 裁决载体） | ✅ 已交付 (tag `v1.9.0`) |
 | **v2.0+** | MPI 分布式 / Excel XLL / gRPC / 云原生 / 多平台 Wheel；MCP 接口层（`spec/mcp-server/`） | 推迟 / 调研中 |
 
 ---
@@ -184,6 +185,6 @@ RESEARCH.md → DESIGN.md → IMPLEMENTATION.md → CHECKLIST.md   (spec/<featur
 
 ---
 
-**文档集完成度**: 核心文档已随 v1.8 更新（本索引 2026-10 刷新）  
-**当前版本**: **v1.8.0**（Phase 1–8 交付，ADR-001~020）  
-**下一里程碑**: v1.9 (Phase 9, KDE/KNN + KSG/TE) / MCP 接口层（`spec/mcp-server/` 调研中）
+**文档集完成度**: 核心文档已随 v1.9 更新（本索引 2026-11 刷新）  
+**当前版本**: **v1.9.0**（Phase 1–9 交付，ADR-001~020）  
+**下一里程碑**: v2.0+ (MPI 分布式 / Excel XLL / gRPC / 云原生) / MCP 接口层（`spec/mcp-server/` 调研中）
