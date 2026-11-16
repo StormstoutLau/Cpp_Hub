@@ -35,16 +35,16 @@
 | RISK-024 | risk/var | 回测似然连乘下溢 → 静默失效（NaN / LR=0） | HIGH | 成立 | **P0** | **已修复**（2026-10-21，见 §三） |
 | RISK-025 | performance/gpu | PIMPL 裸指针 + 默认析构 → Impl 与 CUDA stream 永久泄漏 | HIGH | 成立 | **P0** | **已修复**（2026-10-21，见 §三） |
 | RISK-026 | performance/gpu | CUDA 调用/kernel launch 零错误检查；block_size 未校验 | HIGH | 成立 | **P0** | **已修复**（2026-10-21，见 §三） |
-| RISK-027 | core/rng | "Philox4x64-10" 名实不符；无 KAT；GPU/CPU 流不一致 | MEDIUM | 成立 | P1 | 调研完成，待裁决（[spec/p1-fixes/RESEARCH.md §3.1/§6.4 U-1](../../spec/p1-fixes/RESEARCH.md)） |
+| RISK-027 | core/rng | "Philox4x64-10" 名实不符；无 KAT；GPU/CPU 流不一致 | MEDIUM | 成立 | P1 | **已修复**（Random123 vendor 化 + KAT + GPU/CPU 流对齐；P0 批，见 §三/DEVLOG） |
 | RISK-028 | risk/var | χ² CDF 用 Wilson-Hilferty 近似，k=1 临界带内翻转 | MEDIUM | 成立 | **P0** | **已修复**（2026-10-21，见 §三） |
-| RISK-029 | 构建 | Release 写死 `-march=x86-64-v3` / `/arch:AVX2` | MEDIUM | 成立 | P2 | 待处理 |
-| RISK-030 | pricing/pde | const 接口写 `mutable` 计数器 → 共享引擎数据竞争 | MEDIUM | 成立 | P2 | 待处理 |
-| RISK-031 | pricing/pde | 边界按 `payoff.name()` 字符串分派；Neumann 配置被静默忽略 | MEDIUM | 成立 | P2 | 待处理 |
-| RISK-032 | docs/版本/CI | README GPU 测试数不实；版本号三处不一致；无覆盖率 | LOW | **部分成立** | P1 | 调研完成，待裁决（RESEARCH §3.2 / U-2、U-3）；CI 子项已关闭（S5） |
-| RISK-033 | 构建/供应链 | GoogleTest `FetchContent` 无 `URL_HASH` | 安全 | 成立 | P1 | 调研完成（RESEARCH §3.3，已取得 commit SHA 与归档 SHA256） |
-| RISK-034 | c_api | `json_min` 解析外部输入（总量无上限）→ 移交安全复核 | 安全 | 成立（待复核） | P1 | 调研完成（RESEARCH §3.4 / U-4），加固待裁决 |
-| RISK-035 | c_api（MCP） | `chow_denning_joint` 把联合 p 值填进 `statistic` 字段 | 自补 | 成立 | P2 | 待裁定 |
-| RISK-036 | risk/var | χ² 上尾按 `1-P` 计算 → p ≲ 1e-16 时归零（判定不受影响） | 自补 | 成立 | P3 | 已登记（待裁定：是否改精确上尾） |
+| RISK-029 | 构建 | Release 写死 `-march=x86-64-v3` / `/arch:AVX2` | MEDIUM | 成立 | P2 | **已修复**（`b2339fd`，改 `CPPHUB_X86_V3` opt-in + 架构/编译器探测） |
+| RISK-030 | pricing/pde | const 接口写 `mutable` 计数器 → 共享引擎数据竞争 | MEDIUM | 成立 | P2 | **已修复**（ADR-021 P1/P2：`price_american_result()` 返回值承载迭代数，`mutable` 成员删除） |
+| RISK-031 | pricing/pde | 边界按 `payoff.name()` 字符串分派；Neumann 配置被静默忽略 | MEDIUM | 成立 | P2 | **已修复**（ADR-021 P3-P5：`PayOffKind` 枚举分派 + 障碍路径 Neumann 远场外推 + Unknown fail-fast） |
+| RISK-032 | docs/版本/CI | README GPU 测试数不实；版本号三处不一致；无覆盖率 | LOW | **部分成立** | P1 | **已关闭**（版本两轴模型：`VERSION`=C++ API 轴 1.0.0 / 发布轴 tag；README 已修；CI 增 Coverage job；大文件不物理拆分，见 §四） |
+| RISK-033 | 构建/供应链 | GoogleTest `FetchContent` 无 `URL_HASH` | 安全 | 成立 | P1 | **已修复**（URL 钉 commit `f8d7d77c…` + `URL_HASH SHA256=7ff5db23…` + CI 双重守卫） |
+| RISK-034 | c_api | `json_min` 解析外部输入（总量无上限）→ 移交安全复核 | 安全 | 成立（待复核） | P1 | **已加固**（`kMaxArgsJsonBytes=8 MiB` 入口前置 + `kMaxParseNodes=1e6` 节点预算 + 拒绝测试） |
+| RISK-035 | c_api（MCP） | `chow_denning_joint` 把联合 p 值填进 `statistic` 字段 | 自补 | 成立 | P2 | **已关闭**（第 3 批：真统计量 `chow_denning_statistic` 提升入结果结构，信封取真值） |
+| RISK-036 | risk/var | χ² 上尾按 `1-P` 计算 → p ≲ 1e-16 时归零（判定不受影响） | 自补 | 成立 | P3 | **已修复**（第 3 批：NR gammq 连分式 Q + `chi2_sf`，回测三处改直算上尾） |
 
 ---
 
@@ -285,11 +285,29 @@ LR_cc = LR_pof + LR_ind  ~ χ²(2)
 
 **处置**：加 `URL_HASH SHA256=<...>`（或改 `GIT_TAG <完整 40 位 SHA>`）；两者取其一，勿只依赖 tag 名。
 
+**实施（2026-11-16）**：两层叠加——
+
+1. URL 改 `codeload.github.com/google/googletest/tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571`（commit 归档形态，不可变身份；ADD 审计 P3-1 已落地 + CI 守卫）；
+2. 补 `URL_HASH SHA256=7ff5db23de232a39cbb5c9f5143c355885e30ac596161a6b9fc50c4538bfbf01`（868,904 B；**两次独立下载逐位一致**实证 codeload 归档字节稳定），下载内容在 configure 期逐字节校验；
+3. CI 守卫追加 `URL_HASH` 存在性 grep（[ci.yml:52](../../.github/workflows/ci.yml)），任一形态回退即 red。
+
+验证：全新 build 目录 configure 通过（`tmp/hashcheck`，实测触发下载 + 校验）。
+
 ---
 
 ### RISK-034 — `json_min` 外部输入面（安全，待复核）
 
 **事实**：`include/cpphub/c_api/detail/json_min.hpp` 已有**深度上限**（`:27 kMaxParseDepth = 64`）与**尾随垃圾拒绝**（`:166`）；但 ABI 入口 `cpphub_v1_tool_call` 对 `args_json` **无总长上限**——长度校验在解析之后按语义字段进行（`kMaxSeriesLength=10000` / `kMaxColumns=64` 在 `cpphub_tool_registry.hpp:50-52`）。
+
+**实施（加固完成，2026-11-16 复核）**：
+
+| 层 | 机制 | 证据 |
+|---|---|---|
+| 入口字节面 | `kMaxArgsJsonBytes = 8 MiB`，`strlen` 后**前置于解析与工具查找**（[c_api.cpp:308-315](../../src/c_api/c_api.cpp)） | `test_c_api_tools` 三例（limit-1 通过 / limit 边界 / limit+1 拒绝） |
+| 解析节点面 | `kMaxParseNodes = 1'000'000`（≈ 1e4 序列 × 64 列 = 6.4e5 的 1.5× 余量），每次 `parse_value` 计数 | `test_json_min` 三例（恰好 1e6 通过 / 1e6+1 拒绝） |
+| 结构面 | `kMaxParseDepth = 64` + 尾随垃圾拒绝（既有） | 既有用例 |
+
+本地实测：`test_json_min` 19/19 + `test_c_api_tools` 11/11（Release, MSVC）。剩余风险属安全复核口径（8 MiB 上限是否合适），功能面已封口。
 
 **风险定性**：本地 stdio 场景，现实风险低；风险面是"超大输入的内存放大"。**移交 security-review 复核**（与既有 `TRAE-security-review` 流程），本清单只登记不结论。
 
@@ -339,12 +357,12 @@ LR_cc = LR_pof + LR_ind  ~ χ²(2)
 |---|---|---|---|
 | ~~P0~~ **已完成** | RISK-023 / 024 / 028 | `backtesting.hpp` 三件套（对数似然 + 精确 χ² + LR_cc=LR_pof+LR_ind + 守卫删除 + 输入边界），2026-10-21 落地，`test_backtesting` 21/21 + 相邻三套件全绿 | 静默错——统计检验给出**错误且不报错**的结论 |
 | ~~P0~~ **已完成** | RISK-025 / 026 | GPU PIMPL + CUDA_CHECK + block_size 校验（2026-10-21 落地，`test_gpu_mc` 19/19 通过） | 资源泄漏 + 伪结果（`used_gpu=true` 的 0 值） |
-| P1 | RISK-027 | RNG 裁决（换实现 or 更名） | 影响 README 承诺与 MC 基线；换实现需冻结一次基线重算 |
-| P1 | RISK-032 | 版本号单源化 + README 修正 + CI 覆盖率 | 一致性/可信度面 |
-| P1 | RISK-033 / 034 | 加 `URL_HASH`；`json_min` 移交安全复核 | 供应链与输入面 |
-| P2 | RISK-029 / 030 / 031 | 架构开关化；PDE 迭代计数与边界策略重构 | 平台/API 变更，走 ADR |
-| P2 | RISK-035 | F9 语义裁决（`statistic=null` + golden 重生成，或维持现状） | MCP 工具契约 |
-| P3 | RISK-036 | χ² 上尾精确化（`Q(a,x)` 直算） | 仅影响 p<1e-16 的可读性, 判定不受影响 |
+| ~~P1~~ **已完成** | RISK-027 | RNG 裁决（换实现 or 更名）→ Random123 vendor 化 + KAT + GPU/CPU 流对齐 | 影响 README 承诺与 MC 基线；换实现需冻结一次基线重算 |
+| ~~P1~~ **已完成** | RISK-032 | 版本号单源化 + README 修正 + CI 覆盖率 → 版本两轴模型（VERSION/tag） | 一致性/可信度面 |
+| ~~P1~~ **已完成** | RISK-033 / 034 | 加 `URL_HASH`（2026-11-16）；`json_min` 入口 8 MiB + 节点预算 1e6 | 供应链与输入面 |
+| ~~P2~~ **已完成** | RISK-029 / 030 / 031 | 架构开关化（`b2339fd`）；PDE 迭代计数与边界策略重构（ADR-021） | 平台/API 变更，走 ADR |
+| ~~P2~~ **已完成** | RISK-035 | F9 语义裁决 → 真统计量提升入结果结构 | MCP 工具契约 |
+| ~~P3~~ **已完成** | RISK-036 | χ² 上尾精确化（`chi2_sf` = NR gammq 连分式 Q 直算） | 仅影响 p<1e-16 的可读性, 判定不受影响 |
 
 ---
 
@@ -354,14 +372,14 @@ LR_cc = LR_pof + LR_ind  ~ χ²(2)
 2. **RISK-027 的"轮函数不可逆"**：仅确认"**没有可逆性论证**"（评审原话即如此），未给出可逆性证明或反例。
 3. **行号偏移记录**（不影响裁定）：`gpu_mc.cu` 析构在 :296（评审写 297）、移动在 :298-299（评审写 299-300）；`pyproject.toml` 版本在 :24（评审写 22）。其余抽查项逐字命中。
 4. **RISK-024 的次正规判定**：n=3750 时是"精度尽失的次正规数"而非精确 0（阈值 `DBL_TRUE_MIN=4.94e-324`）；评审"下溢为 0"的方向正确、幅度略乐观；n≳3850 时为精确 0。
-5. **RISK-034 未做深度安全分析**：仅登记输入面与移交，结论以 security-review 结果为准。
+5. **RISK-034 未做深度安全分析**：仅登记输入面与移交，结论以 security-review 结果为准。（2026-11-16 补注：功能面已加固——入口 8 MiB + 节点预算 1e6 + 拒绝测试；"8 MiB 是否恰当"仍属安全评审口径，本清单不结论。）
 6. **RISK-023/024/028 的验证边界**（2026-10-21）：用例全部为**构造序列**（确定性人工违约模式）+ 闭式参考（χ² 尾用 `erfc` / `exp` 独立计算），未接入真实回测数据；LR_cc = LR_pof + LR_ind 的分解已数值验证到 1e-12（经 χ²(2) 闭式间接观测，因为该 API 不暴露统计量本身），**未与 R 包**（`rugarch::vaRtest` 等）**逐一对照**。另：Python 绑定为静态编译产物，wheel 需重建后才包含本次修复（CI 的 python job 覆盖该路径，本地未重建）。
 
 ---
 
 ## 七、计数与维护约定
 
-**计数（RULE-2 逐项口径）**：外部评审 12 条（HIGH 4 / MEDIUM 5 / LOW 1 / 安全 2）+ 本库增补 2 条（RISK-035 / 036）= **登记 14**；其中 成立 12 / 部分成立 1（RISK-032）/ 不成立 0；**已关闭子项 1**（CI Python job，S5）；**已修复 5**（RISK-023 / 024 / 025 / 026 / 028，2026-10-21）。
+**计数（RULE-2 逐项口径）**：外部评审 12 条（HIGH 4 / MEDIUM 5 / LOW 1 / 安全 2）+ 本库增补 2 条（RISK-035 / 036）= **登记 14**；其中 成立 12 / 部分成立 1（RISK-032）/ 不成立 0；**已关闭/已修复 14（全部）**——P0 五项 2026-10-21，RISK-027/029/030/031 与 RISK-032/035/036 于 P1/P2/P3 批次，RISK-033/034 于 2026-11-16 P1 清零批（RISK-034 功能面加固完毕，安全口径复核建议保留为独立安全评审动作）。
 
 **修改历史**：
 
@@ -378,6 +396,7 @@ LR_cc = LR_pof + LR_ind  ~ χ²(2)
 | 2026-10-21 | P1 验收清单（Step 7）完成 → [spec/p1-fixes/CHECKLIST.md](../../spec/p1-fixes/CHECKLIST.md)：G 6 项（前置门禁 U-6/7/8/10、基线、离线 gtest）+ C 78 项（R-033 6 / R-032 19 / R-034 12 / R-027 28 / 回归性能 6 / 提交回滚 7）= 84 项；含硬约束（禁放宽容差、禁改夹具、禁退回 .txt、禁恢复自写 Philox）；A1-A10 全覆盖映射 |
 | 2026-10-22 | P1 文档一致性对齐（Step 8）完成：RESEARCH U-1~U-5 ↔ DESIGN 5/5、A1-A10 三文档 10/10/10、测试名 9/9 归一化核对；**7 处不一致闭环**（1×P2：test_rng 既有用例 8→**9**，RESEARCH E1-6 早已记 9；6×P3：DESIGN §6.2 行区间 :25-29→:25-28、DESIGN §4.4 与 IMPL 的 `python3`/`coverage*.html` 对齐并补 `--check` 门禁、D-04/D-05 口径归一化、C-79 补全测试名、§1.1 URL 以 RESEARCH §7.1 填实）→ CHECKLIST §1 |
 | 2026-10-22 | P1 实施（Step 9）G 系列门禁全部通过：U-7 裁定 **1.9.0**；U-8 vendor Random123 commit `9545ff64…1150`（codeload 直连，28 文件 + LICENSE + UPSTREAM.md）；U-6 KAT 列序确认（实际在 `tests/kat_vectors`，10 轮 3 行）+ 夹具生成（第 1 行答案与 device 输出交叉验证）；**U-10 探针发现 Windows+nvcc 下 `MULHILO64_MSVC_INTRIN` 遮蔽 `CUDA_INTRIN`（philox.h L199-202）→ device 编译失败**，修复 = device pass 宏守卫（DESIGN §11 D-6，sm_89 验证输出 = 官方 KAT）；基线三目录全绿（2605 / 2587 / 2548）；R-033 形态经裁决改为 **URL@commit**（本机 git 协议不通，D-5）；实施期勘误 E-6~E-10 见 IMPLEMENTATION §9 |
+| 2026-11-16 | **全表回填**（账实相符）：RISK-027 已修复 / RISK-029 已修复（`b2339fd`）/ RISK-030/031 已修复（ADR-021）/ RISK-032 已关闭（两轴模型）/ RISK-033 已修复（`URL_HASH` + CI 守卫）/ RISK-034 已加固（8 MiB 入口 + 1e6 节点预算）/ RISK-035 已关闭 / RISK-036 已修复；§五 优先级表同步划线 |
 
 **复算命令**（可重放）：
 

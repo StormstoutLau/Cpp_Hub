@@ -49,6 +49,10 @@ Cpp_Hub/
 │   │   ├── xva.hpp                # XVA：CVA/DVA/FVA/BVA
 │   │   ├── wrong_way_risk.hpp     # WWR：Hull-White/Copula(Pykhtin-Zhu)/MC
 │   │   └── pfe_sa_ccr.hpp         # PFE + SA-CCR(Basel III)
+│   ├── timeseries/                # 时间序列计量 + 信息论
+│   │   ├── ardl/ arima/ cointegration/ garch/ midas/ statespace/ unit_root/ var/  # 计量模型族
+│   │   ├── density/               # KDE(Loftsgaarden-Quesenberry kNN + Gaussian KDE) + 带宽规则 (v1.9)
+│   │   └── information/           # KSG 互信息/条件互信息 + KSG-CMI 迁移熵 (v1.9)
 │   └── performance/gpu/           # GPU MC（CUDA 可选，CPU stub fallback）
 ├── src/                           # 非 header-only 源文件（CUDA kernel + CPU stub）
 ├── tests/                         # GoogleTest 单元 + 集成测试
@@ -702,6 +706,42 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 
 ---
 
+### 3.11 时间序列信息论层 `timeseries/density/` + `timeseries/information/`（v1.9 Phase 9）
+
+四个 header-only 模块，均为「密度/互信息」原语，服务 Factor Fingerprint 因果失效诊断与 v2.0 信息论事前度量。
+
+**模块与 API**
+
+| 模块 | 头文件 | 主要 API | 复杂度 |
+|---|---|---|---|
+| 带宽规则 | `timeseries/density/bandwidth.hpp` | `Bandwidth{rule,value,is_factor}` + `resolve_bandwidth()` | O(n log n)（分位数排序） |
+| KDE | `timeseries/density/kde.hpp` | `KernelDensity1D(sample, cfg)` → `pdf(x)` / `log_pdf(x)` / `pdf(grid)` / `bandwidth()`; `bandwidth_sensitivity()` | 单点 O(n) |
+| kNN 密度 | `timeseries/density/knn_density.hpp` | `KnnDensity1D(sample, cfg)` → `pdf(x)` / `pdf(grid)`（Loftsgaarden-Quesenberry `k/(n·2r_k)`） | 单点 O(log n)（排序后二分） |
+| KSG 互信息 | `timeseries/information/ksg.hpp` | `ksg_mutual_info(x,y,cfg)` / `ksg_conditional_mutual_info(x,y,z,cfg)` → nats | O(N²)（暴力，D9-3） |
+| 迁移熵 | `timeseries/information/transfer_entropy.hpp` | `transfer_entropy(source, target, cfg)` → `TransferEntropyResult` | O(N²·(k+l)) 每次评估 |
+
+**语义要点（易错处）**
+
+- **带宽同名不同物**：`kScott`=1.059·A·n^(-1/5)（statsmodels `bw_scott`/R `bw.nrd`）、`kSilverman`=0.9·A·n^(-1/5)（R `bw.nrd0`）、`kNormalReference` C=1.059223840025653（statsmodels 默认，probe 反解）。A = min(sd(ddof=1), IQR/1.349)。**不提供** sklearn `bandwidth='scott'` 的「裸因子当 h」语义（会让密度随数据单位变化）。
+- **KDE 范围**：仅 1D Gaussian 核 + 正支撑数据；`KdeConfig::reflection=true` 抛 `std::logic_error`（P2 预留）。`log_pdf` 用 logsumexp max-shift，深尾不产 NaN。
+- **KSG 约定**：联合空间 Chebyshev + `nextafter(ε,0)` 边际计数（等价于严格小于 ε），与 sklearn `_compute_mi_cc` 逐位一致；返回 nats，**不截断负值**（与 sklearn `max(0,·)` 不同）。混合单位数据必须 `standardize=true`（默认开）。
+- **TE 定义**：`TE(X→Y) = CMI(Y_t ; X_past | Y_past)`，嵌入 `[X_past(k), Y_t, Y_past(l)]`，`n_effective = T − max(k,l)·delay`。输出 nats（`te_bits` 为换算值）。
+  - `p_value` = 块置换零分布（circular block shuffle 只打乱 source，`p=(1+#{null≥te})/(1+n_block_boot)`），与 `n_shuffles` **独立抽样**；
+  - `te_effective` = `te − mean(置换 te)`，仅诊断量，**不作推断依据**（零假设下符号随种子波动）；
+  - `block_length=0` → `ceil(sqrt(T))`；**强持久序列建议显式给块长**（Politis-White 自动块长为 P2/Q11）。
+- **不提供 "causal" 字段**：TE 是条件 MI 的估计，不是因果发现工具（James-Barnett-Crutchfield 2016）。选项级 `delay>1` 与 JIDT 结构不同构（JIDT 目标历史锚定 t−1），对照仅限 delay=1 结构区（H2 已闭环，max 偏差 6.5e-4 nat）。
+
+**数值锚（v1.9 验收冻结）**
+
+| 场景 | 锚 |
+|---|---|
+| KDE vs scipy `gaussian_kde`（同核同 h） | 相对差 7.5e-16 |
+| KSG MI vs sklearn | 位精确（probe K0） |
+| TE vs Gaussian VAR 解析 GC/2 | 5-seed 均值 +25% 偏差内（KSG 有限样本偏置，容差 ±30%） |
+| TE vs JIDT 1.6.1（delay=1，12 组） | max 6.5e-4 nat |
+
+---
+
 ## 4. 算法理论分析汇总
 
 ### 4.1 收敛阶汇总
@@ -979,6 +1019,38 @@ greeks = cpphub.bsm_greeks(100.0, 100.0, 1.0, 0.05, 0.0, 0.2, is_call=True)
 var = cpphub.historical_var(pnl_list, confidence=0.99)
 ```
 
+### 5.12 信息论: KDE 密度 + KSG 互信息 + 迁移熵
+
+```cpp
+#include "cpphub/timeseries/density/kde.hpp"
+#include "cpphub/timeseries/information/ksg.hpp"
+#include "cpphub/timeseries/information/transfer_entropy.hpp"
+
+namespace den = cpphub::v1::timeseries::density;
+namespace inf = cpphub::v1::timeseries::information;
+
+// 1) KDE 密度与带宽敏感性 (默认 kScott; 显式比较 Scott/Silverman)
+den::KdeConfig kcfg;                       // bandwidth.rule = kScott
+kcfg.bandwidth.rule = den::BandwidthRule::kSilverman;
+den::KernelDensity1D kde(sample, kcfg);    // sample: std::span<const Real>
+const Real f0 = kde.pdf(0.0);              // 密度
+const Real lf = kde.log_pdf(5.0);          // 深尾用 log 版 (不产 NaN)
+
+// 2) KSG 互信息 (nats; 默认 standardize=true, jitter=1e-10 破 ties)
+inf::KsgConfig mi_cfg;                     // k = 3
+const Real mi = inf::ksg_mutual_info(x, y, mi_cfg);
+
+// 3) 迁移熵 X→Y (k=2, l=2, delay=1; 块置换 p 值)
+inf::TransferEntropyConfig te_cfg;         // ksg_neighbors=3, n_shuffles=100, n_block_boot=100
+te_cfg.source_history = 2;                 // k
+te_cfg.target_history = 2;                 // l
+te_cfg.delay = 1;
+te_cfg.seed = 42;
+const auto te = inf::transfer_entropy(x, y, te_cfg);
+// te.te (nats) / te.te_bits / te.p_value / te.n_effective
+// 注意: te_effective 仅诊断; p 值才是推断依据
+```
+
 ---
 
 ## 6. 文档关联
@@ -995,7 +1067,7 @@ var = cpphub.historical_var(pnl_list, confidence=0.99)
 
 ---
 
-**文档版本**: 1.0
-**覆盖范围**: 全部模块（core / numerics / instruments / models / pricing / monte_carlo / calibration / risk / performance）
+**文档版本**: 1.1
+**覆盖范围**: 全部模块（core / numerics / instruments / models / pricing / monte_carlo / calibration / risk / timeseries / performance）
 **理论分析**: 收敛阶 / 精度 / 复杂度 三维度全覆盖
-**示例**: 11 个典型用例（BSM / Heston COS / Heston QE MC / Sobol QMC / PDE 美式 / Leisen-Reimer / 校准 / SVI / VaR / CVA-WWR / Python）
+**示例**: 12 个典型用例（BSM / Heston COS / Heston QE MC / Sobol QMC / PDE 美式 / Leisen-Reimer / 校准 / SVI / VaR / CVA-WWR / Python / 信息论）

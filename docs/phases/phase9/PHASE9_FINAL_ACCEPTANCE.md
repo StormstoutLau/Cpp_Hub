@@ -163,7 +163,7 @@
 | 2 | H1 (ks hpi/hscv) / H4 (Kirkley reduced TE) / H5 (KSG Alg2) / Q11 (Politis-White 块长) | OPEN, P2 | spec §10.1 各自处置路径; Q11 文档警告已内嵌 |
 | 3 | H3 (sklearn 'scott' 裸因子) / Q12 (normal_reference C 出处) | ✅ 已关闭 | H3 不影响实现 (文档记录); Q12 gen 阶段冻结 C=1.059223840025653 |
 | 4 | P2-1..P2-8 (边界修正 / SJ / 多元 / k-d tree / 权重 / Alg2 / 多核 / 滑窗) | 登记 | spec §10.2 对应 D9 决策 |
-| 5 | P1 工程项: RISK-033 `URL_HASH` / RISK-034 json_min 上限 / EXTERNAL_REVIEW 表回填 | OPEN | 独立批次处理, 不阻塞 v1.9 |
+| 5 | P1 工程项: RISK-033 `URL_HASH` / RISK-034 json_min 上限 / EXTERNAL_REVIEW 表回填 | ✅ **已关闭 (2026-11-16, P1 清零批)** | URL_HASH SHA256 钉死 + CI 双重守卫; json_min 入口 8 MiB + 节点预算 1e6 (既有实现复核, test_json_min 19/19 + test_c_api_tools 11/11); 审计主表 14/14 回填 (RISK-034 安全口径复核保留为独立安全评审动作) |
 | 6 | tag v1.9.0 | ✅ 本验收后执行 | 打于验收 commit 并推送 origin |
 
 ## 10. 验收结论

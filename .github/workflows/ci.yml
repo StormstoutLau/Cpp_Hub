@@ -49,6 +49,7 @@ jobs:
         shell: bash
         run: |
           grep -q "codeload.github.com/google/googletest/tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571" CMakeLists.txt
+          grep -q "URL_HASH SHA256=7ff5db23de232a39cbb5c9f5143c355885e30ac596161a6b9fc50c4538bfbf01" CMakeLists.txt
           ! grep -q "gtest-1[.]14[.]0" .github/workflows/ci.yml
 
       - name: Setup MSVC (Windows)

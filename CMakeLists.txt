@@ -116,9 +116,13 @@ include(FetchContent)
 # 不用 tag 名 / tag 归档 URL: tag 可被重指, tag 归档字节不承诺稳定。
 # 不用 GIT_REPOSITORY: 本机 git 协议到 github.com:443 不通,
 #   而 codeload HTTPS 可达 (URL 形态同时保证本地与 CI 都能全新 configure)。
+# URL_HASH (RISK-033 末块): commit 归档字节已实测跨下载一致 (两次独立下载
+# 逐位相同), 钉 SHA256 使下载内容被逐字节校验 — codeload 侧内容若变即
+# configure 期失败, 而不是静默接受。
 FetchContent_Declare(
     googletest
     URL https://codeload.github.com/google/googletest/tar.gz/f8d7d77c06936315286eb55f8de22cd23c188571
+    URL_HASH SHA256=7ff5db23de232a39cbb5c9f5143c355885e30ac596161a6b9fc50c4538bfbf01
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 set(gtest_force_shared_runtime ON CACHE BOOL "" FORCE)
