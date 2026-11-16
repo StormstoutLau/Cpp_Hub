@@ -24,6 +24,17 @@ function(cpphub_add_test name src)
     cpphub_discover_tests(${name})
 endfunction()
 
+# 含墙钟预算断言的套件: RUN_SERIAL 使该套件测试不与任何其他测试并发。
+# 预算口径 (PHASE9_SPEC D9-10) 是"无争用实测量"; CI 以 --parallel 4 跑全量,
+# 并发 CPU 争用可把墙钟推过预算 — run 43854803583 C ABI (windows) 中
+# TransferEntropy.PerformanceBudgetN2000 实测 10131 ms vs 10 s (1.3% 越界,
+# 同 commit 的 Build&Test job 通过)。串行化代价 = 该套件总时长 (~60 s)。
+function(cpphub_add_budget_test name src)
+    add_executable(${name} ${src})
+    target_link_libraries(${name} PRIVATE cpphub_core GTest::gtest_main)
+    gtest_discover_tests(${name} DISCOVERY_TIMEOUT 60 PROPERTIES RUN_SERIAL TRUE)
+endfunction()
+
 # core 测试
 cpphub_add_test(test_core_math unit/core/test_core_math.cpp)
 cpphub_add_test(test_linalg unit/core/test_linalg.cpp)
@@ -835,7 +846,8 @@ cpphub_add_test(test_knn_density unit/timeseries/test_knn_density.cpp)
 cpphub_add_test(test_ksg unit/timeseries/test_ksg.cpp)
 # test_transfer_entropy: Gaussian VAR TE=GC/2 ±35% + bits 换算 + 方向性 +
 # 标准化缩放不变 + 结果字段 + i.i.d. p 值范围 + 嵌入边界 + 非法输入
-cpphub_add_test(test_transfer_entropy unit/timeseries/test_transfer_entropy.cpp)
+# + 墙钟预算 (10 s) → 独占执行, 见 cpphub_add_budget_test
+cpphub_add_budget_test(test_transfer_entropy unit/timeseries/test_transfer_entropy.cpp)
 # test_integration_phase9: KDE 积分→KSG 解析 MI→TE vs GC/2→7C Granger 互检
 # + 带宽敏感性 (spec §6.1)
 cpphub_add_test(test_integration_phase9 unit/timeseries/test_integration_phase9.cpp)
