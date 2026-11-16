@@ -159,7 +159,7 @@
 
 | # | 项 | 状态 | 处置 |
 |---|----|------|------|
-| 1 | H2 JIDT TE 运行时对照 (风险 ⑭ 关闭路径) | OPEN, **P1 最高优先** | jpype/JIDT 对照 TE k/l/delay 与单位行为 (verify 期) |
+| 1 | H2 JIDT TE 运行时对照 (风险 ⑭ 关闭路径) | ✅ **已关闭 (2026-11-16, tag 后 verify 批)** | probe_jidt_te.py: delay=1 结构区 12 组 max 6.53e-4 nat; JIDT 连续 TE = nats (订正 A47); JidtAssemblyAnchor 锚固化; 详见 spec §10.1 H2 + devlog |
 | 2 | H1 (ks hpi/hscv) / H4 (Kirkley reduced TE) / H5 (KSG Alg2) / Q11 (Politis-White 块长) | OPEN, P2 | spec §10.1 各自处置路径; Q11 文档警告已内嵌 |
 | 3 | H3 (sklearn 'scott' 裸因子) / Q12 (normal_reference C 出处) | ✅ 已关闭 | H3 不影响实现 (文档记录); Q12 gen 阶段冻结 C=1.059223840025653 |
 | 4 | P2-1..P2-8 (边界修正 / SJ / 多元 / k-d tree / 权重 / Alg2 / 多核 / 滑窗) | 登记 | spec §10.2 对应 D9 决策 |

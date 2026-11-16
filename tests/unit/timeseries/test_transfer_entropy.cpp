@@ -16,12 +16,14 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <random>
 #include <span>
 #include <stdexcept>
 #include <vector>
 
+#include "cpphub/core/rng.hpp"
 #include "cpphub/timeseries/information/transfer_entropy.hpp"
 
 namespace inf = cpphub::v1::timeseries::information;
@@ -67,6 +69,45 @@ inf::TransferEntropyConfig te_config(Size n_shuffles, Size n_block_boot) {
 
 constexpr Real kGc = 0.11332868530700327;  // ln(1 + 0.3^2/(1-0.5^2))
 constexpr Real kTe = 0.056664342653501635; // GC/2
+
+// H2/风险⑭ 关闭锚: JIDT 1.6.1 TransferEntropyCalculatorKraskov 运行时对照黄金值
+// (probe_jidt_te.py 实测; NOISE_LEVEL_TO_ADD=0, DYN_CORR_EXCL=0; 数据 = Philox
+// VAR 与本测试 jidt_anchor_var() 位精确同源)。延迟=1 结构区 12 组 max 偏差
+// 6.53e-4 nat (组装层=嵌入/差分/有效样本裁剪 与 JIDT 同构), 锚容差放宽 3×。
+constexpr Real kJidtBaseSeed3000 = 0.072790;  // (k,l,d,K)=(1,1,1,3)
+constexpr Real kJidtDeepSeed3000 = 0.044291;  // (k,l,d,K)=(3,2,1,3)
+constexpr Real kJidtAnchorTol = 0.002;
+
+// Philox4x64 + normal_simd: 跨平台位精确的 VAR(1) (与驱动/探针同源, 避开
+// std::normal_distribution 的标准库实现差异)
+VarSample jidt_anchor_var(Size n, Real phi, Real a, std::uint64_t seed) {
+    cpphub::v1::Philox4x64 rng(seed);
+    VarSample s;
+    s.x.resize(n);
+    s.y.resize(n);
+    const auto z0 = cpphub::v1::normal_simd(rng);
+    s.x[0] = z0[0] / std::sqrt(1.0 - phi * phi);
+    s.y[0] = z0[1] / std::sqrt(1.0 - phi * phi);
+    for (Size t = 1; t < n; ++t) {
+        const auto z = cpphub::v1::normal_simd(rng);
+        s.x[t] = phi * s.x[t - 1] + z[0];
+        s.y[t] = phi * s.y[t - 1] + a * s.x[t - 1] + z[1];
+    }
+    return s;
+}
+
+// JIDT 对照口径的纯点估计配置 (无置换, 本库默认标准化对齐探针 z-score)
+inf::TransferEntropyConfig jidt_anchor_config(Size k, Size l, Size delay, Size knn) {
+    inf::TransferEntropyConfig cfg;
+    cfg.source_history = k;
+    cfg.target_history = l;
+    cfg.delay = delay;
+    cfg.ksg_neighbors = knn;
+    cfg.standardize = true;
+    cfg.n_shuffles = 0;
+    cfg.n_block_boot = 0;
+    return cfg;
+}
 
 }  // namespace
 
@@ -248,4 +289,27 @@ TEST(TransferEntropy, PerformanceBudgetN2000) {
     EXPECT_LE(r.p_value, 1.0);
     EXPECT_LT(static_cast<double>(ms), 10000.0)
         << "TE N=2000 with ETE+block boot took " << ms << " ms (budget 10 s)";
+}
+
+// H2/风险⑭ 关闭锚 (PHASE9_SPEC §8/§10.1): TE 组装层第二实现对照
+// JIDT 1.6.1 TransferEntropyCalculatorKraskov 运行时对照 (probe_jidt_te.py):
+// 嵌入映射 (JIDT kHist=本库 target_history, lHist=source_history, delay=1 同构),
+// 单位 (JIDT 连续 TE = nats, 订正调研 A47 "bits 默认"), 有效样本裁剪一致。
+// 数据跨平台位精确 (Philox), 黄金值为 JIDT 实测值; 容差 0.002 覆盖两实现的
+// KSG 内部差异 (实测 max 6.53e-4) 与 GCC/MSVC 浮点次序差。
+TEST(TransferEntropy, JidtAssemblyAnchor) {
+    const VarSample v = jidt_anchor_var(2000, 0.5, 0.3, 3000);
+    const auto base = inf::transfer_entropy(std::span<const Real>(v.x),
+                                            std::span<const Real>(v.y),
+                                            jidt_anchor_config(1, 1, 1, 3));
+    EXPECT_NEAR(base.te, kJidtBaseSeed3000, kJidtAnchorTol)
+        << "base (k,l,d,K)=(1,1,1,3): te=" << base.te << " vs JIDT " << kJidtBaseSeed3000;
+    const auto deep = inf::transfer_entropy(std::span<const Real>(v.x),
+                                            std::span<const Real>(v.y),
+                                            jidt_anchor_config(3, 2, 1, 3));
+    EXPECT_NEAR(deep.te, kJidtDeepSeed3000, kJidtAnchorTol)
+        << "deep (k,l,d,K)=(3,2,1,3): te=" << deep.te << " vs JIDT " << kJidtDeepSeed3000;
+    // 组装层语义不变式: 双边历史加深后估计仍有限、bits 换算仍成立
+    EXPECT_TRUE(std::isfinite(deep.te));
+    EXPECT_NEAR(deep.te_bits, deep.te / std::log(2.0), 1e-15);
 }

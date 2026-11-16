@@ -449,7 +449,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 | ⑪ | FFT 网格 vs 点评估 | 本实现直接求值, 不涉及 FFT |
 | ⑫ | Alg2 语义未冻结 | 仅 Alg1; H5 留 P2 |
 | ⑬ | 边界偏倚 (正支撑) | 文档警告; 边界修正 P2 (开放问题) |
-| ⑭ | TE 组装层无第二实现对照 (CMI 核有 sklearn 1e-12 锚, 但嵌入/差分/有效样本裁剪仅 GC/2 ±30% 一个锚; JIDT 对照推迟 = H2) | 接受为 v1.9 残余缺口; 集成测试加 TE(X→Y)≠TE(Y→X) 方向性断言; JIDT 对照进 verify 阶段优先级最高 (审计 C2) |
+| ⑭ | TE 组装层无第二实现对照 (CMI 核有 sklearn 1e-12 锚, 但嵌入/差分/有效样本裁剪仅 GC/2 ±30% 一个锚; JIDT 对照推迟 = H2) | ✅ **已关闭 (2026-11-16 verify)**: JIDT 1.6.1 运行时对照闭合 — delay=1 结构区 12 组 max 6.53e-4 nat + JidtAssemblyAnchor 黄金锚; 见 §10.1 H2 |
 
 ---
 
@@ -474,7 +474,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 | ID | 问题 | 处置 |
 |----|------|------|
 | H1 | R `ks` 的 `hpi/hscv` 与 SJ 1991 是否逐位一致 | P2; 安装 `ks` 后对照 |
-| H2 | JIDT TE 运行时 `k/l/delay` 与单位行为 | verify 期最高优先 (风险 ⑭ 的关闭路径); jpype 对照 |
+| H2 | JIDT TE 运行时 `k/l/delay` 与单位行为 | ✅ **CLOSED (2026-11-16, verify)**: [probe_jidt_te.py](../../../tests/fixtures/timeseries/probe_jidt_te.py) 运行时对照 — JIDT 1.6.1 Kraskov (NOISE=0, Theiler=0); **delay=1 结构区 12 组 max\|cpp−JIDT\| = 6.53e-4 nat** (组装层同构); 单位: JIDT 连续 TE 输出 **nats** (订正 A47 "bits 默认" — bits 属离散计算器); delay>1 与 JIDT 结构不同构 (JIDT 目标历史锚定 t−1, 本库锚定 t−delay) 已记录; `TransferEntropy.JidtAssemblyAnchor` 黄金值锚固化 (容差 0.002 nat) |
 | H3 | sklearn `'scott'` 裸因子是否为设计意图 | 不影响本实现; 文档记录 |
 | H4 | Kirkley reduced TE 是否能把 +25% 偏差压到 ±10% | P2; 实现 Eq. 12 后重跑 |
 | H5 | KSG Algorithm 2 的投影半径/计数口径 | P2; 仅 Alg1 进 v1.9 |
