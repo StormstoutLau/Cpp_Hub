@@ -378,6 +378,10 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
       C4996), Phase 9 文件零警告; **Phase 9 新代码定向 `/W4` 5 个 TU 全 CLEAN** (仓库全局基线
       为 /W3, spec 的 /W4 落实为新增代码定向验证, 不改全局旗标)。
       GCC 平台随 CI 双平台 job 覆盖 (本门禁批次 MSVC 实测; A/B 站 GCC 惯例随合并后 bundle 验证)。
+      **[2026-11-16 A/B 站 bundle 验证补录]** GCC 13.3 (Ubuntu 24.04) 双站 bundle 中继至 04af6c8
+      全量 fresh 构建 + ctest: **A 站 (NEX) 2609/2609 / B 站 (GTR-Pro) 2609/2609, 零失败**,
+      Phase 9 套件 41/41; 性能预算 GCC 实测 KDE 0.05s / KSG 0.03s / TE 4.62-5.11s 全达标。
+      因站侧旧基线 (351ac98) 不在主控当前谱系, 采用全量 bundle (9.5MB) + 全新克隆, 详见 devlog。
 - [x] 新增 5 个测试套件全绿: **41/41** (test_kde 11 + test_knn_density 6 + test_ksg 10 +
       test_transfer_entropy 12 + test_integration_phase9 2)。
       **全量回归**: 本地 MSVC Release **2671/2671 全绿, 零失败** (2026-11-11 17:57 终态;
