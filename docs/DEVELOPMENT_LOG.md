@@ -3226,5 +3226,6 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **测试**: test_kde 17→28 例 (KdeWeighted 5 / KdeReflection 6 / 权重校验 1, 移除 `ReflectionNotImplemented`), Release 28/28 + Debug 28/28; `test_integration_phase9` 2/2 零漂移。
   - **锚**: 权重 KDE vs statsmodels 0.14.4 五点 (C++ ≤1e-14); 反射正支撑夹具 (C++ ≤1e-14, 含加权反射); 质量恒等式梯形积分 1±1e-6。
   - **文档回填**: SPEC §3.2 (API/语义/证据) + §3.3 + D9-8 + §10.2 P2-1/P2-5; FINAL_ACCEPTANCE §9 行 2e + 行 4; USAGE_GUIDE §3.11 语义与锚表。
+  - **CI 收口**: run 44113759506 十 job 全绿 (MSVC/GCC Build&Test + Debug compile guard + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job)。首次 Python (windows-2022, py3.11) 因 GitLab eigen 子模块拉取瞬时负载失败 (`fatal: remote error: GitLab is currently unable to handle this request due to load`), 与改动无关; `gh run rerun --failed` 后该 job 通过。P2 第 4 批闭环; 剩余 P2-3 (多变量 KDE/条件 TE) / P2-6 (KSG Alg2, H5) / P2-7 (多核 KDE) / P2-8 (滑窗 TE) 维持冻结。
 
 
