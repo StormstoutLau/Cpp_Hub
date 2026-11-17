@@ -3203,5 +3203,12 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **文档回填**: PHASE9_SPEC §10.1 H4 → ❌ CLOSED/FALSIFIED、Q11 → ✅ CLOSED (含锚与校准数值); [PHASE9_FINAL_ACCEPTANCE §9](./phases/phase9/PHASE9_FINAL_ACCEPTANCE.md) 遗留表行 2 关闭 (新增行 2b 登记 H1/H5 仍 OPEN, H1 依赖 P2-2); USAGE_GUIDE §3.11 补 `block_rule` 优先级/PW 推荐场景/`block_length_used` 诊断/H4 未采纳说明与 PW 数值锚。
   - **本地验证**: Release MSVC TE 套件 **18/18 绿 (56.4s)**; 默认 kSqrt 路径既有 13 例锚零漂移 (p 值与 te 完全不变)。
   - **CI 收口**: run 44040068232 十 job 全绿 (MSVC/GCC 双平台 Build&Test + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job), P2 第 1 批闭环。剩余 P2: P2-4 k-d tree (第 2 批) / P2-2 SJ-ISJ + H1 (第 3 批) / 密度扩展项冻结。
+- **P2 第 2 批: P2-4 k-d tree 加速 (2026-11-17, verify 期)**: 风险 ③ 关闭 — KSG/TE 的 O(N²) 搜索换为 Chebyshev k-d tree, 结果与暴力逐位一致。
+  - **实现**: 新增 [density/kdtree.hpp](../include/cpphub/timeseries/density/kdtree.hpp) — 固定维 (列子集/非拥有视图) Chebyshev k-d tree; `kth_distance_including_self(q,k)` (含自身, KSG 用 k+1 复现"排除自身"语义) + `count_within(q,r)` (半径精确计数, 含自身); 每层展宽最大维中位数切分, 包围盒剪枝; 构建 O(n log n·d), 查询典型 O(log n), 高维/全重合退化 O(n)。
+  - **接入**: [ksg.hpp](../include/cpphub/timeseries/information/ksg.hpp) MI (联合 (x,y) 树 + 有序数组精确 1D 计数) / CMI (联合 (x,y,z) + 边际 (x,z)/(y,z) 树 + z 二分); [transfer_entropy.hpp](../include/cpphub/timeseries/information/transfer_entropy.hpp) `cmi_embedded` (联合 + 3 边际树, 列区间 [k,dim) / [0,k)∪[k+1,dim) / [k+1,dim) 与暴力版本严格一致)。1D 计数用 `count_within_sorted_1d` 两侧二分 (谓词用同一减法表达式, 避开 center±radius 舍入差), 保证与 `fabs(v−center)<=r` 逐位一致。1D kNN 密度维持有序数组 (已最优, 不经树)。
+  - **等价性**: 新套件 [test_kdtree.cpp](../tests/unit/timeseries/test_kdtree.cpp) **6 例** — kNN/半径计数 vs 独立暴力 oracle 逐位 (1-5 维 × 全部 kth/多半径 × 257 点重复点夹具 + 列子集 + 全重合 + 边界/非法输入); [test_ksg.cpp](../tests/unit/timeseries/test_ksg.cpp) 新增 MI/CMI 暴力交叉验证 **2 例** (k=1/3/5, 套件 10→12)。既有锚零漂移: sklearn 黄金值 1e-12、Gaussian 20-seed、JIDT 6.5e-4 nat、TE 18/18 全绿。
+  - **性能 (Release MSVC)**: KSG N=5000/k=3 预算 500 ms **37→7 ms** (~5.3×); TE N=2000 预算 10 s **3871→1606 ms** (~2.4×, 每次 CMI 需重建 4 棵树); TE 套件 53.2→9.3 s。
+  - **调试插曲**: 首版 `cmi_embedded` 在树计数后多做 `-1` (旧实现的 digamma 入参本就是含自身计数), 引发 TE 系统性 +0.1~0.2 nat 与 `digamma(0)` 异常; 用 [tmp/kdprobe/main.cpp](../tmp/kdprobe/main.cpp) 逐点对照定位 (eps 逐位一致, 计数恰差 1) → 去掉减一后全绿。教训: 移植计数语义时须同时核对"计数值"与"digamma 入参约定", 不能只对齐半径。
+  - **文档回填**: SPEC §2 D9-3 补落地注记、§8 风险 ③ → ✅ 已关闭、§10.2 P2-4 → ✅ 已落地 (含等价性与实测); [FINAL_ACCEPTANCE §9](./phases/phase9/PHASE9_FINAL_ACCEPTANCE.md) 新增行 2c, 行 4 注明 P2-4 已关闭; [USAGE_GUIDE §3.11](USAGE_GUIDE.md) 模块表补 k-d tree 行 + KSG/TE 复杂度更新 + 等价性语义 + 性能实测。
 
 

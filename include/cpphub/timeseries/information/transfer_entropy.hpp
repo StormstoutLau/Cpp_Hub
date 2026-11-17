@@ -20,7 +20,8 @@
 //
 // 不提供 "因果" 字段: TE 是条件 MI 的估计, 不是因果发现工具
 // (James-Barnett-Crutchfield 2016; Smirnov 2013).
-// 复杂度 O(N² · (k+l)) 每次 TE 评估 (暴力 KSG, D9-3).
+// 每次 TE 评估 O(N log N · (k+l)) 典型 (k-d tree, P2-4; 高维退化最坏 O(N²)),
+// N = n_effective; 每次 cmi 调用构建 4 棵 Chebyshev k-d tree.
 // =============================================================================
 
 #pragma once
@@ -111,63 +112,55 @@ inline EmbeddedSeries build_embedding(std::span<const Real> source,
     return e;
 }
 
-/// 坐标区间 [c0, c1) 上的 Chebyshev 距离
-inline Real cheb_range(const Real* a, const Real* b, Size c0, Size c1) {
-    Real d = 0.0;
-    for (Size c = c0; c < c1; ++c) {
-        d = std::max(d, std::fabs(a[c] - b[c]));
-    }
-    return d;
-}
-
 /// Frenzel-Pompe CMI (多维嵌入): ψ(k) − ⟨ψ(nxz+1)+ψ(nyz+1)−ψ(nz+1)⟩
 /// x = Y_t, y = X_past, z = Y_past (spec §5.1 固定调用顺序)
+///
+/// P2-4 (2026-11-17): 联合 kNN 与三个边际半径计数改由 Chebyshev k-d tree
+/// 加速 (density/kdtree.hpp), 典型 O(N log N) 每次评估; 列区间与暴力版本
+/// 严格一致 (联合=全部列; nxz=[k,dim); nyz=[0,k)∪[k+1,dim); nz=[k+1,dim)),
+/// 故距离/计数逐位等价, 既有 JIDT/GC 锚零漂移.
 inline Real cmi_embedded(const EmbeddedSeries& e, Size k_nn) {
     const Size n = e.n;
     const Size dim = e.dim;
     const Size k = e.k;
-    std::vector<Real> buf(k_nn, std::numeric_limits<Real>::infinity());
+
+    std::vector<Size> joint_dims(dim);
+    for (Size c = 0; c < dim; ++c) {
+        joint_dims[c] = c;
+    }
+    std::vector<Size> xz_dims;
+    xz_dims.reserve(dim - k);
+    for (Size c = k; c < dim; ++c) {
+        xz_dims.push_back(c);
+    }
+    std::vector<Size> yz_dims;
+    yz_dims.reserve(dim - 1);
+    for (Size c = 0; c < k; ++c) {
+        yz_dims.push_back(c);
+    }
+    for (Size c = k + 1; c < dim; ++c) {
+        yz_dims.push_back(c);
+    }
+    std::vector<Size> z_dims;
+    z_dims.reserve(dim - k - 1);
+    for (Size c = k + 1; c < dim; ++c) {
+        z_dims.push_back(c);
+    }
+
+    const density::KdTree joint(e.points, n, dim, joint_dims);
+    const density::KdTree xz(e.points, n, dim, xz_dims);
+    const density::KdTree yz(e.points, n, dim, yz_dims);
+    const density::KdTree zd(e.points, n, dim, z_dims);
+
     Real sum = 0.0;
     for (Size i = 0; i < n; ++i) {
-        const Real* pi = &e.points[i * dim];
-
-        // 联合空间第 k 近邻距离 (排除自身)
-        std::fill(buf.begin(), buf.end(), std::numeric_limits<Real>::infinity());
-        for (Size j = 0; j < n; ++j) {
-            if (j == i) {
-                continue;
-            }
-            const Real d = cheb_range(pi, &e.points[j * dim], 0, dim);
-            if (d < buf[k_nn - 1]) {
-                Size pos = k_nn - 1;
-                while (pos > 0 && buf[pos - 1] > d) {
-                    buf[pos] = buf[pos - 1];
-                    --pos;
-                }
-                buf[pos] = d;
-            }
-        }
-        const Real radius = std::nextafter(buf[k_nn - 1], 0.0);
-
+        // k+1 含自身 ≡ 排除自身的第 k 近邻; 半径 nextafter 语义不变
+        const Real eps = joint.kth_distance_including_self(i, k_nn + 1);
+        const Real radius = std::nextafter(eps, 0.0);
         // 三个边际计数共用同一半径; 计数含自身, 故 ψ(n·) ≡ ψ((n−1)+1)
-        Size nxz = 0;
-        Size nyz = 0;
-        Size nz = 0;
-        for (Size j = 0; j < n; ++j) {
-            const Real* pj = &e.points[j * dim];
-            const Real dz = cheb_range(pi, pj, k + 1, dim);
-            const Real dy = std::fabs(pi[k] - pj[k]);
-            const Real dx = cheb_range(pi, pj, 0, k);
-            if (std::max(dy, dz) <= radius) {
-                ++nxz;
-            }
-            if (std::max(dx, dz) <= radius) {
-                ++nyz;
-            }
-            if (dz <= radius) {
-                ++nz;
-            }
-        }
+        const Size nxz = xz.count_within(i, radius);
+        const Size nyz = yz.count_within(i, radius);
+        const Size nz = zd.count_within(i, radius);
         sum += digamma(static_cast<Real>(nxz)) +
                digamma(static_cast<Real>(nyz)) -
                digamma(static_cast<Real>(nz));

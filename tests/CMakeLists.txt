@@ -841,6 +841,9 @@ cpphub_add_test(test_kde unit/timeseries/test_kde.cpp)
 # test_knn_density: Loftsgaarden-Quesenberry k/(n·2r_k) 黄金值 1e-15 +
 # k=n−1 边界 + 范围外有限 + 非法输入
 cpphub_add_test(test_knn_density unit/timeseries/test_knn_density.cpp)
+# test_kdtree (P2-4): Chebyshev k-d tree kNN/半径计数 vs 独立暴力 oracle 逐位
+# 一致 (1-5 维 + 列子集 + 重复点/并列) + 边界/非法输入
+cpphub_add_test(test_kdtree unit/timeseries/test_kdtree.cpp)
 # test_ksg: sklearn _compute_mi_cc 黄金值 1e-12 + Gaussian 解析均值 +
 # 标准化缩放不变/raw 敏感 + ties jitter + CMI 对称/条件独立 + 非法输入
 cpphub_add_test(test_ksg unit/timeseries/test_ksg.cpp)

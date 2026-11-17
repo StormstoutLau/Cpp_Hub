@@ -51,7 +51,7 @@ Cpp_Hub/
 │   │   └── pfe_sa_ccr.hpp         # PFE + SA-CCR(Basel III)
 │   ├── timeseries/                # 时间序列计量 + 信息论
 │   │   ├── ardl/ arima/ cointegration/ garch/ midas/ statespace/ unit_root/ var/  # 计量模型族
-│   │   ├── density/               # KDE(Loftsgaarden-Quesenberry kNN + Gaussian KDE) + 带宽规则 (v1.9)
+│   │   ├── density/               # KDE + 带宽规则 + kNN 密度 + Chebyshev k-d tree (v1.9, P2-4)
 │   │   └── information/           # KSG 互信息/条件互信息 + KSG-CMI 迁移熵 (v1.9)
 │   └── performance/gpu/           # GPU MC（CUDA 可选，CPU stub fallback）
 ├── src/                           # 非 header-only 源文件（CUDA kernel + CPU stub）
@@ -708,7 +708,7 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 
 ### 3.11 时间序列信息论层 `timeseries/density/` + `timeseries/information/`（v1.9 Phase 9）
 
-四个 header-only 模块，均为「密度/互信息」原语，服务 Factor Fingerprint 因果失效诊断与 v2.0 信息论事前度量。
+五个 header-only 模块（带宽规则 / KDE / kNN 密度 / KSG / TE）加一个 k-d tree 搜索结构，均为「密度/互信息」原语，服务 Factor Fingerprint 因果失效诊断与 v2.0 信息论事前度量。
 
 **模块与 API**
 
@@ -717,14 +717,16 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 | 带宽规则 | `timeseries/density/bandwidth.hpp` | `Bandwidth{rule,value,is_factor}` + `resolve_bandwidth()` | O(n log n)（分位数排序） |
 | KDE | `timeseries/density/kde.hpp` | `KernelDensity1D(sample, cfg)` → `pdf(x)` / `log_pdf(x)` / `pdf(grid)` / `bandwidth()`; `bandwidth_sensitivity()` | 单点 O(n) |
 | kNN 密度 | `timeseries/density/knn_density.hpp` | `KnnDensity1D(sample, cfg)` → `pdf(x)` / `pdf(grid)`（Loftsgaarden-Quesenberry `k/(n·2r_k)`） | 单点 O(log n)（排序后二分） |
-| KSG 互信息 | `timeseries/information/ksg.hpp` | `ksg_mutual_info(x,y,cfg)` / `ksg_conditional_mutual_info(x,y,z,cfg)` → nats | O(N²)（暴力，D9-3） |
-| 迁移熵 | `timeseries/information/transfer_entropy.hpp` | `transfer_entropy(source, target, cfg)` → `TransferEntropyResult`; `politis_white_block_length(x)` | O(N²·(k+l)) 每次评估 |
+| k 近邻树 | `timeseries/density/kdtree.hpp` | `KdTree(points, n, stride, dims)` → `kth_distance_including_self(q,k)` / `count_within(q,r)`（Chebyshev 精确查询，支持列子集） | 构建 O(n log n·d)；查询典型 O(log n) |
+| KSG 互信息 | `timeseries/information/ksg.hpp` | `ksg_mutual_info(x,y,cfg)` / `ksg_conditional_mutual_info(x,y,z,cfg)` → nats | 典型 O(N log N)（k-d tree，P2-4；高维退化最坏 O(N²)） |
+| 迁移熵 | `timeseries/information/transfer_entropy.hpp` | `transfer_entropy(source, target, cfg)` → `TransferEntropyResult`; `politis_white_block_length(x)` | 典型 O(N log N·(k+l)) 每次评估（k-d tree） |
 
 **语义要点（易错处）**
 
 - **带宽同名不同物**：`kScott`=1.059·A·n^(-1/5)（statsmodels `bw_scott`/R `bw.nrd`）、`kSilverman`=0.9·A·n^(-1/5)（R `bw.nrd0`）、`kNormalReference` C=1.059223840025653（statsmodels 默认，probe 反解）。A = min(sd(ddof=1), IQR/1.349)。**不提供** sklearn `bandwidth='scott'` 的「裸因子当 h」语义（会让密度随数据单位变化）。
 - **KDE 范围**：仅 1D Gaussian 核 + 正支撑数据；`KdeConfig::reflection=true` 抛 `std::logic_error`（P2 预留）。`log_pdf` 用 logsumexp max-shift，深尾不产 NaN。
 - **KSG 约定**：联合空间 Chebyshev + `nextafter(ε,0)` 边际计数（等价于严格小于 ε），与 sklearn `_compute_mi_cc` 逐位一致；返回 nats，**不截断负值**（与 sklearn `max(0,·)` 不同）。混合单位数据必须 `standardize=true`（默认开）。
+- **k-d tree 只改访问路径（P2-4）**：KSG/TE 的联合 kNN 与边际半径计数由 `KdTree` 加速，距离与计数语义不变 — 与独立暴力参考逐位一致（`test_kdtree` + `test_ksg` 交叉验证）。1D kNN 密度仍用有序数组二分（已最优，不经树）。
 - **TE 定义**：`TE(X→Y) = CMI(Y_t ; X_past | Y_past)`，嵌入 `[X_past(k), Y_t, Y_past(l)]`，`n_effective = T − max(k,l)·delay`。输出 nats（`te_bits` 为换算值）。
   - `p_value` = 块置换零分布（circular block shuffle 只打乱 source，`p=(1+#{null≥te})/(1+n_block_boot)`），与 `n_shuffles` **独立抽样**；
   - `te_effective` = `te − mean(置换 te)`，仅诊断量，**不作推断依据**（零假设下符号随种子波动）；
@@ -741,6 +743,8 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 | TE vs Gaussian VAR 解析 GC/2 | 5-seed 均值 +25% 偏差内（KSG 有限样本偏置，容差 ±30%） |
 | TE vs JIDT 1.6.1（delay=1，12 组） | max 6.5e-4 nat |
 | Politis-White 块长 vs arch 8.0（circular） | 逐位一致（整数 LCG 序列 raw 2.348429964449 / 17.036985190498） |
+
+**性能（P2-4 k-d tree，Release MSVC）**：KSG N=5000/k=3 预算 500 ms，实测 37→7 ms；TE N=2000 预算 10 s，实测 3871→1606 ms；TE 套件 53.2→9.3 s。
 
 **未采纳方法（H4 实证证伪）**：Kirkley (2025) reduced TE 基于离散化符号序列的组合熵，在离散 VAR 上把 T=200 的 +289% 正偏差转为 −119% 负偏差（T=2×10⁴ 仍 −12.6%），未达 ±10% 目标；其"消除偏差"是离散 plug-in 现象，不能迁移到连续 KSG-CMI。结论与数据见 [PHASE9_SPEC §10.1 H4](phases/phase9/PHASE9_SPEC.md)。
 

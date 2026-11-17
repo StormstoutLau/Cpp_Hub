@@ -15,8 +15,10 @@
 //   - 返回 nats; 不截断负值 (sklearn 的 max(0,·) 语义不在本库)
 //   - standardize: 逐维 z-score (ddof=1); jitter: 相对 mean|x| 的 N(0,1)
 //     噪声, 单条 RNG 流按 x→y→z 顺序注入 (seed 固定, 用于 ties)
-//   - 暴力 O(N²), 无 k-d tree (D9-3); 文档声明缩放敏感性: 混合单位数据
-//     务必 standardize=true (调研风险 ②)
+//   - P2-4 (2026-11-17): 联合空间 kNN 与边际半径计数改由 Chebyshev k-d tree
+//     加速 (density/kdtree.hpp), 典型 O(N log N); 所有距离/计数与暴力参考
+//     逐位一致 (树只改访问路径); 高维退化时最坏仍 O(N²)
+//   - 文档化缩放敏感性: 混合单位数据务必 standardize=true (调研风险 ②)
 // =============================================================================
 
 #pragma once
@@ -31,6 +33,7 @@
 #include <vector>
 
 #include "cpphub/core/types.hpp"
+#include "cpphub/timeseries/density/kdtree.hpp"
 
 namespace cpphub {
 inline namespace v1 {
@@ -116,75 +119,37 @@ inline void add_jitter_inplace(std::vector<Real>& v, Real scale, std::mt19937_64
     }
 }
 
-/// 第 k 小 Chebyshev 距离 (排除自身), 小顶有序缓冲 O(n·k)
-inline Real kth_chebyshev_2d(std::span<const Real> x, std::span<const Real> y, Size i,
-                             Size k) {
-    std::vector<Real> buf(k, std::numeric_limits<Real>::infinity());
-    const Real xi = x[i];
-    const Real yi = y[i];
-    for (Size j = 0; j < x.size(); ++j) {
-        if (j == i) {
-            continue;
-        }
-        const Real d = std::max(std::fabs(x[j] - xi), std::fabs(y[j] - yi));
-        if (d < buf[k - 1]) {
-            Size pos = k - 1;
-            while (pos > 0 && buf[pos - 1] > d) {
-                buf[pos] = buf[pos - 1];
-                --pos;
-            }
-            buf[pos] = d;
+/// 升序样本上的精确 1D 半径计数 (含查询点自身): |v − center| <= radius
+/// 两侧分别用同一减法表达式二分 (而非 center ± radius 的舍入边界), 与暴力
+/// `fabs(v − center) <= radius` 逐位一致; O(log n)
+inline Size count_within_sorted_1d(const std::vector<Real>& sorted, Real center,
+                                   Real radius) {
+    // 左侧 v <= center: 谓词 (center − v) <= radius 随 v 递增由 false 变 true
+    const Size hi = static_cast<Size>(
+        std::upper_bound(sorted.begin(), sorted.end(), center) - sorted.begin());
+    Size lo = 0;
+    Size r = hi;
+    while (lo < r) {
+        const Size m = lo + (r - lo) / 2;
+        if (center - sorted[m] <= radius) {
+            r = m;
+        } else {
+            lo = m + 1;
         }
     }
-    return buf[k - 1];
-}
-
-inline Real kth_chebyshev_3d(std::span<const Real> x, std::span<const Real> y,
-                             std::span<const Real> z, Size i, Size k) {
-    std::vector<Real> buf(k, std::numeric_limits<Real>::infinity());
-    const Real xi = x[i];
-    const Real yi = y[i];
-    const Real zi = z[i];
-    for (Size j = 0; j < x.size(); ++j) {
-        if (j == i) {
-            continue;
-        }
-        const Real d =
-            std::max(std::max(std::fabs(x[j] - xi), std::fabs(y[j] - yi)),
-                     std::fabs(z[j] - zi));
-        if (d < buf[k - 1]) {
-            Size pos = k - 1;
-            while (pos > 0 && buf[pos - 1] > d) {
-                buf[pos] = buf[pos - 1];
-                --pos;
-            }
-            buf[pos] = d;
+    const Size left_count = hi - lo;
+    // 右侧 v > center: 谓词 (v − center) <= radius 随 v 递增由 true 变 false
+    Size l2 = hi;
+    Size r2 = sorted.size();
+    while (l2 < r2) {
+        const Size m = l2 + (r2 - l2) / 2;
+        if (sorted[m] - center <= radius) {
+            l2 = m + 1;
+        } else {
+            r2 = m;
         }
     }
-    return buf[k - 1];
-}
-
-/// 半径内计数 (含查询点自身): |u − center| <= radius
-inline Size count_within_1d(std::span<const Real> v, Real center, Real radius) {
-    Size c = 0;
-    for (Real u : v) {
-        if (std::fabs(u - center) <= radius) {
-            ++c;
-        }
-    }
-    return c;
-}
-
-/// 半径内计数 (含查询点自身): max(|a_j−a_i|, |b_j−b_i|) <= radius
-inline Size count_within_2d(std::span<const Real> a, std::span<const Real> b, Size i,
-                            Real radius) {
-    Size c = 0;
-    for (Size j = 0; j < a.size(); ++j) {
-        if (std::max(std::fabs(a[j] - a[i]), std::fabs(b[j] - b[i])) <= radius) {
-            ++c;
-        }
-    }
-    return c;
+    return left_count + (l2 - hi);
 }
 
 /// 公共校验: 长度一致 / k 合法 / N >= k+1 / 值有限
@@ -224,13 +189,27 @@ inline Real ksg_mutual_info(std::span<const Real> x, std::span<const Real> y,
         detail::add_jitter_inplace(ys, config.jitter_scale, rng);
     }
 
+    // P2-4: 联合 (x,y) k-d tree — k+1 含自身 ≡ 排除自身的第 k 近邻
+    std::vector<Real> joint(n * 2);
+    for (Size i = 0; i < n; ++i) {
+        joint[2 * i] = xs[i];
+        joint[2 * i + 1] = ys[i];
+    }
+    static constexpr Size kJointDims[2] = {0, 1};
+    const density::KdTree joint_tree(std::span<const Real>(joint), n, 2,
+                                     std::span<const Size>(kJointDims, 2));
+    std::vector<Real> sx = xs;
+    std::vector<Real> sy = ys;
+    std::sort(sx.begin(), sx.end());
+    std::sort(sy.begin(), sy.end());
+
     Real sum_x = 0.0;
     Real sum_y = 0.0;
     for (Size i = 0; i < n; ++i) {
-        const Real eps = detail::kth_chebyshev_2d(xs, ys, i, config.k);
+        const Real eps = joint_tree.kth_distance_including_self(i, config.k + 1);
         const Real radius = std::nextafter(eps, 0.0);
-        const Size nx = detail::count_within_1d(xs, xs[i], radius) - 1;
-        const Size ny = detail::count_within_1d(ys, ys[i], radius) - 1;
+        const Size nx = detail::count_within_sorted_1d(sx, xs[i], radius) - 1;
+        const Size ny = detail::count_within_sorted_1d(sy, ys[i], radius) - 1;
         sum_x += detail::digamma(static_cast<Real>(nx) + 1.0);
         sum_y += detail::digamma(static_cast<Real>(ny) + 1.0);
     }
@@ -267,13 +246,30 @@ inline Real ksg_conditional_mutual_info(std::span<const Real> x, std::span<const
         detail::add_jitter_inplace(zs, config.jitter_scale, rng);
     }
 
+    // P2-4: 联合 (x,y,z) + 边际 (x,z)/(y,z) k-d tree; z 边际走有序数组二分
+    std::vector<Real> joint(n * 3);
+    for (Size i = 0; i < n; ++i) {
+        joint[3 * i] = xs[i];
+        joint[3 * i + 1] = ys[i];
+        joint[3 * i + 2] = zs[i];
+    }
+    static constexpr Size kDimsXYZ[3] = {0, 1, 2};
+    static constexpr Size kDimsXZ[2] = {0, 2};
+    static constexpr Size kDimsYZ[2] = {1, 2};
+    const std::span<const Real> pts(joint);
+    const density::KdTree tree_xyz(pts, n, 3, std::span<const Size>(kDimsXYZ, 3));
+    const density::KdTree tree_xz(pts, n, 3, std::span<const Size>(kDimsXZ, 2));
+    const density::KdTree tree_yz(pts, n, 3, std::span<const Size>(kDimsYZ, 2));
+    std::vector<Real> sz = zs;
+    std::sort(sz.begin(), sz.end());
+
     Real sum = 0.0;
     for (Size i = 0; i < n; ++i) {
-        const Real eps = detail::kth_chebyshev_3d(xs, ys, zs, i, config.k);
+        const Real eps = tree_xyz.kth_distance_including_self(i, config.k + 1);
         const Real radius = std::nextafter(eps, 0.0);
-        const Size nxz = detail::count_within_2d(xs, zs, i, radius) - 1;
-        const Size nyz = detail::count_within_2d(ys, zs, i, radius) - 1;
-        const Size nz = detail::count_within_1d(zs, zs[i], radius) - 1;
+        const Size nxz = tree_xz.count_within(i, radius) - 1;
+        const Size nyz = tree_yz.count_within(i, radius) - 1;
+        const Size nz = detail::count_within_sorted_1d(sz, zs[i], radius) - 1;
         sum += detail::digamma(static_cast<Real>(nxz) + 1.0) +
                detail::digamma(static_cast<Real>(nyz) + 1.0) -
                detail::digamma(static_cast<Real>(nz) + 1.0);

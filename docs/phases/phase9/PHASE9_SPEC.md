@@ -93,7 +93,7 @@ tests/fixtures/timeseries/
 |------|------|------|
 | D9-1 | KDE **仅 1D Gaussian 核**; 其他核 (Epanechnikov/tophat 等) P2 | v1.9 目标是"基准锚 + 可视化", 1D Gaussian 足以; 多核是低收益扩展 |
 | D9-2 | 带宽用显式类型: `AbsoluteH` / `DimensionlessFactor` / `Rule`; 规则仅 Scott/Silverman/normal_reference; **SJ/ISJ plug-in P2** | 调研 A1-A25 证明同名不同物; SJ 实现成本高, 先用规则 + 敏感性网格 |
-| D9-3 | kNN 搜索 **暴力 Chebyshev O(N²)**; k-d tree P2 (风险 ③) | 先正确后性能; 文档显式声明复杂度 |
+| D9-3 | kNN 搜索 **暴力 Chebyshev O(N²)**; k-d tree P2 (风险 ③) | 先正确后性能; 文档显式声明复杂度。**P2-4 已落地 (2026-11-17)**: `density/kdtree.hpp` + KSG/TE 接入, 典型 O(N log N) 且结果与暴力逐位一致; 见 §10.2 |
 | D9-4 | KSG **仅 Algorithm 1** (与 sklearn 一致); Algorithm 2 P2 (H5) | probe 三变体未复现解析值, 语义未冻结 |
 | D9-5 | TE = KSG-CMI + 嵌入 (k,l,delay); 单位 **nats 规范**, 提供 bits 视图; effective TE + 块置换 surrogate | 调研 §4.1/§4.5; nats 与 Barnett TE=½GC 对齐 |
 | D9-6 | KSG/TE **默认标准化** (内部 z-score; 关闭须显式 `standardize=false` 且文档警告缩放敏感性) | Chebyshev 混合单位缩放敏感性 ±35% (probe K3/A41); 审计 C1 统一"强制"措辞 |
@@ -438,7 +438,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 |---|------|------|
 | ① | 带宽语义混用 | 类型系统 (§3.1) + 规则公式冻结 + 敏感性网格 |
 | ② | KSG Chebyshev 缩放敏感 | 默认标准化 (D9-6) + 缩放不变性测试 |
-| ③ | k-d tree 缺失导致性能 | 暴力先行 + 文档声明 O(N²); k-d tree P2 |
+| ③ | k-d tree 缺失导致性能 | ✅ **已关闭 (2026-11-17, P2-4)**: `density/kdtree.hpp` (Chebyshev, 非拥有视图) 接入 KSG MI/CMI 与 TE 嵌入; 典型 O(N log N) (高维退化仍 O(N²)), 与暴力参考逐位一致; 实测 KSG N=5000 37→7 ms, TE N=2000 3.87→1.61 s |
 | ④ | TE 偏差/naive 分叉 | effective TE (辅助) + 块置换 p 值 (推断主依据) + probe K5 |
 | ⑤ | TE-GC 因子/单位 | nats 规范 + `te_bits` 视图 + 集成测试 0.5 锚 |
 | ⑥ | 窗口长度=平稳性声明 | `TransferEntropyConfig` 不设默认窗口; 文档要求调用方显式滑窗并记录 |
@@ -490,7 +490,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 | P2-1 | KDE 正支撑边界修正 (反射/变换) | D9-8 / 风险 ⑬ |
 | P2-2 | SJ/ISJ plug-in 带宽选择器 | D9-2 |
 | P2-3 | 多变量 KDE / 多变量条件 TE | D9-7 |
-| P2-4 | k-d tree / BallTree | D9-3 / 风险 ③ |
+| P2-4 | k-d tree / BallTree | ✅ **已落地 (2026-11-17, P2 第 2 批)**: 新增 [`density/kdtree.hpp`](../../../include/cpphub/timeseries/density/kdtree.hpp) — 固定维 Chebyshev k-d tree (列子集, 非拥有视图), 提供含自身的第 k 距离与半径精确计数; KSG MI/CMI (联合 kNN + 边际计数) 与 TE `cmi_embedded` (联合 + 3 边际) 全部接入, 典型 O(N log N) 每次评估。**等价性**: 独立暴力 oracle (test_kdtree 1-5 维 + 列子集 + 重复点; test_ksg MI/CMI 交叉验证) 逐位一致, sklearn 黄金值 1e-12 与 JIDT 锚零漂移。**实测** (Release MSVC): KSG N=5000 37→7 ms; TE N=2000 3871→1606 ms; TE 套件 53.2→9.3 s。1D kNN 密度维持有序数组二分 (已最优, 不用树) |
 | P2-5 | 权重 KDE / neff 语义 | D9-8 |
 | P2-6 | KSG Algorithm 2 | D9-4 / H5 |
 | P2-7 | 多核 KDE (Epanechnikov/tophat) | D9-1 |

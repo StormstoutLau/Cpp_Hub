@@ -10,6 +10,7 @@
 //   - 解析 MI: -0.5*ln(1-rho^2), n=2000, 3 seeds 均值, 容差 0.05 nat
 //   - 缩放不变性: 默认 standardize=true 时 x*10 不变
 //   - CMI: 条件独立 (x=z+e1, y=z+e2) 均值 |CMI|<0.05
+//   - P2-4: k-d tree 搜索路径 vs 独立暴力参考逐位一致
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -121,6 +122,76 @@ Real gaussian_mi(Real rho) {
     return -0.5 * std::log(1.0 - rho * rho);
 }
 
+// ---- P2-4 交叉验证: 独立暴力 KSG (排除自身 kNN + nextafter 半径计数) ----
+// 与实现 (k-d tree) 无共享搜索代码; 仅复用 digamma (非搜索语义)
+Real brute_ksg_mi(const std::vector<Real>& x, const std::vector<Real>& y, Size k) {
+    const Size n = x.size();
+    std::vector<Real> dist(n);
+    Real sum_x = 0.0;
+    Real sum_y = 0.0;
+    for (Size i = 0; i < n; ++i) {
+        for (Size j = 0; j < n; ++j) {
+            dist[j] = std::max(std::fabs(x[j] - x[i]), std::fabs(y[j] - y[i]));
+        }
+        dist[i] = std::numeric_limits<Real>::infinity();
+        std::nth_element(dist.begin(), dist.begin() + static_cast<std::ptrdiff_t>(k - 1),
+                         dist.end());
+        const Real radius = std::nextafter(dist[k - 1], 0.0);
+        Size nx = 0;
+        Size ny = 0;
+        for (Size j = 0; j < n; ++j) {
+            if (std::fabs(x[j] - x[i]) <= radius) {
+                ++nx;
+            }
+            if (std::fabs(y[j] - y[i]) <= radius) {
+                ++ny;
+            }
+        }
+        sum_x += inf::detail::digamma(static_cast<Real>(nx));
+        sum_y += inf::detail::digamma(static_cast<Real>(ny));
+    }
+    const Real nr = static_cast<Real>(n);
+    return inf::detail::digamma(nr) + inf::detail::digamma(static_cast<Real>(k)) -
+           sum_x / nr - sum_y / nr;
+}
+
+Real brute_ksg_cmi(const Triple& t, Size k) {
+    const Size n = t.x.size();
+    std::vector<Real> dist(n);
+    Real sum = 0.0;
+    for (Size i = 0; i < n; ++i) {
+        for (Size j = 0; j < n; ++j) {
+            dist[j] = std::max(std::max(std::fabs(t.x[j] - t.x[i]),
+                                        std::fabs(t.y[j] - t.y[i])),
+                               std::fabs(t.z[j] - t.z[i]));
+        }
+        dist[i] = std::numeric_limits<Real>::infinity();
+        std::nth_element(dist.begin(), dist.begin() + static_cast<std::ptrdiff_t>(k - 1),
+                         dist.end());
+        const Real radius = std::nextafter(dist[k - 1], 0.0);
+        Size nxz = 0;
+        Size nyz = 0;
+        Size nz = 0;
+        for (Size j = 0; j < n; ++j) {
+            if (std::max(std::fabs(t.x[j] - t.x[i]), std::fabs(t.z[j] - t.z[i])) <=
+                radius) {
+                ++nxz;
+            }
+            if (std::max(std::fabs(t.y[j] - t.y[i]), std::fabs(t.z[j] - t.z[i])) <=
+                radius) {
+                ++nyz;
+            }
+            if (std::fabs(t.z[j] - t.z[i]) <= radius) {
+                ++nz;
+            }
+        }
+        sum += inf::detail::digamma(static_cast<Real>(nxz)) +
+               inf::detail::digamma(static_cast<Real>(nyz)) -
+               inf::detail::digamma(static_cast<Real>(nz));
+    }
+    return inf::detail::digamma(static_cast<Real>(k)) - sum / static_cast<Real>(n);
+}
+
 }  // namespace
 
 TEST(KsgMutualInfo, MatchesSklearnGolden) {
@@ -130,6 +201,27 @@ TEST(KsgMutualInfo, MatchesSklearnGolden) {
         std::span<const Real>(kX), std::span<const Real>(kY), ksg_config(5, false, 0.0));
     EXPECT_NEAR(mi3, kMiGoldenK3, 1e-12);
     EXPECT_NEAR(mi5, kMiGoldenK5, 1e-12);
+}
+
+// P2-4: k-d tree 搜索路径与独立暴力参考逐位一致 (k=1/3/5, raw 无 jitter)
+TEST(KsgMutualInfo, MatchesBruteForceReference) {
+    const Pair p = gaussian_pair(120, 0.6, 31);
+    for (Size k : {Size{1}, Size{3}, Size{5}}) {
+        const Real mi = inf::ksg_mutual_info(std::span<const Real>(p.x),
+                                             std::span<const Real>(p.y),
+                                             ksg_config(k, false, 0.0));
+        EXPECT_DOUBLE_EQ(mi, brute_ksg_mi(p.x, p.y, k)) << "k=" << k;
+    }
+}
+
+TEST(KsgConditionalMutualInfo, MatchesBruteForceReference) {
+    const Triple t = conditional_independent(120, 41);
+    for (Size k : {Size{1}, Size{3}, Size{5}}) {
+        const Real cmi = inf::ksg_conditional_mutual_info(
+            std::span<const Real>(t.x), std::span<const Real>(t.y),
+            std::span<const Real>(t.z), ksg_config(k, false, 0.0));
+        EXPECT_DOUBLE_EQ(cmi, brute_ksg_cmi(t, k)) << "k=" << k;
+    }
 }
 
 TEST(KsgMutualInfo, GaussianAnalyticMean) {
