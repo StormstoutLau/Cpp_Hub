@@ -3210,5 +3210,6 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **性能 (Release MSVC)**: KSG N=5000/k=3 预算 500 ms **37→7 ms** (~5.3×); TE N=2000 预算 10 s **3871→1606 ms** (~2.4×, 每次 CMI 需重建 4 棵树); TE 套件 53.2→9.3 s。
   - **调试插曲**: 首版 `cmi_embedded` 在树计数后多做 `-1` (旧实现的 digamma 入参本就是含自身计数), 引发 TE 系统性 +0.1~0.2 nat 与 `digamma(0)` 异常; 用 [tmp/kdprobe/main.cpp](../tmp/kdprobe/main.cpp) 逐点对照定位 (eps 逐位一致, 计数恰差 1) → 去掉减一后全绿。教训: 移植计数语义时须同时核对"计数值"与"digamma 入参约定", 不能只对齐半径。
   - **文档回填**: SPEC §2 D9-3 补落地注记、§8 风险 ③ → ✅ 已关闭、§10.2 P2-4 → ✅ 已落地 (含等价性与实测); [FINAL_ACCEPTANCE §9](./phases/phase9/PHASE9_FINAL_ACCEPTANCE.md) 新增行 2c, 行 4 注明 P2-4 已关闭; [USAGE_GUIDE §3.11](USAGE_GUIDE.md) 模块表补 k-d tree 行 + KSG/TE 复杂度更新 + 等价性语义 + 性能实测。
+  - **CI 收口**: run 44049066721 十 job 全绿 (MSVC/GCC Build&Test + Debug compile guard + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job), P2 第 2 批闭环。Debug 下 TE 套件预算用例仍超 (18.4 s vs 10 s, D9-10 口径仅 Release, 与改动前同类), Release/CI 全绿。
 
 
