@@ -3219,5 +3219,12 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **测试**: test_kde 11→17 例 (`SjMatchesReference`/`IsjMatchesReference`/`SjIsjDifferFromRuleOfThumb`/`SjScaleEquivariant`/`SjIsjRejectConstantSample`/`SjIsjConstructKde`), Release 17/17 绿。
   - **文档回填**: SPEC §3.1 (enum/公式/证据)、§10.1 H1 → ❌ CLOSED/FALSIFIED、§10.2 P2-2 → ✅ 已落地、§2 D9-2 注记; FINAL_ACCEPTANCE §9 行 2b (H1 关闭, H5 仍 OPEN) + 行 2d (P2-2) + 行 4; USAGE_GUIDE §3.11 规则表/语义/锚。
   - **CI 收口**: run 44076336754 十 job 全绿 (MSVC/GCC Build&Test + Debug compile guard + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job), P2 第 3 批闭环。剩余 P2: H5 (KSG Alg2) 与密度扩展项 (P2-1/P2-3/P2-5/P2-7 等) 维持冻结。
+- **P2 第 4 批: P2-5 权重 KDE + P2-1 0 处反射边界修正 (2026-11-17, verify 期)**: 语义冻结 + 实现 + 探针锚。
+  - **语义冻结 (探针)**: 新 [probe_weighted_kde.py](../tests/fixtures/timeseries/probe_weighted_kde.py) W1-W5 全 PASS — statsmodels 0.14.4 `KDEUnivariate.fit(fft=False, weights=w)`: density=Σ(w_i/Σw)φ((x−x_i)/h)/h, **带宽规则完全忽略权重** (W2: 加权/未加权 bw 均为 0.56909110398425122); sklearn `sample_weight` 同语义; scipy `gaussian_kde(weights=w)` 为另一套 (加权协方差 + `neff^(-1/5)`, W4: neff=4.26315789473684, factor=0.748262044788031) — 本库不采用, 登记为同名不同物。
+  - **P2-5 实现**: [kde.hpp](../include/cpphub/timeseries/density/kde.hpp) 新增 `KernelDensity1D(sample, weights, config)`; 权重非负有限、和为正、仅比例有意义、允许 0; `weighted()` / `effective_sample_size()` = (Σw)²/Σw² (仅诊断, 不参与 h); 无权路径保持原双累加器与归一化形式 (perf 53 ms 无回退)。
+  - **P2-1 实现**: `KdeConfig::reflection=true` 启用 0 处反射: `pdf_R(x)=Σ p_i[φ((x−x_i)/h)+φ((x+x_i)/h)]/h` (x≥0), x<0 返回 0/−inf; 样本须严格为正; 带宽规则仍按原样本解析; 可与权重叠加。解析恒等式 `∫_0^∞=1` / `f_R(0)=2f_plain(0)` 为测试判据。
+  - **测试**: test_kde 17→28 例 (KdeWeighted 5 / KdeReflection 6 / 权重校验 1, 移除 `ReflectionNotImplemented`), Release 28/28 + Debug 28/28; `test_integration_phase9` 2/2 零漂移。
+  - **锚**: 权重 KDE vs statsmodels 0.14.4 五点 (C++ ≤1e-14); 反射正支撑夹具 (C++ ≤1e-14, 含加权反射); 质量恒等式梯形积分 1±1e-6。
+  - **文档回填**: SPEC §3.2 (API/语义/证据) + §3.3 + D9-8 + §10.2 P2-1/P2-5; FINAL_ACCEPTANCE §9 行 2e + 行 4; USAGE_GUIDE §3.11 语义与锚表。
 
 

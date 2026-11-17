@@ -98,7 +98,7 @@ tests/fixtures/timeseries/
 | D9-5 | TE = KSG-CMI + 嵌入 (k,l,delay); 单位 **nats 规范**, 提供 bits 视图; effective TE + 块置换 surrogate | 调研 §4.1/§4.5; nats 与 Barnett TE=½GC 对齐 |
 | D9-6 | KSG/TE **默认标准化** (内部 z-score; 关闭须显式 `standardize=false` 且文档警告缩放敏感性) | Chebyshev 混合单位缩放敏感性 ±35% (probe K3/A41); 审计 C1 统一"强制"措辞 |
 | D9-7 | 不做多变量 KDE / 多变量条件 TE / 离散 TE / Rényi TE | v1.9 聚焦连续双变量; 多变量条件化 P2 |
-| D9-8 | 不做边界修正 (正支撑数据) / 权重 KDE | 边界偏倚列入开放问题; 权重 P2 |
+| D9-8 | 不做边界修正 (正支撑数据) / 权重 KDE | 边界偏倚列入开放问题; 权重 P2。**P2-1/P2-5 已落地 (2026-11-17, P2 第 4 批)**: 0 处反射边界修正 + 权重混合 (带宽仍按未加权样本), 见 §3.2 |
 | D9-9 | 不新增 C ABI / Python 绑定 | Phase 9 纯 C++ 内部模块; 未来按需 |
 | D9-10 | 性能预算: KDE N=10k/M=1k < 50 ms; KSG N=5k < 0.5 s; TE N=2k, ETE 100 + 块置换 100 (**共 ~200 次 TE 评估**) < 10 s | 单线程, MSVC Release; 审计 C6 明确预算含 p 值置换。**[2026-11-11 G 门禁修订, 经用户批准]** KDE 预算 50→150 ms: 实测 52-58 ms (UCRT 标量 exp ~5.5 ns/次硬下限, 暴力算法已最优; exp2 变换实测慢 8× 禁用), 150 ms 留 CI runner 1.5-2× 慢速余量; KSG 实测 35 ms / TE 实测 4.1 s 均达标不动。**[2026-11-14 CI 修订]** 预算口径仅适用于优化构建: 覆盖率 CI job 为 Debug + `--coverage -O0` 插桩构建 (run 43465160758: KSG 1.3 s / TE 98.9 s 超预算) → `tests/CMakeLists.txt` 检测 `--coverage` 定义 `CPPHUB_COVERAGE_BUILD`, 三个 perf 用例在该构建下 `GTEST_SKIP()` (Release 仍断言预算) |
 
@@ -147,24 +147,31 @@ Real resolve_bandwidth(std::span<const Real> sample, const Bandwidth& bw);
 ```cpp
 struct KdeConfig {
     Bandwidth bandwidth{};
-    bool reflection = false;  // P2 预留; v1.9 必须 false, true 抛 not-implemented
+    bool reflection = false;  // P2-1: 0 处反射 (支撑 [0,∞), 样本须严格正)
 };
 
 class KernelDensity1D {
 public:
     explicit KernelDensity1D(std::span<const Real> sample, KdeConfig config = {});
+    // P2-5: 权重仅比例有意义, 允许 0; 空 span = 等权
+    KernelDensity1D(std::span<const Real> sample, std::span<const Real> weights,
+                    KdeConfig config = {});
 
     Real pdf(Real x) const;                       // 1/(n h) Σ φ((x - x_i)/h)
     Real log_pdf(Real x) const;                   // log-sum-exp, 避免下溢
     std::vector<Real> pdf(std::span<const Real> grid) const;
-    Real bandwidth() const noexcept;              // 解析后的绝对 h
+    Real bandwidth() const noexcept;              // 解析后的绝对 h (权重不影响)
     BandwidthRule rule() const noexcept;
     std::size_t size() const noexcept;
+    bool weighted() const noexcept;               // P2-5
+    Real effective_sample_size() const noexcept;  // (Σw)²/Σw²; 无权 = n (诊断)
 
 private:
     std::vector<Real> sample_;
+    std::vector<Real> weights_;      // 归一化 w_i/W
+    std::vector<Real> log_weights_;  // log(w_i/W), 0 权重为 -inf
     Real h_;
-    Real log_norm_;  // -log(n h sqrt(2π))
+    Real log_norm_;  // 无权: -log(n h sqrt(2π)); 加权: -log(h sqrt(2π))
 };
 
 /// 多带宽敏感性: 对每个 h 返回 log-likelihood 与给定网格上的 pdf 摘要.
@@ -185,6 +192,9 @@ std::vector<BandwidthSensitivityPoint> bandwidth_sensitivity(
 - `bandwidth_sensitivity`: 每个 h 重新构造 KDE; 返回的 `log_likelihood` 不含留一修正 (P2)。
 - 输入校验: `n >= 2`, 所有值 finite, `h > 0`; 否则抛 `std::invalid_argument("KDE: ...")`。
 - 不存储排序样本 (1D KDE 无需树)。
+- **权重 (P2-5, 2026-11-17)**: `pdf(x) = 1/(h√(2π)) Σ (w_i/W) φ(z_i)`; 权重非负有限、和为正、仅比例有意义、允许 0。**带宽规则按未加权样本解析** — 与 statsmodels `KDEUnivariate.fit(fft=False, weights=w)` / sklearn `sample_weight` 同语义 (探针 W2: 加权与未加权 bw 逐位相同); scipy `gaussian_kde(weights=w)` 是另一套语义 (加权协方差 + `neff^(-1/5)`, 探针 W4), 本库不采用并登记为同名不同物。`effective_sample_size()=(Σw)²/Σw²` 仅诊断, 不参与 h。
+- **反射边界 (P2-1, 2026-11-17)**: `reflection=true` 时支撑 [0,∞), `pdf_R(x)=Σ p_i[φ((x−x_i)/h)+φ((x+x_i)/h)]/h` (x≥0), x<0 返回 0 / −inf; 样本须**严格为正** (否则 `invalid_argument`); 带宽规则仍按原样本解析; 可与权重叠加。解析恒等式 `∫_0^∞ pdf_R = 1` 与 `pdf_R(0)=2·pdf_plain(0)` 为测试判据。
+- **P2-1/P2-5 证据**: [probe_weighted_kde.py](../../../tests/fixtures/timeseries/probe_weighted_kde.py) W1-W5 全 PASS — statsmodels 0.14.4 加权密度锚 (5 点, w={1,2,3,2,1}, h=0.5: 0.23418981245087211 / 0.4173736089595007 / 0.505042593846055 / 0.41737360895950065 / 0.2341898124508721), 反射正支撑夹具锚 (h=0.4: 0.6903052492080058 / 0.6875828286464591 / 0.6170247562150474 / 0.4111853522570467 / 0.26052454333145075 / 1.5214503336240446e-13; 加权反射 0.38497717295055395…), 质量恒等式 quad=1。
 
 ### 3.3 测试要点
 
@@ -194,7 +204,10 @@ std::vector<BandwidthSensitivityPoint> bandwidth_sensitivity(
 4. `log_pdf` 与 `log(pdf)` 一致 (pdf>0 时 1e-12)。
 5. 敏感性网格: 3 个 h 的 `log_likelihood` 有限; 极窄/极宽 h 不 NaN。
 6. 非法输入: 空样本、n=1、h=0、NaN → `invalid_argument`。
-7. `reflection=true` → `not_implemented` (P2 显式)。
+7. `reflection=true`: 反射锚 (1e-14) / 质量恒等式 / x<0 → 0 与 −inf / 非正样本 → `invalid_argument` (P2-1)。
+8. 权重: statsmodels 锚 (1e-14) / 权重尺度不变 / 0 权重 = 子样本 / neff / 非法权重 (P2-5)。
+9. 权重 + 反射叠加锚 (1e-14)。
+10. `bandwidth_sensitivity` 的 3 个 h 结果有限且峰值 > 0。
 
 ---
 
@@ -491,11 +504,11 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 
 | ID | 延后项 | 对应决策 |
 |----|--------|---------|
-| P2-1 | KDE 正支撑边界修正 (反射/变换) | D9-8 / 风险 ⑬ |
+| P2-1 | KDE 正支撑边界修正 (反射/变换) | ✅ **已落地 (2026-11-17, P2 第 4 批)**: `KdeConfig::reflection=true` 启用 0 处反射 (支撑 [0,∞), 样本严格正), 解析恒等式 ∫_0^∞=1 / f_R(0)=2f(0) + 探针锚; 见 §3.2 |
 | P2-2 | SJ/ISJ plug-in 带宽选择器 | ✅ **已落地 (2026-11-17, P2 第 3 批)**: `BandwidthRule::kSj` (Sheather-Jones 1991 ste, R `bw.SJ` 同算法) + `kIsj` (Botev 2010 diffusion, KDEpy 同算法); 证据 [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 三组确定性夹具锚, C++ 对齐 1e-10/1e-8; test_kde 11→17 例。见 §3.1 公式与 H1 关闭说明 |
 | P2-3 | 多变量 KDE / 多变量条件 TE | D9-7 |
 | P2-4 | k-d tree / BallTree | ✅ **已落地 (2026-11-17, P2 第 2 批)**: 新增 [`density/kdtree.hpp`](../../../include/cpphub/timeseries/density/kdtree.hpp) — 固定维 Chebyshev k-d tree (列子集, 非拥有视图), 提供含自身的第 k 距离与半径精确计数; KSG MI/CMI (联合 kNN + 边际计数) 与 TE `cmi_embedded` (联合 + 3 边际) 全部接入, 典型 O(N log N) 每次评估。**等价性**: 独立暴力 oracle (test_kdtree 1-5 维 + 列子集 + 重复点; test_ksg MI/CMI 交叉验证) 逐位一致, sklearn 黄金值 1e-12 与 JIDT 锚零漂移。**实测** (Release MSVC): KSG N=5000 37→7 ms; TE N=2000 3871→1606 ms; TE 套件 53.2→9.3 s。1D kNN 密度维持有序数组二分 (已最优, 不用树) |
-| P2-5 | 权重 KDE / neff 语义 | D9-8 |
+| P2-5 | 权重 KDE / neff 语义 | ✅ **已落地 (2026-11-17, P2 第 4 批)**: `KernelDensity1D(sample, weights, config)`; 权重仅比例/允许 0; 带宽按未加权样本 (statsmodels/sklearn 同语义), `effective_sample_size()` 诊断; 见 §3.2 |
 | P2-6 | KSG Algorithm 2 | D9-4 / H5 |
 | P2-7 | 多核 KDE (Epanechnikov/tophat) | D9-1 |
 | P2-8 | 滑窗 TE API | 不做清单 (审计 C5) |

@@ -2,14 +2,18 @@
 // test_kde.cpp - Phase 9 M1: 1D Gaussian KDE + 带宽语义 (TDD 前置)
 //
 // 状态: M1 已实现 (include/cpphub/timeseries/density/{bandwidth,kde}.hpp),
-//       已接入 tests/CMakeLists.txt; M1 11 例 + P2-2 SJ/ISJ 6 例 = 17.
+//       已接入 tests/CMakeLists.txt; M1 11 例 + P2-2 SJ/ISJ 6 例
+//       + P2-1 反射 6 例 + P2-5 权重 5 例 + 权重校验 1 例 = 28.
 //
 // 基准: probe_sklearn_kde.py (8/8 PASS) + scipy 黄金值 (n=5 手算样本)
 //       + probe_sj_isj.py (P2-2: SJ=R bw.SJ ste / ISJ=KDEpy 翻译, 三组夹具)
+//       + probe_weighted_kde.py (P2-1/P2-5: statsmodels 0.14.4 加权锚,
+//         反射恒等式 ∫_0^∞=1 / f_R(0)=2f(0))
 //   - 带宽公式: Scott 1.059 / Silverman 0.9 / normal_reference C≈1.05922
 //   - 数据驱动: kSj / kIsj (锚 1e-10 / 1e-8; SJ 严格尺度同变)
 //   - 同核同 h: scipy gaussian_kde pdf 1e-14
-//   - 语义: AbsoluteH vs DimensionlessFactor 显式区分
+//   - 语义: AbsoluteH vs DimensionlessFactor 显式区分; 权重仅进混合,
+//     带宽按未加权样本 (statsmodels/sklearn 同语义)
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -47,6 +51,26 @@ const std::vector<Real> kPdf = {
 const std::vector<Real> kLogPdf = {
     -1.2737236057242571, -0.9767771598521500, -0.9254670432669307,
     -0.9767771598521500, -1.2737236057242571};
+
+// ---- P2-5 权重 KDE 锚 (probe_weighted_kde.py W1: statsmodels 0.14.4) ----
+// density(x) = Σ (w_i/Σw) φ((x−x_i)/h)/h; h=0.5 (绝对带宽, 隔离规则语义)
+const std::vector<Real> kWeights5 = {1.0, 2.0, 3.0, 2.0, 1.0};
+const std::vector<Real> kWeightedPdf = {
+    0.23418981245087211, 0.4173736089595007, 0.505042593846055,
+    0.41737360895950065, 0.2341898124508721};
+constexpr Real kNeff5 = 4.263157894736842;  // (Σw)²/Σw² = 81/19
+
+// ---- P2-1 反射边界锚 (probe_weighted_kde.py W5, 正支撑夹具) ----
+const std::vector<Real> kPosSample = {0.2, 0.5, 1.0, 2.0};
+const std::vector<Real> kPosWeights = {1.0, 2.0, 3.0, 4.0};  // neff=10/3
+const std::vector<Real> kPosGrid = {0.0, 0.1, 0.5, 1.0, 2.0, 5.0};
+constexpr Real kPosH = 0.4;
+const std::vector<Real> kReflPdf = {
+    0.6903052492080058, 0.6875828286464591, 0.6170247562150474,
+    0.4111853522570467, 0.26052454333145075, 1.5214503336240446e-13};
+const std::vector<Real> kWeightedReflPdf = {
+    0.38497717295055395, 0.38832590043926235, 0.44269283599274095,
+    0.42284267010149873, 0.4122688271296532, 2.4343205336061054e-13};
 
 // ---- P2-2 SJ/ISJ 锚 (probe_sj_isj.py 参考实现, 确定性夹具) ----
 // grid150: x_i = ((i*7919 + 12345) % 1000)/100
@@ -281,10 +305,174 @@ TEST(KdeValidation, RejectsInvalidInputs) {
                  std::invalid_argument);
 }
 
-TEST(KdeValidation, ReflectionNotImplemented) {
-    de::KdeConfig cfg = config_with(absolute_bandwidth(0.5));
+// ---- P2-5: 权重 KDE (statsmodels 同语义: 权重仅进混合权重) ----
+
+TEST(KdeWeighted, MatchesStatsmodelsGolden) {
+    de::KernelDensity1D kde(std::span<const Real>(kSample),
+                            std::span<const Real>(kWeights5),
+                            config_with(absolute_bandwidth(0.5)));
+    EXPECT_TRUE(kde.weighted());
+    EXPECT_EQ(kde.size(), kSample.size());
+    for (Size i = 0; i < kGrid.size(); ++i) {
+        EXPECT_NEAR(kde.pdf(kGrid[i]), kWeightedPdf[i], 1e-14) << "grid[" << i << "]";
+        EXPECT_NEAR(kde.log_pdf(kGrid[i]), std::log(kWeightedPdf[i]), 1e-14)
+            << "grid[" << i << "]";
+    }
+}
+
+TEST(KdeWeighted, ScaleInvariant) {
+    std::vector<Real> scaled = kWeights5;
+    for (Real& w : scaled) {
+        w *= 7.0;
+    }
+    de::KernelDensity1D a(std::span<const Real>(kSample),
+                          std::span<const Real>(kWeights5),
+                          config_with(absolute_bandwidth(0.5)));
+    de::KernelDensity1D b(std::span<const Real>(kSample),
+                          std::span<const Real>(scaled),
+                          config_with(absolute_bandwidth(0.5)));
+    for (Real x : {-1.0, -0.25, 0.0, 0.75, 2.0}) {
+        EXPECT_NEAR(a.pdf(x), b.pdf(x), 1e-15) << "x=" << x;
+        EXPECT_NEAR(a.log_pdf(x), b.log_pdf(x), 1e-14) << "x=" << x;
+    }
+}
+
+TEST(KdeWeighted, ZeroWeightEqualsSubsample) {
+    const std::vector<Real> sparse_weights = {1.0, 0.0, 1.0, 0.0, 1.0};
+    const std::vector<Real> sub_sample = {-1.0, 0.0, 1.0};
+    de::KernelDensity1D full(std::span<const Real>(kSample),
+                             std::span<const Real>(sparse_weights),
+                             config_with(absolute_bandwidth(0.5)));
+    de::KernelDensity1D sub(std::span<const Real>(sub_sample),
+                            config_with(absolute_bandwidth(0.5)));
+    for (Real x : kGrid) {
+        EXPECT_DOUBLE_EQ(full.pdf(x), sub.pdf(x)) << "x=" << x;
+    }
+}
+
+TEST(KdeWeighted, EffectiveSampleSize) {
+    de::KernelDensity1D w(std::span<const Real>(kSample),
+                          std::span<const Real>(kWeights5),
+                          config_with(absolute_bandwidth(0.5)));
+    de::KernelDensity1D u(std::span<const Real>(kSample),
+                          config_with(absolute_bandwidth(0.5)));
+    EXPECT_NEAR(w.effective_sample_size(), kNeff5, 1e-14);
+    EXPECT_DOUBLE_EQ(u.effective_sample_size(), static_cast<Real>(kSample.size()));
+    EXPECT_FALSE(u.weighted());
+}
+
+TEST(KdeWeighted, BandwidthIgnoresWeights) {
+    // statsmodels kdensity / sklearn sample_weight 同语义: 规则只看未加权样本
+    de::KernelDensity1D w(std::span<const Real>(kSample),
+                          std::span<const Real>(kWeights5),
+                          config_with(rule_bandwidth(de::BandwidthRule::kScott)));
+    de::KernelDensity1D u(std::span<const Real>(kSample),
+                          config_with(rule_bandwidth(de::BandwidthRule::kScott)));
+    EXPECT_DOUBLE_EQ(w.bandwidth(), u.bandwidth());
+    EXPECT_NEAR(w.bandwidth(), kScott, 1e-15);
+}
+
+TEST(KdeValidation, RejectsInvalidWeights) {
+    const de::KdeConfig cfg = config_with(absolute_bandwidth(0.5));
+    const std::vector<Real> short_w = {1.0, 2.0};
+    const std::vector<Real> negative_w = {1.0, -1.0, 1.0, 1.0, 1.0};
+    const std::vector<Real> zero_w(5, 0.0);
+    const std::vector<Real> nan_w = {1.0, 1.0, std::numeric_limits<Real>::quiet_NaN(),
+                                     1.0, 1.0};
+    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(kSample),
+                                     std::span<const Real>(short_w), cfg),
+                 std::invalid_argument);
+    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(kSample),
+                                     std::span<const Real>(negative_w), cfg),
+                 std::invalid_argument);
+    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(kSample),
+                                     std::span<const Real>(zero_w), cfg),
+                 std::invalid_argument);
+    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(kSample),
+                                     std::span<const Real>(nan_w), cfg),
+                 std::invalid_argument);
+}
+
+// ---- P2-1: 0 处反射边界修正 (正支撑 [0,∞)) ----
+
+namespace {
+de::KdeConfig reflection_config(Real h) {
+    de::KdeConfig cfg = config_with(absolute_bandwidth(h));
     cfg.reflection = true;
-    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(kSample), cfg), std::logic_error);
+    return cfg;
+}
+}  // namespace
+
+TEST(KdeReflection, MatchesGolden) {
+    de::KernelDensity1D kde(std::span<const Real>(kPosSample), reflection_config(kPosH));
+    for (Size i = 0; i < kPosGrid.size(); ++i) {
+        EXPECT_NEAR(kde.pdf(kPosGrid[i]), kReflPdf[i], 1e-14) << "grid[" << i << "]";
+        EXPECT_NEAR(kde.log_pdf(kPosGrid[i]), std::log(kReflPdf[i]), 1e-13)
+            << "grid[" << i << "]";
+    }
+}
+
+TEST(KdeReflection, WeightedMatchesGolden) {
+    de::KernelDensity1D kde(std::span<const Real>(kPosSample),
+                            std::span<const Real>(kPosWeights),
+                            reflection_config(kPosH));
+    EXPECT_TRUE(kde.weighted());
+    EXPECT_NEAR(kde.effective_sample_size(), 10.0 / 3.0, 1e-14);
+    for (Size i = 0; i < kPosGrid.size(); ++i) {
+        EXPECT_NEAR(kde.pdf(kPosGrid[i]), kWeightedReflPdf[i], 1e-14)
+            << "grid[" << i << "]";
+    }
+}
+
+TEST(KdeReflection, MassIdentity) {
+    // 反射恒等式: ∫_0^∞ f_R = 1; f_R(0) = 2 f_plain(0)
+    de::KernelDensity1D kde(std::span<const Real>(kPosSample), reflection_config(kPosH));
+    de::KernelDensity1D plain(std::span<const Real>(kPosSample),
+                              config_with(absolute_bandwidth(kPosH)));
+    EXPECT_NEAR(kde.pdf(0.0), 2.0 * plain.pdf(0.0), 1e-14);
+
+    constexpr int kSteps = 200000;
+    constexpr Real kUpper = 20.0;
+    const Real dx = kUpper / static_cast<Real>(kSteps);
+    Real sum = 0.5 * (kde.pdf(0.0) + kde.pdf(kUpper));
+    for (int i = 1; i < kSteps; ++i) {
+        sum += kde.pdf(static_cast<Real>(i) * dx);
+    }
+    EXPECT_NEAR(sum * dx, 1.0, 1e-6);
+}
+
+TEST(KdeReflection, NegativeSideZero) {
+    de::KernelDensity1D kde(std::span<const Real>(kPosSample), reflection_config(kPosH));
+    EXPECT_DOUBLE_EQ(kde.pdf(-0.1), 0.0);
+    const Real lp = kde.log_pdf(-0.1);
+    EXPECT_TRUE(std::isinf(lp) && lp < 0.0);
+}
+
+TEST(KdeReflection, RejectsNonPositiveSample) {
+    const std::vector<Real> with_zero = {0.0, 0.5, 1.0};
+    const std::vector<Real> with_negative = {-0.2, 0.5, 1.0};
+    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(with_zero),
+                                     reflection_config(0.4)),
+                 std::invalid_argument);
+    EXPECT_THROW(de::KernelDensity1D(std::span<const Real>(with_negative),
+                                     reflection_config(0.4)),
+                 std::invalid_argument);
+}
+
+TEST(KdeReflection, BandwidthUnchanged) {
+    de::KernelDensity1D refl(std::span<const Real>(kPosSample),
+                             reflection_config(0.4));
+    de::KernelDensity1D plain(std::span<const Real>(kPosSample),
+                              config_with(rule_bandwidth(de::BandwidthRule::kScott)));
+    de::KernelDensity1D refl_rule(std::span<const Real>(kPosSample),
+                                  [] {
+                                      de::KdeConfig cfg = config_with(
+                                          rule_bandwidth(de::BandwidthRule::kScott));
+                                      cfg.reflection = true;
+                                      return cfg;
+                                  }());
+    EXPECT_DOUBLE_EQ(refl_rule.bandwidth(), plain.bandwidth());
+    EXPECT_DOUBLE_EQ(refl.bandwidth(), 0.4);
 }
 
 // spec D9-10 性能预算 (2026-11-11 G 门禁修订 50→150ms): 实测 52-58ms,

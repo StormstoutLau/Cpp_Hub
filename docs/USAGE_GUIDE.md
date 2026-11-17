@@ -725,7 +725,7 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 
 - **带宽同名不同物**：`kScott`=1.059·A·n^(-1/5)（statsmodels `bw_scott`/R `bw.nrd`）、`kSilverman`=0.9·A·n^(-1/5)（R `bw.nrd0`）、`kNormalReference` C=1.059223840025653（statsmodels 默认，probe 反解）。A = min(sd(ddof=1), IQR/1.349)。**不提供** sklearn `bandwidth='scott'` 的「裸因子当 h」语义（会让密度随数据单位变化）。
 - **SJ/ISJ（P2-2）**：`kSj` = Sheather-Jones (1991) solve-the-equation（R `bw.SJ(ste)` 同算法，随数据尺度严格同变）；`kIsj` = Botev et al. (2010) diffusion ISJ（KDEpy `improved_sheather_jones` 同算法，因网格边界取绝对 6 而**不严格**同变）。R `ks::hpi` 实为 KernSmooth `dpik`（Wand-Jones plug-in）、`hscv` 为 SCV，**均不是 SJ**（H1 已按源码证伪；R 4.6.1 实测 `hpi` 与 `dpik` 三组夹具逐位相同，与 `bw.SJ(ste)` 显著不同）。
-- **KDE 范围**：仅 1D Gaussian 核 + 正支撑数据；`KdeConfig::reflection=true` 抛 `std::logic_error`（P2 预留）。`log_pdf` 用 logsumexp max-shift，深尾不产 NaN。
+- **KDE 范围（P2-1/P2-5 已扩展）**：1D Gaussian 核。`reflection=true` 启用 0 处反射（支撑 [0,∞)，样本须严格正；∫₀^∞=1，x<0 返回 0/−inf）。权重构造 `KernelDensity1D(sample, weights, cfg)` 仅改变混合权重（`Σw_i/W`，0 权重允许），**带宽规则仍按未加权样本解析**（statsmodels/sklearn 同语义；scipy 用加权协方差 + neff，不采用），`effective_sample_size()` 为 (Σw)²/Σw² 诊断量。`log_pdf` 用 logsumexp max-shift，深尾不产 NaN。
 - **KSG 约定**：联合空间 Chebyshev + `nextafter(ε,0)` 边际计数（等价于严格小于 ε），与 sklearn `_compute_mi_cc` 逐位一致；返回 nats，**不截断负值**（与 sklearn `max(0,·)` 不同）。混合单位数据必须 `standardize=true`（默认开）。
 - **k-d tree 只改访问路径（P2-4）**：KSG/TE 的联合 kNN 与边际半径计数由 `KdTree` 加速，距离与计数语义不变 — 与独立暴力参考逐位一致（`test_kdtree` + `test_ksg` 交叉验证）。1D kNN 密度仍用有序数组二分（已最优，不经树）。
 - **TE 定义**：`TE(X→Y) = CMI(Y_t ; X_past | Y_past)`，嵌入 `[X_past(k), Y_t, Y_past(l)]`，`n_effective = T − max(k,l)·delay`。输出 nats（`te_bits` 为换算值）。
@@ -746,6 +746,8 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 | Politis-White 块长 vs arch 8.0（circular） | 逐位一致（整数 LCG 序列 raw 2.348429964449 / 17.036985190498） |
 | SJ 带宽 vs probe_sj_isj.py（grid150/lcg200/ar200） | 0.950442595810742 / 0.640167818657877 / 0.081279027344518（C++ ≤1e-10） |
 | ISJ 带宽 vs probe_sj_isj.py（同三组） | 0.549966080404110 / 0.319826651877444 / 0.890073460494627（C++ ≤1e-8；与 KDEpy 1.1.12 直接对照 reldiff ≤1.3e-10） |
+| 权重 KDE vs statsmodels 0.14.4（5 点，w={1,2,3,2,1}，h=0.5） | 0.23418981245087211 / 0.4173736089595007 / 0.505042593846055 / 0.41737360895950065 / 0.2341898124508721（C++ ≤1e-14） |
+| 反射 KDE 恒等式（正支撑夹具，h=0.4） | f_R(0)=2f(0)=0.6903052492080058；∫₀^∞=1；加权反射锚 0.38497717295055395…（C++ ≤1e-14） |
 
 **性能（P2-4 k-d tree，Release MSVC）**：KSG N=5000/k=3 预算 500 ms，实测 37→7 ms；TE N=2000 预算 10 s，实测 3871→1606 ms；TE 套件 53.2→9.3 s。
 

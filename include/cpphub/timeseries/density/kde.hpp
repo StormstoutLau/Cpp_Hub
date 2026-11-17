@@ -7,8 +7,9 @@
 // 与 scipy gaussian_kde(bw_method=factor) 同核同 h 时 pdf 一致 (probe P6:
 // 7.494e-16); 带宽规则语义见 bandwidth.hpp.
 //
-// 范围 (D9-1/D9-8): 仅 1D Gaussian 核、正支撑数据; reflection 边界修正
-// 为 P2 预留, v1.9 显式抛 not-implemented.
+// 范围 (D9-1/D9-8): 仅 1D Gaussian 核. P2-1 已落地 0 处反射边界修正
+// (reflection=true, 支撑 [0,∞)); P2-5 已落地权重 (混合权重 w_i/W,
+// 带宽规则仍按未加权样本解析 — statsmodels/sklearn 同语义).
 // =============================================================================
 
 #pragma once
@@ -32,64 +33,117 @@ namespace density {
 /// KDE 配置
 struct KdeConfig {
     Bandwidth bandwidth{};
-    /// P2 预留; v1.9 必须 false, true 抛 std::logic_error
+    /// true: 0 处反射边界修正 (支撑 [0,∞), 样本须严格为正)
     bool reflection = false;
 };
 
 /// 一维 Gaussian 核密度估计 (header-only, O(N) 单点求值)
+///
+/// 无权:   pdf(x) = 1/(n h √(2π)) Σ exp(−½ z_i²)
+/// 加权:   pdf(x) = 1/(h √(2π)) Σ (w_i/W) exp(−½ z_i²)     (P2-5)
+///   - 权重仅改混合权重; 带宽规则按**未加权**样本解析 (statsmodels
+///     `kdensity` / sklearn `sample_weight` 同语义; scipy gaussian_kde
+///     用加权协方差 + neff, 本库不采用 — 见 SPEC §3.2)
+///   - 权重仅比例有意义; 允许 0 权重; neff=(Σw)²/Σw² 仅作诊断
+/// 反射:   pdf_R(x) = 1/(h √(2π)) Σ p_i [φ(z_i) + φ((x+x_i)/h)], x ≥ 0  (P2-1)
+///   - ∫_0^∞ pdf_R = 1 (每个观测的两半核质量相加为 1); x < 0 返回 0 / −inf
 class KernelDensity1D {
 public:
-    /// @throws std::logic_error reflection=true (P2 未实现)
-    /// @throws std::invalid_argument n < 2 / 非有限样本 / h 非正
-    explicit KernelDensity1D(std::span<const Real> sample, KdeConfig config = {}) {
-        if (config.reflection) {
-            throw std::logic_error(
-                "KDE: reflection boundary correction is not implemented (P2)");
+    /// @throws std::invalid_argument n < 2 / 非有限样本 / h 非正 /
+    ///         reflection 且样本非严格正
+    explicit KernelDensity1D(std::span<const Real> sample, KdeConfig config = {})
+        : KernelDensity1D(sample, std::span<const Real>(), config) {}
+
+    /// @param weights 非负有限权重 (可未归一; 仅比例有意义); 空 span = 等权
+    /// @throws std::invalid_argument 权重长度不符 / 含负值或非有限值 / 和为零
+    KernelDensity1D(std::span<const Real> sample, std::span<const Real> weights,
+                    KdeConfig config = {})
+        : reflection_(config.reflection), rule_(config.bandwidth.rule) {
+        sample_.assign(sample.begin(), sample.end());
+        n_ = sample_.size();
+        if (reflection_) {
+            for (Real xi : sample_) {
+                if (!(xi > 0.0)) {
+                    throw std::invalid_argument(
+                        "KDE: reflection requires strictly positive sample");
+                }
+            }
         }
         h_ = resolve_bandwidth(sample, config.bandwidth);
-        rule_ = config.bandwidth.rule;
-        sample_.assign(sample.begin(), sample.end());
-        log_norm_ = -std::log(static_cast<Real>(sample_.size())) - std::log(h_) -
-                    std::log(SQRT_2PI);
-        inv_h_ = 1.0 / h_;  // pdf 内层用乘法 (perf 预算 D9-10)
+        inv_h_ = 1.0 / h_;
+        if (weights.empty()) {
+            weighted_ = false;
+            neff_ = static_cast<Real>(n_);
+            log_norm_ = -std::log(static_cast<Real>(n_)) - std::log(h_) -
+                        std::log(SQRT_2PI);
+        } else {
+            init_weights(weights);
+        }
     }
 
-    /// 密度: 1/(n h √(2π)) Σ exp(−½ z²)
-    /// 双累加器解 FP 加法依赖链 (D9-10 perf; UCRT exp2 实测比 exp 慢 8×,
-    /// 禁用 exp2 变换 — 2026-11-11 probe 记录)
+    /// 密度 (双累加器解 FP 加法依赖链; UCRT exp2 实测比 exp 慢 8×, 禁用)
     Real pdf(Real x) const {
+        if (reflection_ && x < 0.0) {
+            return 0.0;
+        }
         const Real* p = sample_.data();
-        const Size n = sample_.size();
         Real s0 = 0.0;
         Real s1 = 0.0;
         Size i = 0;
-        for (; i + 2 <= n; i += 2) {
-            const Real z0 = (x - p[i]) * inv_h_;
-            const Real z1 = (x - p[i + 1]) * inv_h_;
-            s0 += std::exp(-0.5 * z0 * z0);
-            s1 += std::exp(-0.5 * z1 * z1);
-        }
-        if (i < n) {
-            const Real z = (x - p[i]) * inv_h_;
-            s0 += std::exp(-0.5 * z * z);
+        if (weighted_) {
+            const Real* w = weights_.data();
+            for (; i + 2 <= n_; i += 2) {
+                s0 += w[i] * kernel_at(x, p[i]);
+                s1 += w[i + 1] * kernel_at(x, p[i + 1]);
+            }
+            if (i < n_) {
+                s0 += w[i] * kernel_at(x, p[i]);
+            }
+        } else {
+            for (; i + 2 <= n_; i += 2) {
+                s0 += kernel_at(x, p[i]);
+                s1 += kernel_at(x, p[i + 1]);
+            }
+            if (i < n_) {
+                s0 += kernel_at(x, p[i]);
+            }
         }
         return (s0 + s1) * std::exp(log_norm_);
     }
 
     /// 对数密度: max-shift log-sum-exp, 深尾返回 -inf 而非 NaN
     Real log_pdf(Real x) const {
+        if (reflection_ && x < 0.0) {
+            return -std::numeric_limits<Real>::infinity();
+        }
         Real m = -std::numeric_limits<Real>::infinity();
-        for (Real xi : sample_) {
-            const Real z = (x - xi) * inv_h_;
-            m = std::max(m, -0.5 * z * z);
+        if (weighted_) {
+            for (Size i = 0; i < n_; ++i) {
+                if (!std::isfinite(log_weights_[i])) {
+                    continue;  // 0 权重
+                }
+                m = std::max(m, log_weights_[i] + log_kernel_at(x, sample_[i]));
+            }
+        } else {
+            for (Size i = 0; i < n_; ++i) {
+                m = std::max(m, log_kernel_at(x, sample_[i]));
+            }
         }
         if (!std::isfinite(m)) {
             return -std::numeric_limits<Real>::infinity();
         }
         Real s = 0.0;
-        for (Real xi : sample_) {
-            const Real z = (x - xi) * inv_h_;
-            s += std::exp(-0.5 * z * z - m);
+        if (weighted_) {
+            for (Size i = 0; i < n_; ++i) {
+                if (!std::isfinite(log_weights_[i])) {
+                    continue;
+                }
+                s += std::exp(log_weights_[i] + log_kernel_at(x, sample_[i]) - m);
+            }
+        } else {
+            for (Size i = 0; i < n_; ++i) {
+                s += std::exp(log_kernel_at(x, sample_[i]) - m);
+            }
         }
         return log_norm_ + m + std::log(s);
     }
@@ -104,16 +158,81 @@ public:
         return out;
     }
 
-    /// 解析后的绝对带宽 h (数据单位)
+    /// 解析后的绝对带宽 h (数据单位; 权重不影响 h)
     Real bandwidth() const noexcept { return h_; }
     BandwidthRule rule() const noexcept { return rule_; }
-    std::size_t size() const noexcept { return sample_.size(); }
+    std::size_t size() const noexcept { return n_; }
+    /// 是否使用权重 (P2-5)
+    bool weighted() const noexcept { return weighted_; }
+    /// 有效样本量 (Σw)²/Σw²; 无权时 = n (仅诊断, 不参与带宽)
+    Real effective_sample_size() const noexcept { return neff_; }
 
 private:
+    /// 单点未加权核值; reflection 时加另一半核 (x+x_i)/h
+    Real kernel_at(Real x, Real xi) const {
+        const Real z = (x - xi) * inv_h_;
+        Real k = std::exp(-0.5 * z * z);
+        if (reflection_) {
+            const Real zr = (x + xi) * inv_h_;
+            k += std::exp(-0.5 * zr * zr);
+        }
+        return k;
+    }
+
+    /// log(核值之和): reflection 时两项取 logaddexp 的稳定形式
+    Real log_kernel_at(Real x, Real xi) const {
+        const Real z = (x - xi) * inv_h_;
+        const Real a = -0.5 * z * z;
+        if (!reflection_) {
+            return a;
+        }
+        const Real zr = (x + xi) * inv_h_;
+        const Real b = -0.5 * zr * zr;
+        const Real hi = std::max(a, b);
+        const Real lo = std::min(a, b);
+        return hi + std::log1p(std::exp(lo - hi));
+    }
+
+    void init_weights(std::span<const Real> weights) {
+        if (weights.size() != n_) {
+            throw std::invalid_argument("KDE: weights size must match sample size");
+        }
+        Real sum = 0.0;
+        Real sum_sq = 0.0;
+        for (Real w : weights) {
+            if (!std::isfinite(w) || w < 0.0) {
+                throw std::invalid_argument(
+                    "KDE: weights must be finite and non-negative");
+            }
+            sum += w;
+            sum_sq += w * w;
+        }
+        if (!(sum > 0.0) || !std::isfinite(sum) || !(sum_sq > 0.0)) {
+            throw std::invalid_argument("KDE: weights must have positive finite sum");
+        }
+        weighted_ = true;
+        neff_ = sum * sum / sum_sq;
+        weights_.resize(n_);
+        log_weights_.resize(n_);
+        for (Size i = 0; i < n_; ++i) {
+            const Real w = weights[i] / sum;
+            weights_[i] = w;
+            log_weights_[i] =
+                (w > 0.0) ? std::log(w) : -std::numeric_limits<Real>::infinity();
+        }
+        log_norm_ = -std::log(h_) - std::log(SQRT_2PI);
+    }
+
     std::vector<Real> sample_;
+    std::vector<Real> weights_;      ///< 归一化 w_i/W (加权时)
+    std::vector<Real> log_weights_;  ///< log(w_i/W) (0 权重为 −inf)
+    Size n_ = 0;
     Real h_ = 0.0;
     Real inv_h_ = 0.0;     ///< 1/h (内层乘法)
-    Real log_norm_ = 0.0;  ///< −log(n h √(2π))
+    Real log_norm_ = 0.0;  ///< 无权: −log(n h √(2π)); 加权: −log(h √(2π))
+    Real neff_ = 0.0;
+    bool weighted_ = false;
+    bool reflection_ = false;
     BandwidthRule rule_ = BandwidthRule::kScott;
 };
 
