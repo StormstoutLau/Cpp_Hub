@@ -154,6 +154,9 @@ def isj_bandwidth(x: np.ndarray) -> float:
     coef = fftpack.dct(hist)  # DCT-II, norm=None
     i_sq = np.arange(1, n, dtype=float) ** 2
     a2 = coef[1:] ** 2
+    # KDEpy 细节: _root 只用 clamped N 计算容差, 而 _fixed_point 通过 args 收到
+    # **原始唯一值数** (N 在 _root 内被钳制但 args 已构造) — 重离散数据差异显著
+    n_fp = float(len(np.unique(x)))
     nu = min(max(len(np.unique(x)), 50), 1050)
 
     def fsum(t, ell):
@@ -169,9 +172,9 @@ def isj_bandwidth(x: np.ndarray) -> float:
             odd = np.prod(np.arange(1, 2 * s + 1, 2, dtype=float))
             k0 = odd / np.sqrt(2.0 * np.pi)
             const = (1.0 + 0.5 ** (s + 0.5)) / 3.0
-            time = (2.0 * const * k0 / (nu * f)) ** (2.0 / (3.0 + 2.0 * s))
+            time = (2.0 * const * k0 / (n_fp * f)) ** (2.0 / (3.0 + 2.0 * s))
             f = fsum(time, s)
-        t_opt = (2.0 * nu * np.sqrt(np.pi) * f) ** (-2.0 / 5.0)
+        t_opt = (2.0 * n_fp * np.sqrt(np.pi) * f) ** (-2.0 / 5.0)
         return t - t_opt
 
     tol = 10e-12 + 0.01 * (nu - 50) / 1000

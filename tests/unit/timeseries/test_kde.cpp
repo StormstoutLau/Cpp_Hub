@@ -57,7 +57,7 @@ constexpr Real kIsjGrid150 = 0.549966080404110;
 constexpr Real kSjLcg200 = 0.640167818657877;
 constexpr Real kIsjLcg200 = 0.319826651877444;
 constexpr Real kSjAr200 = 0.081279027344518;
-constexpr Real kIsjAr200 = 0.005215310828978;
+constexpr Real kIsjAr200 = 0.890073460494627;
 
 std::vector<Real> grid150() {
     std::vector<Real> x(150);

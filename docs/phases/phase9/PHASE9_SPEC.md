@@ -140,7 +140,7 @@ Real resolve_bandwidth(std::span<const Real> sample, const Bandwidth& bw);
 
 **禁止**: 不接受裸字符串; 不提供 sklearn 的"裸 n^(-1/(d+4)) 当 h"语义 (调研 A1-A3)。
 
-**P2-2 证据** (2026-11-17): [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 独立参考实现 (SJ=R bw.SJ ste 翻译; ISJ=KDEpy 翻译, 含 KDEpy `_fixed_point` doctest 自检) → 确定性整数夹具锚: grid150 SJ 0.950442595810742 / ISJ 0.549966080404110, lcg200 SJ 0.640167818657877 / ISJ 0.319826651877444, ar200 SJ 0.081279027344518 / ISJ 0.005215310828978; C++ 分别对齐 1e-10 (SJ) / 1e-8 (ISJ)。
+**P2-2 证据** (2026-11-17): [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 独立参考实现 (SJ=R bw.SJ ste 翻译; ISJ=KDEpy 翻译, 含 KDEpy `_fixed_point` doctest 自检) → 确定性整数夹具锚: grid150 SJ 0.950442595810742 / ISJ 0.549966080404110, lcg200 SJ 0.640167818657877 / ISJ 0.319826651877444, ar200 SJ 0.081279027344518 / ISJ 0.890073460494627; C++ 分别对齐 1e-10 (SJ) / 1e-8 (ISJ)。ISJ 另与 pip 隔离安装的 KDEpy 1.1.12 直接对照 (reldiff 4.6e-13 / 1.3e-10 / 1.7e-14); 注意 KDEpy `_root` 只用 clamped N 算容差, `_fixed_point` 用**原始唯一值数** (ar200 差异 0.005 vs 0.890), 本实现忠实镜像。
 
 ### 3.2 KDE 类
 

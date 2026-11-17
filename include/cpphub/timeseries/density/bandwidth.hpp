@@ -261,11 +261,14 @@ inline Real isj_bandwidth(std::span<const Real> sample) {
         hist[static_cast<Size>(i0) + 1] += frac * w;
     }
 
-    // 唯一值数 (KDEpy: len(np.unique(data)) → clamp [50, 1050])
+    // 唯一值数: KDEpy 的 _root 只用 clamped N 计算容差, 而 _fixed_point 通过
+    // args 收到**原始唯一值数** (N 在 _root 内钳制但 args 已构造) — 重离散
+    // 数据下两者差异显著, 此处忠实镜像 (ar200: h 0.0052 vs 0.890)
     std::vector<Real> sorted(sample.begin(), sample.end());
     std::sort(sorted.begin(), sorted.end());
     const Size uniq = static_cast<Size>(std::unique(sorted.begin(), sorted.end()) -
                                         sorted.begin());
+    const Real n_fp = static_cast<Real>(uniq);  // 固定点内部使用
     const Real nu = static_cast<Real>(std::min<Size>(std::max<Size>(uniq, 50), 1050));
 
     // DCT-II: a_k = 2 Σ_j hist_j cos(π k (2j+1) / (2M))
@@ -306,10 +309,10 @@ inline Real isj_bandwidth(std::span<const Real> sample) {
             const Real k0 = odd / std::sqrt(2.0 * kPi);
             const Real cst = (1.0 + std::pow(0.5, s + 0.5)) / 3.0;
             const Real time =
-                std::pow(2.0 * cst * k0 / (nu * f), 2.0 / (3.0 + 2.0 * s));
+                std::pow(2.0 * cst * k0 / (n_fp * f), 2.0 / (3.0 + 2.0 * s));
             f = fsum(time, s);
         }
-        const Real t_opt = std::pow(2.0 * nu * std::sqrt(kPi) * f, -0.4);
+        const Real t_opt = std::pow(2.0 * n_fp * std::sqrt(kPi) * f, -0.4);
         return t - t_opt;
     };
 
