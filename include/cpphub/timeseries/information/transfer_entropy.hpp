@@ -43,6 +43,12 @@ inline namespace v1 {
 namespace timeseries {
 namespace information {
 
+/// 块置换的块长规则 (Q11)
+enum class BlockLengthRule {
+    kSqrt,         ///< ceil(√T) (v1.9 默认口径)
+    kPolitisWhite  ///< Politis-White (2004) 自动块长
+};
+
 /// 迁移熵配置
 struct TransferEntropyConfig {
     std::size_t source_history = 1;  ///< 源嵌入阶 k
@@ -52,7 +58,11 @@ struct TransferEntropyConfig {
     bool standardize = true;         ///< 原始序列逐条 z-score (ddof=1)
     std::size_t n_shuffles = 100;    ///< effective TE 的随机置换次数
     std::size_t n_block_boot = 100;  ///< p 值的块置换次数 (与 n_shuffles 独立)
-    std::size_t block_length = 0;    ///< 0 => ceil(sqrt(T))
+    std::size_t block_length = 0;    ///< >0: 显式块长 (优先级最高); 0: 按 block_rule
+    /// Q11: block_length=0 时的块长规则
+    ///   kSqrt          ceil(√T) (v1.9 默认, 保持既有 p 值锚不变)
+    ///   kPolitisWhite  Politis-White (2004) 自动块长 (强持久序列推荐)
+    BlockLengthRule block_rule = BlockLengthRule::kSqrt;
     std::uint64_t seed = 0;
 };
 
@@ -63,6 +73,7 @@ struct TransferEntropyResult {
     Real te_bits = 0.0;       ///< te / ln2
     Real p_value = 1.0;       ///< 块置换零分布
     std::size_t n_effective = 0;
+    std::size_t block_length_used = 0;  ///< p 值实际使用的块长 (Q11 诊断)
 };
 
 namespace detail {
@@ -179,7 +190,104 @@ inline void circular_block_shuffle(std::span<const Real> src, std::vector<Real>&
     }
 }
 
+/// Politis-White (2004) + Patton-Politis-White (2009) 修正的 circular
+/// bootstrap 最优块长 (flat-top 核; 与 arch 8.0 `optimal_block_length`
+/// circular 分支同算法, 逐步镜像其 autocovariance 截断与核权重)。
+/// 返回未取整的实数块长; 调用方 ceil 并 clamp 到 [1, n]。
+inline Real politis_white_block_length_raw(std::span<const Real> x) {
+    const Size nobs = x.size();
+    Real mean = 0.0;
+    for (Real v : x) {
+        mean += v;
+    }
+    mean /= static_cast<Real>(nobs);
+
+    std::vector<Real> eps(nobs);
+    for (Size i = 0; i < nobs; ++i) {
+        eps[i] = x[i] - mean;
+    }
+
+    const Real n = static_cast<Real>(nobs);
+    const Real b_max = std::ceil(std::min(3.0 * std::sqrt(n), n / 3.0));
+    const Size kn = std::max<Size>(5, static_cast<Size>(std::log10(n)));
+    const Size m_max = static_cast<Size>(std::ceil(std::sqrt(n))) + kn;
+    const Real cv = 2.0 * std::sqrt(std::log10(n) / n);
+
+    std::vector<Real> acv(m_max + 1, 0.0);
+    std::vector<Real> abs_acorr(m_max + 1, 0.0);
+    Size opt_m = 0;
+    bool has_opt = false;
+    for (Size i = 0; i <= m_max; ++i) {
+        const Size i1 = i + 1;
+        Real v1 = 0.0;
+        Real v2 = 0.0;
+        Real cross = 0.0;
+        for (Size j = i1; j < nobs; ++j) {
+            v1 += eps[j] * eps[j];
+        }
+        for (Size j = 0; j + i1 < nobs; ++j) {
+            v2 += eps[j] * eps[j];
+        }
+        for (Size j = i; j < nobs; ++j) {
+            cross += eps[j] * eps[j - i];
+        }
+        acv[i] = cross / n;
+        const Real denom = std::sqrt(v1 * v2);
+        abs_acorr[i] = (denom > 0.0) ? std::fabs(cross) / denom : 0.0;
+        if (!has_opt && i >= kn) {
+            bool all_small = true;
+            for (Size j = i - kn; j < i; ++j) {
+                if (!(abs_acorr[j] < cv)) {
+                    all_small = false;
+                    break;
+                }
+            }
+            if (all_small) {
+                opt_m = i - kn;
+                has_opt = true;
+            }
+        }
+    }
+
+    Size m = has_opt ? 2 * std::max<Size>(opt_m, 1) : m_max;
+    m = std::min(m, m_max);
+
+    Real g = 0.0;
+    Real lr_acv = acv[0];
+    const Real m_real = static_cast<Real>(m);
+    for (Size k = 1; k <= m; ++k) {
+        const Real ratio = static_cast<Real>(k) / m_real;
+        const Real lam = (ratio <= 0.5) ? 1.0 : 2.0 * (1.0 - ratio);
+        g += 2.0 * lam * static_cast<Real>(k) * acv[k];
+        lr_acv += 2.0 * lam * acv[k];
+    }
+    const Real d_cb = (4.0 / 3.0) * lr_acv * lr_acv;
+    if (!(d_cb > 0.0)) {
+        return 1.0;  // 常数序列 → 无自相关
+    }
+    const Real b = std::cbrt((2.0 * g * g) / d_cb) * std::cbrt(n);
+    return std::min(b, b_max);
+}
+
 }  // namespace detail
+
+/// @brief Politis-White (2004) 最优 circular block bootstrap 块长 (整数, ≥ 1)
+///
+/// 与 arch 8.0 `optimal_block_length(..., "circular")` 同算法; 差异仅在
+/// 末步 ceil + 下限 1 (arch 对 i.i.d. 可返回 0.0 浮点值)。
+/// 强持久序列下该块长显著大于 ceil(√T), 使块置换零分布保留与原序列
+/// 相同量级的自相关 (Q11; 见 TransferEntropyConfig::block_rule)。
+///
+/// @throws std::invalid_argument n < 20 (自相关估计不可靠) / 非有限值
+inline Size politis_white_block_length(std::span<const Real> x) {
+    if (x.size() < 20) {
+        throw std::invalid_argument(
+            "PW block length: requires n >= 20 observations");
+    }
+    detail::require_finite(x);
+    const Real b = detail::politis_white_block_length_raw(x);
+    return std::max<Size>(1, static_cast<Size>(std::ceil(b)));
+}
 
 /// @brief KSG-CMI 迁移熵 TE(X→Y), nats
 /// @throws std::invalid_argument 长度不等 / 空序列 / 参数非法 /
@@ -249,10 +357,15 @@ inline TransferEntropyResult transfer_entropy(std::span<const Real> source,
     } else {
         Size block = config.block_length;
         if (block == 0) {
-            block = static_cast<Size>(
-                std::ceil(std::sqrt(static_cast<Real>(T))));
+            if (config.block_rule == BlockLengthRule::kPolitisWhite && T >= 20) {
+                block = politis_white_block_length(std::span<const Real>(xs));
+            } else {
+                block = static_cast<Size>(
+                    std::ceil(std::sqrt(static_cast<Real>(T))));
+            }
         }
         block = std::min(std::max<Size>(block, 1), T);
+        result.block_length_used = block;
 
         std::vector<Real> surrogate;
         Size exceed = 0;

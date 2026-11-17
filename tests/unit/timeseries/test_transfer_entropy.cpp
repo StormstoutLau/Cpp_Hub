@@ -10,6 +10,7 @@
 //   - te_bits = te / ln2
 //   - 默认 standardize=true 时 x*10 不变
 //   - 方向性: TE(x->y) > TE(y->x) (a>0)
+//   - 块长: 默认 ceil(√T); Q11 增 Politis-White 自动块长 (opt-in) 与 arch 对照
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -315,4 +316,131 @@ TEST(TransferEntropy, JidtAssemblyAnchor) {
     // 组装层语义不变式: 双边历史加深后估计仍有限、bits 换算仍成立
     EXPECT_TRUE(std::isfinite(deep.te));
     EXPECT_NEAR(deep.te_bits, deep.te / std::log(2.0), 1e-15);
+}
+
+// ---------------------------------------------------------------------------
+// Q11: Politis-White 自动块长 (spec §10.1 Q11; 对照实现 arch 8.0
+// `arch.bootstrap.optimal_block_length` circular 分支, 见 probe_block_length.py)
+//
+// 夹具为整数 LCG 序列 (整数运算, 无 libm 参与), Python/C++ 逐位一致:
+//   iid   : x_i = u_i, u_i ∈ {0,1,2,3}
+//   ar075 : x_i = 3*x_{i-1}/4 + u_i  (φ≈0.75)
+// arch 参考: iid raw 2.348429964449 → ceil 3; ar075 raw 17.036985190498 → ceil 18
+// ---------------------------------------------------------------------------
+namespace {
+
+std::vector<Real> pw_lcg_series(Size n, bool ar) {
+    std::uint64_t s = 12345;
+    std::vector<Real> x(n);
+    long long prev = 0;
+    for (Size i = 0; i < n; ++i) {
+        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+        const unsigned u = static_cast<unsigned>((s >> 33) % 4);
+        if (ar) {
+            prev = (3 * prev) / 4 + static_cast<long long>(u);
+            x[i] = static_cast<Real>(prev);
+        } else {
+            x[i] = static_cast<Real>(u);
+        }
+    }
+    return x;
+}
+
+// 强持久整数序列 x_i = 9*x_{i-1}/10 + u_i (φ≈0.9)
+std::vector<Real> pw_lcg_series_ar09(Size n) {
+    std::uint64_t s = 999;
+    std::vector<Real> x(n);
+    long long prev = 0;
+    for (Size i = 0; i < n; ++i) {
+        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+        const unsigned u = static_cast<unsigned>((s >> 33) % 4);
+        prev = (9 * prev) / 10 + static_cast<long long>(u);
+        x[i] = static_cast<Real>(prev);
+    }
+    return x;
+}
+
+}  // namespace
+
+TEST(TransferEntropy, PolitisWhiteMatchesArchReference) {
+    const std::vector<Real> iid = pw_lcg_series(500, false);
+    const std::vector<Real> ar = pw_lcg_series(500, true);
+    EXPECT_NEAR(inf::detail::politis_white_block_length_raw(std::span<const Real>(iid)),
+                2.348429964449, 1e-9);
+    EXPECT_NEAR(inf::detail::politis_white_block_length_raw(std::span<const Real>(ar)),
+                17.036985190498, 1e-9);
+    EXPECT_EQ(inf::politis_white_block_length(std::span<const Real>(iid)), 3u);
+    EXPECT_EQ(inf::politis_white_block_length(std::span<const Real>(ar)), 18u);
+}
+
+TEST(TransferEntropy, PolitisWhiteGrowsWithPersistence) {
+    const std::vector<Real> strong = pw_lcg_series_ar09(500);
+    // ceil(√500) = 23; φ=0.9 的 PW 实测 31 (> √T)
+    EXPECT_GT(inf::politis_white_block_length(std::span<const Real>(strong)), 23u);
+}
+
+TEST(TransferEntropy, BlockLengthUsedReported) {
+    const VarSample v = generate_var(500, 0.5, 0.3, 210);
+    const auto run = [&](inf::TransferEntropyConfig cfg) {
+        return inf::transfer_entropy(std::span<const Real>(v.x),
+                                     std::span<const Real>(v.y), cfg);
+    };
+    // 默认 ceil(√T) = ceil(√500) = 23
+    EXPECT_EQ(run(te_config(0, 5)).block_length_used, 23u);
+    // 显式块长优先
+    inf::TransferEntropyConfig explicit_cfg = te_config(0, 5);
+    explicit_cfg.block_length = 7;
+    const auto explicit_result = run(explicit_cfg);
+    EXPECT_EQ(explicit_result.block_length_used, 7u);
+    // PW 自动块长在 [1, T] 内, 且与 sqrt 口径可区分
+    inf::TransferEntropyConfig pw_cfg = te_config(0, 5);
+    pw_cfg.block_rule = inf::BlockLengthRule::kPolitisWhite;
+    const auto pw_result = run(pw_cfg);
+    EXPECT_GE(pw_result.block_length_used, 1u);
+    EXPECT_LE(pw_result.block_length_used, 500u);
+    // n_shuffles=0 时 te_effective = te (块长不影响点估计)
+    EXPECT_DOUBLE_EQ(pw_result.te, explicit_result.te);
+}
+
+TEST(TransferEntropy, PolitisWhiteRequiresMinSample) {
+    std::vector<Real> tiny(19, 1.0);
+    EXPECT_THROW(inf::politis_white_block_length(std::span<const Real>(tiny)),
+                 std::invalid_argument);
+    std::vector<Real> ok(20, 1.0);
+    EXPECT_EQ(inf::politis_white_block_length(std::span<const Real>(ok)), 1u);
+}
+
+// Q11 校准实证: 持久零假设 (两条独立 AR(1), φ=0.8) 下, ceil(√T)=23 的
+// 块置换在 12 seeds 中误拒绝 2 次 (16.7% vs 名义 5%), PW 块长 (实测均值
+// 20.8, 逐 seed 14-31) 误拒绝 1 次 (8.3%)。断言 PW 侧上限 25% 留
+// 跨平台 (uniform_int_distribution 实现差异) 与种子余量。
+TEST(TransferEntropy, PValueCalibrationPersistentNull) {
+    constexpr Size kSeeds = 12;
+    constexpr Size n = 500;
+    Size rejected_sqrt = 0;
+    Size rejected_pw = 0;
+    for (Size s = 0; s < kSeeds; ++s) {
+        std::mt19937_64 rng(9000 + s);
+        std::normal_distribution<Real> nd(0.0, 1.0);
+        std::vector<Real> x(n), y(n);
+        x[0] = nd(rng);
+        y[0] = nd(rng);
+        for (Size t = 1; t < n; ++t) {
+            x[t] = 0.8 * x[t - 1] + nd(rng);
+            y[t] = 0.8 * y[t - 1] + nd(rng);
+        }
+        inf::TransferEntropyConfig cfg = te_config(0, 40);
+        cfg.seed = 9000 + s;
+        const auto sqrt_res = inf::transfer_entropy(std::span<const Real>(x),
+                                                    std::span<const Real>(y), cfg);
+        cfg.block_rule = inf::BlockLengthRule::kPolitisWhite;
+        const auto pw_res = inf::transfer_entropy(std::span<const Real>(x),
+                                                  std::span<const Real>(y), cfg);
+        if (sqrt_res.p_value <= 0.05) ++rejected_sqrt;
+        if (pw_res.p_value <= 0.05) ++rejected_pw;
+    }
+    EXPECT_LE(rejected_pw, 3u)
+        << "PW rejection = " << rejected_pw << "/" << kSeeds;
+    EXPECT_LE(rejected_pw, rejected_sqrt)
+        << "PW " << rejected_pw << " vs sqrt " << rejected_sqrt;
 }

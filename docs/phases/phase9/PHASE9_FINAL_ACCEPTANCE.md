@@ -160,7 +160,8 @@
 | # | 项 | 状态 | 处置 |
 |---|----|------|------|
 | 1 | H2 JIDT TE 运行时对照 (风险 ⑭ 关闭路径) | ✅ **已关闭 (2026-11-16, tag 后 verify 批)** | probe_jidt_te.py: delay=1 结构区 12 组 max 6.53e-4 nat; JIDT 连续 TE = nats (订正 A47); JidtAssemblyAnchor 锚固化; 详见 spec §10.1 H2 + devlog |
-| 2 | H1 (ks hpi/hscv) / H4 (Kirkley reduced TE) / H5 (KSG Alg2) / Q11 (Politis-White 块长) | OPEN, P2 | spec §10.1 各自处置路径; Q11 文档警告已内嵌 |
+| 2 | H4 (Kirkley reduced TE) / Q11 (Politis-White 块长) | ✅ **已关闭 (2026-11-17, P2 批)** | Q11: PW 自动块长落地 (opt-in) + arch 逐位对照 + 持久零假设误拒绝 16.7%→8.3%; H4: 离散化实证证伪 ±10% 假设 (reduced TE 正偏→强负偏, T=2e4 仍 −12.6%), 不作替代采纳; 详见 spec §10.1 |
+| 2b | H1 (ks hpi/hscv) / H5 (KSG Alg2) | OPEN, P2 | H1 依赖 P2-2 SJ/ISJ 实现; H5 维持冻结 (Alg1 已双重锚定) |
 | 3 | H3 (sklearn 'scott' 裸因子) / Q12 (normal_reference C 出处) | ✅ 已关闭 | H3 不影响实现 (文档记录); Q12 gen 阶段冻结 C=1.059223840025653 |
 | 4 | P2-1..P2-8 (边界修正 / SJ / 多元 / k-d tree / 权重 / Alg2 / 多核 / 滑窗) | 登记 | spec §10.2 对应 D9 决策 |
 | 5 | P1 工程项: RISK-033 `URL_HASH` / RISK-034 json_min 上限 / EXTERNAL_REVIEW 表回填 | ✅ **已关闭 (2026-11-16, P1 清零批)** | URL_HASH SHA256 钉死 + CI 双重守卫; json_min 入口 8 MiB + 节点预算 1e6 (既有实现复核, test_json_min 19/19 + test_c_api_tools 11/11); 审计主表 14/14 回填 (RISK-034 安全口径复核保留为独立安全评审动作) |

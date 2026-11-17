@@ -718,7 +718,7 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 | KDE | `timeseries/density/kde.hpp` | `KernelDensity1D(sample, cfg)` → `pdf(x)` / `log_pdf(x)` / `pdf(grid)` / `bandwidth()`; `bandwidth_sensitivity()` | 单点 O(n) |
 | kNN 密度 | `timeseries/density/knn_density.hpp` | `KnnDensity1D(sample, cfg)` → `pdf(x)` / `pdf(grid)`（Loftsgaarden-Quesenberry `k/(n·2r_k)`） | 单点 O(log n)（排序后二分） |
 | KSG 互信息 | `timeseries/information/ksg.hpp` | `ksg_mutual_info(x,y,cfg)` / `ksg_conditional_mutual_info(x,y,z,cfg)` → nats | O(N²)（暴力，D9-3） |
-| 迁移熵 | `timeseries/information/transfer_entropy.hpp` | `transfer_entropy(source, target, cfg)` → `TransferEntropyResult` | O(N²·(k+l)) 每次评估 |
+| 迁移熵 | `timeseries/information/transfer_entropy.hpp` | `transfer_entropy(source, target, cfg)` → `TransferEntropyResult`; `politis_white_block_length(x)` | O(N²·(k+l)) 每次评估 |
 
 **语义要点（易错处）**
 
@@ -728,7 +728,8 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 - **TE 定义**：`TE(X→Y) = CMI(Y_t ; X_past | Y_past)`，嵌入 `[X_past(k), Y_t, Y_past(l)]`，`n_effective = T − max(k,l)·delay`。输出 nats（`te_bits` 为换算值）。
   - `p_value` = 块置换零分布（circular block shuffle 只打乱 source，`p=(1+#{null≥te})/(1+n_block_boot)`），与 `n_shuffles` **独立抽样**；
   - `te_effective` = `te − mean(置换 te)`，仅诊断量，**不作推断依据**（零假设下符号随种子波动）；
-  - `block_length=0` → `ceil(sqrt(T))`；**强持久序列建议显式给块长**（Politis-White 自动块长为 P2/Q11）。
+  - 块长优先级：`block_length>0` 用显式值 → 否则按 `block_rule`：`kSqrt`（默认，`ceil(√T)`，保持 v1.9 p 值锚）或 `kPolitisWhite`（Politis-White 2004 自动块长，与 arch 8.0 `optimal_block_length(..., "circular")` 同算法，n<20 抛 `std::invalid_argument`）。**强持久序列（AR 系数高）推荐 `kPolitisWhite`**：φ=0.8 零假设误拒绝率由 16.7%（√T）降至 8.3%；
+  - `block_length_used` 回报 p 值实际块长（诊断用）；`politis_white_block_length()` 可单独调用预估块长。
 - **不提供 "causal" 字段**：TE 是条件 MI 的估计，不是因果发现工具（James-Barnett-Crutchfield 2016）。选项级 `delay>1` 与 JIDT 结构不同构（JIDT 目标历史锚定 t−1），对照仅限 delay=1 结构区（H2 已闭环，max 偏差 6.5e-4 nat）。
 
 **数值锚（v1.9 验收冻结）**
@@ -739,6 +740,9 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 | KSG MI vs sklearn | 位精确（probe K0） |
 | TE vs Gaussian VAR 解析 GC/2 | 5-seed 均值 +25% 偏差内（KSG 有限样本偏置，容差 ±30%） |
 | TE vs JIDT 1.6.1（delay=1，12 组） | max 6.5e-4 nat |
+| Politis-White 块长 vs arch 8.0（circular） | 逐位一致（整数 LCG 序列 raw 2.348429964449 / 17.036985190498） |
+
+**未采纳方法（H4 实证证伪）**：Kirkley (2025) reduced TE 基于离散化符号序列的组合熵，在离散 VAR 上把 T=200 的 +289% 正偏差转为 −119% 负偏差（T=2×10⁴ 仍 −12.6%），未达 ±10% 目标；其"消除偏差"是离散 plug-in 现象，不能迁移到连续 KSG-CMI。结论与数据见 [PHASE9_SPEC §10.1 H4](phases/phase9/PHASE9_SPEC.md)。
 
 ---
 

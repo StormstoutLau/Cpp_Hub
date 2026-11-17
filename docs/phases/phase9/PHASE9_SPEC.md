@@ -476,9 +476,9 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 | H1 | R `ks` 的 `hpi/hscv` 与 SJ 1991 是否逐位一致 | P2; 安装 `ks` 后对照 |
 | H2 | JIDT TE 运行时 `k/l/delay` 与单位行为 | ✅ **CLOSED (2026-11-16, verify)**: [probe_jidt_te.py](../../../tests/fixtures/timeseries/probe_jidt_te.py) 运行时对照 — JIDT 1.6.1 Kraskov (NOISE=0, Theiler=0); **delay=1 结构区 12 组 max\|cpp−JIDT\| = 6.53e-4 nat** (组装层同构); 单位: JIDT 连续 TE 输出 **nats** (订正 A47 "bits 默认" — bits 属离散计算器); delay>1 与 JIDT 结构不同构 (JIDT 目标历史锚定 t−1, 本库锚定 t−delay) 已记录; `TransferEntropy.JidtAssemblyAnchor` 黄金值锚固化 (容差 0.002 nat) |
 | H3 | sklearn `'scott'` 裸因子是否为设计意图 | 不影响本实现; 文档记录 |
-| H4 | Kirkley reduced TE 是否能把 +25% 偏差压到 ±10% | P2; 实现 Eq. 12 后重跑 |
+| H4 | Kirkley reduced TE 是否能把 +25% 偏差压到 ±10% | ❌ **CLOSED / FALSIFIED (2026-11-17, P2 批)**: reduced TE 定义在**有限基数符号序列**上 (Eq. 8-13 组合计数), 与连续 KSG-CMI 的 +25% 偏置不同源, 不能直接替代。离散化实证 ([probe_reduced_te.py](../../../tests/fixtures/timeseries/probe_reduced_te.py), VAR(0.5,0.3) 分位分箱 C=4, 参照 T=2e5): plug-in 偏差 T=200 **+289%** / T=2000 +35%, reduced TE 同点 **−119% / −45%** (T=2e4 仍 −12.6%) — 它消除正偏差但引入强负偏差 (保守), 并未达到 ±10% 精度; 其价值在 MDL 显著性语义 (独立 AR(1) 零假设下 reduced TE<0 40/40)。**结论: 不作为 KSG TE 的替代估计器采纳**; 连续口径的 +25% 偏置维持为已知有限样本效应 (容差 ±30% 锚不变) |
 | H5 | KSG Algorithm 2 的投影半径/计数口径 | P2; 仅 Alg1 进 v1.9 |
-| Q11 | 块长 ceil(√T) 在强持久序列下的 p 值校准性 (Politis-White 自动块长为文献标准) | P2; v1.9 文档警告块长为显式参数 (审计 C3) |
+| Q11 | 块长 ceil(√T) 在强持久序列下的 p 值校准性 (Politis-White 自动块长为文献标准) | ✅ **CLOSED (2026-11-17, P2 批)**: 实现 `politis_white_block_length()` (`BlockLengthRule::kPolitisWhite`, opt-in; 默认仍 `kSqrt` 保持 v1.9 p 值锚) — 与 arch 8.0 `optimal_block_length` circular 分支逐位一致 (整数夹具 raw 2.348429964449/17.036985190498, 见 [probe_block_length.py](../../../tests/fixtures/timeseries/probe_block_length.py)); 持久零假设 (独立 AR(1) φ=0.8, n=500) 误拒绝率 **16.7% → 8.3%** (12 seeds, 名义 5%), φ=0.9 序列 PW 块长 31 > √T=23 |
 | Q12 | normal_reference C 的精确值 (statsmodels 实测 ≈1.05922) 与 Hansen 2009 原文常数是否逐位一致 | 实施期 gen 阶段冻结并记录来源 |
 
 ### 10.2 P2 延后项 (scope 决策的镜像, 非"问题")
