@@ -92,7 +92,7 @@ tests/fixtures/timeseries/
 | 编号 | 决策 | 理由 |
 |------|------|------|
 | D9-1 | KDE **仅 1D Gaussian 核**; 其他核 (Epanechnikov/tophat 等) P2 | v1.9 目标是"基准锚 + 可视化", 1D Gaussian 足以; 多核是低收益扩展 |
-| D9-2 | 带宽用显式类型: `AbsoluteH` / `DimensionlessFactor` / `Rule`; 规则仅 Scott/Silverman/normal_reference; **SJ/ISJ plug-in P2** | 调研 A1-A25 证明同名不同物; SJ 实现成本高, 先用规则 + 敏感性网格 |
+| D9-2 | 带宽用显式类型: `AbsoluteH` / `DimensionlessFactor` / `Rule`; v1.9 仅 Scott/Silverman/normal_reference, **SJ/ISJ P2** | 调研 A1-A25 证明同名不同物; SJ 实现成本高, 先用规则 + 敏感性网格。**P2-2 已落地 (2026-11-17)**: `kSj`/`kIsj` 追加为枚举值, v1.9 默认路径不变; 见 §3.1 |
 | D9-3 | kNN 搜索 **暴力 Chebyshev O(N²)**; k-d tree P2 (风险 ③) | 先正确后性能; 文档显式声明复杂度。**P2-4 已落地 (2026-11-17)**: `density/kdtree.hpp` + KSG/TE 接入, 典型 O(N log N) 且结果与暴力逐位一致; 见 §10.2 |
 | D9-4 | KSG **仅 Algorithm 1** (与 sklearn 一致); Algorithm 2 P2 (H5) | probe 三变体未复现解析值, 语义未冻结 |
 | D9-5 | TE = KSG-CMI + 嵌入 (k,l,delay); 单位 **nats 规范**, 提供 bits 视图; effective TE + 块置换 surrogate | 调研 §4.1/§4.5; nats 与 Barnett TE=½GC 对齐 |
@@ -113,7 +113,7 @@ tests/fixtures/timeseries/
 ```cpp
 namespace cpphub::v1::timeseries::density {
 
-enum class BandwidthRule { kUser, kScott, kSilverman, kNormalReference };
+enum class BandwidthRule { kUser, kScott, kSilverman, kNormalReference, kSj, kIsj };
 
 struct Bandwidth {
     BandwidthRule rule = BandwidthRule::kScott;
@@ -132,11 +132,15 @@ Real resolve_bandwidth(std::span<const Real> sample, const Bandwidth& bw);
 - `kScott`: `1.059 * A * n^(-1/5)`
 - `kSilverman`: `0.9 * A * n^(-1/5)`
 - `kNormalReference`: `C * A * n^(-1/5)`, Gaussian 核 `C` **以 `gen_phase9_baselines.py` 从 statsmodels 实测冻结的精确值为准 (≈1.05922, Hansen 2009; 审计 A2: 并非 1.059 — 若硬编码 1.059 将与 statsmodels 产生 0.02% 系统偏差且与 kScott 重合)**; `kScott` 恒取 1.059 (statsmodels 同款硬编码)。两枚举数值仅差 0.02%, 保留独立枚举以便未来换核。
+- `kSj` (**P2-2**): Sheather-Jones (1991) solve-the-equation plug-in, 逐步镜像 R `bw.SJ(method="ste")`: nb=1000 分箱 pair counts → `φ4(a)/φ6(b)` → `alph2=1.357·(φ4(a)/TD)^(1/7)` → 解 `h=(c1/φ4(alph2·h^(5/7)))^(1/5)`; 与 R 差异仅求根精度 (R 默认 `tol=0.1·lower`, 本实现求到机器精度)
+- `kIsj` (**P2-2**): Botev-Grotowski-Kroese (2010) improved SJ (diffusion), 镜像 KDEpy `improved_sheather_jones`: 2^10 网格 + 线性分箱 + DCT-II + 固定点迭代; `N_unique` clamp [50,1050]; 返回 `√t*·range`
 - `A = min(std(sample, ddof=1), IQR/1.349)`, `IQR = q75 - q25` (线性插值分位数)
 - `kUser + is_factor=true`: `h = value * std(sample, ddof=1)` (scipy 语义; 显式)
 - `kUser + is_factor=false`: `h = value` (statsmodels/R 语义)
 
 **禁止**: 不接受裸字符串; 不提供 sklearn 的"裸 n^(-1/(d+4)) 当 h"语义 (调研 A1-A3)。
+
+**P2-2 证据** (2026-11-17): [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 独立参考实现 (SJ=R bw.SJ ste 翻译; ISJ=KDEpy 翻译, 含 KDEpy `_fixed_point` doctest 自检) → 确定性整数夹具锚: grid150 SJ 0.950442595810742 / ISJ 0.549966080404110, lcg200 SJ 0.640167818657877 / ISJ 0.319826651877444, ar200 SJ 0.081279027344518 / ISJ 0.005215310828978; C++ 分别对齐 1e-10 (SJ) / 1e-8 (ISJ)。
 
 ### 3.2 KDE 类
 
@@ -473,7 +477,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 
 | ID | 问题 | 处置 |
 |----|------|------|
-| H1 | R `ks` 的 `hpi/hscv` 与 SJ 1991 是否逐位一致 | P2; 安装 `ks` 后对照 |
+| H1 | R `ks` 的 `hpi/hscv` 与 SJ 1991 是否逐位一致 | ❌ **CLOSED / FALSIFIED (2026-11-17, P2 批)**: 读 ks 1.15.3 源码 (`R/selector.R`) — **hpi 不是 SJ**: 1-d `hpi` (deriv.order=0) 直接委托 `KernSmooth::dpik` (selector.R:490-496 "1-d selector is taken from KernSmooth's dpik"), 即 Wand-Jones (1994) 直接 plug-in `scalest·del0·(1/(ψ4hat·n))^(1/5)` (KernSmooth all.R:396-482, ψ4 在固定 pilot alpha 上估计); SJ 1991 是 solve-the-equation (pilot g(h)=alph2·h^(5/7) 随 h 变) — 两者虽同估 ψ4=R(f'') 但算法不同。**hscv 也不是 SJ**: 它是 SCV (smoothed cross-validation, selector.R:1321-1372 `optimise(scv.1d.temp, ...)`), 属交叉验证族。故"hpi/hscv 与 SJ 1991 逐位一致"不成立 (选择器族不同, 无数值可对齐); 本库 `kSj` 以 R `bw.SJ(ste)` 为锚 (见 §3.1), 不与 ks 选择器混同 |
 | H2 | JIDT TE 运行时 `k/l/delay` 与单位行为 | ✅ **CLOSED (2026-11-16, verify)**: [probe_jidt_te.py](../../../tests/fixtures/timeseries/probe_jidt_te.py) 运行时对照 — JIDT 1.6.1 Kraskov (NOISE=0, Theiler=0); **delay=1 结构区 12 组 max\|cpp−JIDT\| = 6.53e-4 nat** (组装层同构); 单位: JIDT 连续 TE 输出 **nats** (订正 A47 "bits 默认" — bits 属离散计算器); delay>1 与 JIDT 结构不同构 (JIDT 目标历史锚定 t−1, 本库锚定 t−delay) 已记录; `TransferEntropy.JidtAssemblyAnchor` 黄金值锚固化 (容差 0.002 nat) |
 | H3 | sklearn `'scott'` 裸因子是否为设计意图 | 不影响本实现; 文档记录 |
 | H4 | Kirkley reduced TE 是否能把 +25% 偏差压到 ±10% | ❌ **CLOSED / FALSIFIED (2026-11-17, P2 批)**: reduced TE 定义在**有限基数符号序列**上 (Eq. 8-13 组合计数), 与连续 KSG-CMI 的 +25% 偏置不同源, 不能直接替代。离散化实证 ([probe_reduced_te.py](../../../tests/fixtures/timeseries/probe_reduced_te.py), VAR(0.5,0.3) 分位分箱 C=4, 参照 T=2e5): plug-in 偏差 T=200 **+289%** / T=2000 +35%, reduced TE 同点 **−119% / −45%** (T=2e4 仍 −12.6%) — 它消除正偏差但引入强负偏差 (保守), 并未达到 ±10% 精度; 其价值在 MDL 显著性语义 (独立 AR(1) 零假设下 reduced TE<0 40/40)。**结论: 不作为 KSG TE 的替代估计器采纳**; 连续口径的 +25% 偏置维持为已知有限样本效应 (容差 ±30% 锚不变) |
@@ -488,7 +492,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 | ID | 延后项 | 对应决策 |
 |----|--------|---------|
 | P2-1 | KDE 正支撑边界修正 (反射/变换) | D9-8 / 风险 ⑬ |
-| P2-2 | SJ/ISJ plug-in 带宽选择器 | D9-2 |
+| P2-2 | SJ/ISJ plug-in 带宽选择器 | ✅ **已落地 (2026-11-17, P2 第 3 批)**: `BandwidthRule::kSj` (Sheather-Jones 1991 ste, R `bw.SJ` 同算法) + `kIsj` (Botev 2010 diffusion, KDEpy 同算法); 证据 [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 三组确定性夹具锚, C++ 对齐 1e-10/1e-8; test_kde 11→17 例。见 §3.1 公式与 H1 关闭说明 |
 | P2-3 | 多变量 KDE / 多变量条件 TE | D9-7 |
 | P2-4 | k-d tree / BallTree | ✅ **已落地 (2026-11-17, P2 第 2 批)**: 新增 [`density/kdtree.hpp`](../../../include/cpphub/timeseries/density/kdtree.hpp) — 固定维 Chebyshev k-d tree (列子集, 非拥有视图), 提供含自身的第 k 距离与半径精确计数; KSG MI/CMI (联合 kNN + 边际计数) 与 TE `cmi_embedded` (联合 + 3 边际) 全部接入, 典型 O(N log N) 每次评估。**等价性**: 独立暴力 oracle (test_kdtree 1-5 维 + 列子集 + 重复点; test_ksg MI/CMI 交叉验证) 逐位一致, sklearn 黄金值 1e-12 与 JIDT 锚零漂移。**实测** (Release MSVC): KSG N=5000 37→7 ms; TE N=2000 3871→1606 ms; TE 套件 53.2→9.3 s。1D kNN 密度维持有序数组二分 (已最优, 不用树) |
 | P2-5 | 权重 KDE / neff 语义 | D9-8 |

@@ -2,10 +2,12 @@
 // test_kde.cpp - Phase 9 M1: 1D Gaussian KDE + 带宽语义 (TDD 前置)
 //
 // 状态: M1 已实现 (include/cpphub/timeseries/density/{bandwidth,kde}.hpp),
-//       已接入 tests/CMakeLists.txt, 10/10 PASS.
+//       已接入 tests/CMakeLists.txt; M1 11 例 + P2-2 SJ/ISJ 6 例 = 17.
 //
 // 基准: probe_sklearn_kde.py (8/8 PASS) + scipy 黄金值 (n=5 手算样本)
+//       + probe_sj_isj.py (P2-2: SJ=R bw.SJ ste / ISJ=KDEpy 翻译, 三组夹具)
 //   - 带宽公式: Scott 1.059 / Silverman 0.9 / normal_reference C≈1.05922
+//   - 数据驱动: kSj / kIsj (锚 1e-10 / 1e-8; SJ 严格尺度同变)
 //   - 同核同 h: scipy gaussian_kde pdf 1e-14
 //   - 语义: AbsoluteH vs DimensionlessFactor 显式区分
 // =============================================================================
@@ -14,6 +16,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <random>
 #include <span>
@@ -44,6 +47,46 @@ const std::vector<Real> kPdf = {
 const std::vector<Real> kLogPdf = {
     -1.2737236057242571, -0.9767771598521500, -0.9254670432669307,
     -0.9767771598521500, -1.2737236057242571};
+
+// ---- P2-2 SJ/ISJ 锚 (probe_sj_isj.py 参考实现, 确定性夹具) ----
+// grid150: x_i = ((i*7919 + 12345) % 1000)/100
+// lcg200 : x_i = ((s_i >> 11) % 1000003)/100000 (uint64 LCG)
+// ar200  : x_i = floor(3*x_{i-1}/4) + u_i, u_i=(s_i>>33)%4
+constexpr Real kSjGrid150 = 0.950442595810742;
+constexpr Real kIsjGrid150 = 0.549966080404110;
+constexpr Real kSjLcg200 = 0.640167818657877;
+constexpr Real kIsjLcg200 = 0.319826651877444;
+constexpr Real kSjAr200 = 0.081279027344518;
+constexpr Real kIsjAr200 = 0.005215310828978;
+
+std::vector<Real> grid150() {
+    std::vector<Real> x(150);
+    for (Size i = 0; i < x.size(); ++i) {
+        x[i] = static_cast<Real>((i * 7919 + 12345) % 1000) / 100.0;
+    }
+    return x;
+}
+
+std::vector<Real> lcg200() {
+    std::vector<Real> x(200);
+    std::uint64_t s = 12345;
+    for (Size i = 0; i < x.size(); ++i) {
+        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+        x[i] = static_cast<Real>((s >> 11) % 1000003ULL) / 100000.0;
+    }
+    return x;
+}
+
+std::vector<Real> ar200() {
+    std::vector<Real> x(200);
+    std::uint64_t s = 12345;
+    for (Size i = 0; i < x.size(); ++i) {
+        s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+        const Real u = static_cast<Real>((s >> 33) % 4ULL);
+        x[i] = (i == 0) ? u : std::floor(3.0 * x[i - 1] / 4.0) + u;
+    }
+    return x;
+}
 
 de::Bandwidth rule_bandwidth(de::BandwidthRule rule) {
     de::Bandwidth bw;
@@ -89,6 +132,87 @@ TEST(KdeBandwidth, NormalReferenceMatchesFrozenConstant) {
     // C 由 probe_sklearn_kde.py P4 从 statsmodels 实测反解冻结 (≈1.05922, 非 1.059)
     EXPECT_NEAR(de::resolve_bandwidth(kSample, rule_bandwidth(de::BandwidthRule::kNormalReference)),
                 kNormalRef, 1e-15);
+}
+
+// P2-2: SJ (Sheather-Jones 1991, R bw.SJ ste 同算法) / ISJ (Botev 2010, KDEpy 同算法)
+TEST(KdeBandwidth, SjMatchesReference) {
+    const auto g = grid150();
+    const auto l = lcg200();
+    const auto a = ar200();
+    EXPECT_NEAR(de::resolve_bandwidth(std::span<const Real>(g),
+                                      rule_bandwidth(de::BandwidthRule::kSj)),
+                kSjGrid150, 1e-10);
+    EXPECT_NEAR(de::resolve_bandwidth(std::span<const Real>(l),
+                                      rule_bandwidth(de::BandwidthRule::kSj)),
+                kSjLcg200, 1e-10);
+    EXPECT_NEAR(de::resolve_bandwidth(std::span<const Real>(a),
+                                      rule_bandwidth(de::BandwidthRule::kSj)),
+                kSjAr200, 1e-10);
+}
+
+TEST(KdeBandwidth, IsjMatchesReference) {
+    const auto g = grid150();
+    const auto l = lcg200();
+    const auto a = ar200();
+    EXPECT_NEAR(de::resolve_bandwidth(std::span<const Real>(g),
+                                      rule_bandwidth(de::BandwidthRule::kIsj)),
+                kIsjGrid150, 1e-8);
+    EXPECT_NEAR(de::resolve_bandwidth(std::span<const Real>(l),
+                                      rule_bandwidth(de::BandwidthRule::kIsj)),
+                kIsjLcg200, 1e-8);
+    EXPECT_NEAR(de::resolve_bandwidth(std::span<const Real>(a),
+                                      rule_bandwidth(de::BandwidthRule::kIsj)),
+                kIsjAr200, 1e-8);
+}
+
+TEST(KdeBandwidth, SjIsjDifferFromRuleOfThumb) {
+    const auto g = grid150();
+    const Real sj = de::resolve_bandwidth(std::span<const Real>(g),
+                                          rule_bandwidth(de::BandwidthRule::kSj));
+    const Real isj = de::resolve_bandwidth(std::span<const Real>(g),
+                                           rule_bandwidth(de::BandwidthRule::kIsj));
+    const Real nr = de::resolve_bandwidth(std::span<const Real>(g),
+                                          rule_bandwidth(de::BandwidthRule::kNormalReference));
+    EXPECT_GT(std::fabs(sj - nr), 0.05 * nr) << "sj=" << sj << " nr=" << nr;
+    EXPECT_GT(std::fabs(isj - nr), 0.05 * nr) << "isj=" << isj << " nr=" << nr;
+}
+
+TEST(KdeBandwidth, SjScaleEquivariant) {
+    const auto g = grid150();
+    std::vector<Real> scaled = g;
+    for (Real& v : scaled) {
+        v *= 10.0;
+    }
+    const Real base = de::resolve_bandwidth(std::span<const Real>(g),
+                                            rule_bandwidth(de::BandwidthRule::kSj));
+    const Real factor = de::resolve_bandwidth(std::span<const Real>(scaled),
+                                              rule_bandwidth(de::BandwidthRule::kSj));
+    EXPECT_NEAR(factor, 10.0 * base, 1e-9 * base)
+        << "SJ 应随数据尺度线性缩放 (base=" << base << ")";
+}
+
+TEST(KdeValidation, SjIsjRejectConstantSample) {
+    std::vector<Real> constant(50, 1.5);
+    EXPECT_THROW(de::resolve_bandwidth(std::span<const Real>(constant),
+                                       rule_bandwidth(de::BandwidthRule::kSj)),
+                 std::invalid_argument);
+    EXPECT_THROW(de::resolve_bandwidth(std::span<const Real>(constant),
+                                       rule_bandwidth(de::BandwidthRule::kIsj)),
+                 std::invalid_argument);
+}
+
+TEST(KdePdf, SjIsjConstructKde) {
+    const auto g = grid150();
+    for (de::BandwidthRule rule : {de::BandwidthRule::kSj, de::BandwidthRule::kIsj}) {
+        de::KernelDensity1D kde(std::span<const Real>(g), config_with(rule_bandwidth(rule)));
+        EXPECT_NEAR(kde.bandwidth(),
+                    de::resolve_bandwidth(std::span<const Real>(g), rule_bandwidth(rule)),
+                    1e-12);
+        for (Real x : {-1.0, 0.0, 3.0, 6.0, 9.0}) {
+            EXPECT_TRUE(std::isfinite(kde.pdf(x)));
+            EXPECT_TRUE(std::isfinite(kde.log_pdf(x)));
+        }
+    }
 }
 
 TEST(KdeBandwidth, AbsoluteAndFactorSemantics) {
