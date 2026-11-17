@@ -140,7 +140,7 @@ Real resolve_bandwidth(std::span<const Real> sample, const Bandwidth& bw);
 
 **禁止**: 不接受裸字符串; 不提供 sklearn 的"裸 n^(-1/(d+4)) 当 h"语义 (调研 A1-A3)。
 
-**P2-2 证据** (2026-11-17): [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 独立参考实现 (SJ=R bw.SJ ste 翻译; ISJ=KDEpy 翻译, 含 KDEpy `_fixed_point` doctest 自检) → 确定性整数夹具锚: grid150 SJ 0.950442595810742 / ISJ 0.549966080404110, lcg200 SJ 0.640167818657877 / ISJ 0.319826651877444, ar200 SJ 0.081279027344518 / ISJ 0.890073460494627; C++ 分别对齐 1e-10 (SJ) / 1e-8 (ISJ)。ISJ 另与 pip 隔离安装的 KDEpy 1.1.12 直接对照 (reldiff 4.6e-13 / 1.3e-10 / 1.7e-14); 注意 KDEpy `_root` 只用 clamped N 算容差, `_fixed_point` 用**原始唯一值数** (ar200 差异 0.005 vs 0.890), 本实现忠实镜像。
+**P2-2 证据** (2026-11-17): [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 独立参考实现 (SJ=R bw.SJ ste 翻译; ISJ=KDEpy 翻译, 含 KDEpy `_fixed_point` doctest 自检) → 确定性整数夹具锚: grid150 SJ 0.950442595810742 / ISJ 0.549966080404110, lcg200 SJ 0.640167818657877 / ISJ 0.319826651877444, ar200 SJ 0.081279027344518 / ISJ 0.890073460494627; C++ 分别对齐 1e-10 (SJ) / 1e-8 (ISJ)。ISJ 另与 pip 隔离安装的 KDEpy 1.1.12 直接对照 (reldiff 4.6e-13 / 1.3e-10 / 1.7e-14); 注意 KDEpy `_root` 只用 clamped N 算容差, `_fixed_point` 用**原始唯一值数** (ar200 差异 0.005 vs 0.890), 本实现忠实镜像。**R 4.6.1 运行时复核 (2026-11-17)**: 本机 `bw.SJ(x, method="ste", tol=1e-14)` 三组 = 0.9504425958107409 / 0.6401678186578749 / 0.0812790273445190, 与锚点相对差 ≤1.3e-14 (锚点打印精度极限); 默认 `tol` 结果 0.950561867012875 / 0.640204998193327 / 0.081673178631081 (相对偏差 1.3e-4 / 5.8e-5 / 4.8e-3), 证实与 R 的差异仅来自其默认较宽松求根容差。
 
 ### 3.2 KDE 类
 
@@ -363,7 +363,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 ### 6.2 跨库验证
 
 - Python 侧: `probe_sklearn_kde.py` (8/8) + `probe_ksg.py` (9 PASS / 1 SKIP) 已冻结语义。
-- R 侧: base R `bw.nrd0/bw.nrd` 已由 probe P7 验证; `ks` 包未安装, `hpi/hscv` 留 P2 (H1)。
+- R 侧: base R `bw.nrd0/bw.nrd` 已由 probe P7 验证; R 4.6.1 + ks 1.15.3 已安装 — 运行时实测 `ks::hpi` 与 `KernSmooth::dpik` **逐位相同**、`hscv` 为 SCV, 均非 SJ 1991 (H1 证伪关闭, 见 §10.1); SJ 锚由 `bw.SJ(ste, tol=1e-14)` 复核 (相对差 ≤1.3e-14)。
 - JIDT 未安装; TE 的 JIDT 对照留 verify 阶段 (H2)。
 
 ### 6.3 红绿判据
@@ -477,7 +477,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 
 | ID | 问题 | 处置 |
 |----|------|------|
-| H1 | R `ks` 的 `hpi/hscv` 与 SJ 1991 是否逐位一致 | ❌ **CLOSED / FALSIFIED (2026-11-17, P2 批)**: 读 ks 1.15.3 源码 (`R/selector.R`) — **hpi 不是 SJ**: 1-d `hpi` (deriv.order=0) 直接委托 `KernSmooth::dpik` (selector.R:490-496 "1-d selector is taken from KernSmooth's dpik"), 即 Wand-Jones (1994) 直接 plug-in `scalest·del0·(1/(ψ4hat·n))^(1/5)` (KernSmooth all.R:396-482, ψ4 在固定 pilot alpha 上估计); SJ 1991 是 solve-the-equation (pilot g(h)=alph2·h^(5/7) 随 h 变) — 两者虽同估 ψ4=R(f'') 但算法不同。**hscv 也不是 SJ**: 它是 SCV (smoothed cross-validation, selector.R:1321-1372 `optimise(scv.1d.temp, ...)`), 属交叉验证族。故"hpi/hscv 与 SJ 1991 逐位一致"不成立 (选择器族不同, 无数值可对齐); 本库 `kSj` 以 R `bw.SJ(ste)` 为锚 (见 §3.1), 不与 ks 选择器混同 |
+| H1 | R `ks` 的 `hpi/hscv` 与 SJ 1991 是否逐位一致 | ❌ **CLOSED / FALSIFIED (2026-11-17, P2 批)**: 读 ks 1.15.3 源码 (`R/selector.R`) — **hpi 不是 SJ**: 1-d `hpi` (deriv.order=0) 直接委托 `KernSmooth::dpik` (selector.R:490-496 "1-d selector is taken from KernSmooth's dpik"), 即 Wand-Jones (1994) 直接 plug-in `scalest·del0·(1/(ψ4hat·n))^(1/5)` (KernSmooth all.R:396-482, ψ4 在固定 pilot alpha 上估计); SJ 1991 是 solve-the-equation (pilot g(h)=alph2·h^(5/7) 随 h 变) — 两者虽同估 ψ4=R(f'') 但算法不同。**hscv 也不是 SJ**: 它是 SCV (smoothed cross-validation, selector.R:1321-1372 `optimise(scv.1d.temp, ...)`), 属交叉验证族。故"hpi/hscv 与 SJ 1991 逐位一致"不成立 (选择器族不同, 无数值可对齐); 本库 `kSj` 以 R `bw.SJ(ste)` 为锚 (见 §3.1), 不与 ks 选择器混同。**R 4.6.1 运行时复核 (2026-11-17)**: 三组夹具 `ks::hpi` 与 `KernSmooth::dpik` **逐位相同** (0.98818941596769072 / 0.72471284735481212 / 0.58751467851341987), 且均显著不同于 `bw.SJ(ste)` (0.950442595810741 / 0.640167818657875 / 0.081279027344519); `ks::hscv` = 1.0083540313332333 / 0.7242272951854658 / 0.60381864179185185 (SCV, 非 SJ) — 源码结论获运行时证实 |
 | H2 | JIDT TE 运行时 `k/l/delay` 与单位行为 | ✅ **CLOSED (2026-11-16, verify)**: [probe_jidt_te.py](../../../tests/fixtures/timeseries/probe_jidt_te.py) 运行时对照 — JIDT 1.6.1 Kraskov (NOISE=0, Theiler=0); **delay=1 结构区 12 组 max\|cpp−JIDT\| = 6.53e-4 nat** (组装层同构); 单位: JIDT 连续 TE 输出 **nats** (订正 A47 "bits 默认" — bits 属离散计算器); delay>1 与 JIDT 结构不同构 (JIDT 目标历史锚定 t−1, 本库锚定 t−delay) 已记录; `TransferEntropy.JidtAssemblyAnchor` 黄金值锚固化 (容差 0.002 nat) |
 | H3 | sklearn `'scott'` 裸因子是否为设计意图 | 不影响本实现; 文档记录 |
 | H4 | Kirkley reduced TE 是否能把 +25% 偏差压到 ±10% | ❌ **CLOSED / FALSIFIED (2026-11-17, P2 批)**: reduced TE 定义在**有限基数符号序列**上 (Eq. 8-13 组合计数), 与连续 KSG-CMI 的 +25% 偏置不同源, 不能直接替代。离散化实证 ([probe_reduced_te.py](../../../tests/fixtures/timeseries/probe_reduced_te.py), VAR(0.5,0.3) 分位分箱 C=4, 参照 T=2e5): plug-in 偏差 T=200 **+289%** / T=2000 +35%, reduced TE 同点 **−119% / −45%** (T=2e4 仍 −12.6%) — 它消除正偏差但引入强负偏差 (保守), 并未达到 ±10% 精度; 其价值在 MDL 显著性语义 (独立 AR(1) 零假设下 reduced TE<0 40/40)。**结论: 不作为 KSG TE 的替代估计器采纳**; 连续口径的 +25% 偏置维持为已知有限样本效应 (容差 ±30% 锚不变) |

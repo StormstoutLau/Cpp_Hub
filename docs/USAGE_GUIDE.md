@@ -724,7 +724,7 @@ dV/dt = 0.5v·d²V/dx² + (r-q-0.5v)·dV/dx + 0.5ξ²v·d²V/dv² + κ(θ-v)·dV
 **语义要点（易错处）**
 
 - **带宽同名不同物**：`kScott`=1.059·A·n^(-1/5)（statsmodels `bw_scott`/R `bw.nrd`）、`kSilverman`=0.9·A·n^(-1/5)（R `bw.nrd0`）、`kNormalReference` C=1.059223840025653（statsmodels 默认，probe 反解）。A = min(sd(ddof=1), IQR/1.349)。**不提供** sklearn `bandwidth='scott'` 的「裸因子当 h」语义（会让密度随数据单位变化）。
-- **SJ/ISJ（P2-2）**：`kSj` = Sheather-Jones (1991) solve-the-equation（R `bw.SJ(ste)` 同算法，随数据尺度严格同变）；`kIsj` = Botev et al. (2010) diffusion ISJ（KDEpy `improved_sheather_jones` 同算法，因网格边界取绝对 6 而**不严格**同变）。R `ks::hpi` 实为 KernSmooth `dpik`（Wand-Jones plug-in）、`hscv` 为 SCV，**均不是 SJ**（H1 已按源码证伪）。
+- **SJ/ISJ（P2-2）**：`kSj` = Sheather-Jones (1991) solve-the-equation（R `bw.SJ(ste)` 同算法，随数据尺度严格同变）；`kIsj` = Botev et al. (2010) diffusion ISJ（KDEpy `improved_sheather_jones` 同算法，因网格边界取绝对 6 而**不严格**同变）。R `ks::hpi` 实为 KernSmooth `dpik`（Wand-Jones plug-in）、`hscv` 为 SCV，**均不是 SJ**（H1 已按源码证伪；R 4.6.1 实测 `hpi` 与 `dpik` 三组夹具逐位相同，与 `bw.SJ(ste)` 显著不同）。
 - **KDE 范围**：仅 1D Gaussian 核 + 正支撑数据；`KdeConfig::reflection=true` 抛 `std::logic_error`（P2 预留）。`log_pdf` 用 logsumexp max-shift，深尾不产 NaN。
 - **KSG 约定**：联合空间 Chebyshev + `nextafter(ε,0)` 边际计数（等价于严格小于 ε），与 sklearn `_compute_mi_cc` 逐位一致；返回 nats，**不截断负值**（与 sklearn `max(0,·)` 不同）。混合单位数据必须 `standardize=true`（默认开）。
 - **k-d tree 只改访问路径（P2-4）**：KSG/TE 的联合 kNN 与边际半径计数由 `KdTree` 加速，距离与计数语义不变 — 与独立暴力参考逐位一致（`test_kdtree` + `test_ksg` 交叉验证）。1D kNN 密度仍用有序数组二分（已最优，不经树）。
