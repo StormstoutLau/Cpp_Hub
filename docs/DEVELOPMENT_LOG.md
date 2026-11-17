@@ -3202,5 +3202,6 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **H4 (证伪, 不作替代采纳)**: 按 Kirkley 2025 "Transfer entropy for finite data" (arXiv:2506.16215) 实现 reduced TE 探针 ([probe_reduced_te.py](../tests/fixtures/timeseries/probe_reduced_te.py), Eq. 10 组合条件熵 `logΩ/N+H_M` + Eq. 12/13 差值, lgamma 稳定阶乘/组合数), 在离散化 VAR(φ=0.5,a=0.3, C=4 分位箱) 上对照 T=2×10⁵ 参考值: plugin 偏置 T=200 **+289.2%** / T=500 +128.7% / T=2000 +34.6% / T=2×10⁴ −1.5%; reduced TE 对应 **−119.3% / −86.2% / −44.5% / −12.6%** — 正偏差被换成更强负偏差, **±10% 目标未达成**; 独立 AR(1) 零假设下 reduced TE 40/40 为负 (MDL 语义下"无信息"而非"无偏")。结论: reduced TE 的偏差消除是离散 plug-in 现象, 不能迁移到连续 KSG-CMI; 本库不提供该估计器 (数据与结论登记于 [PHASE9_SPEC §10.1 H4](./phases/phase9/PHASE9_SPEC.md))。
   - **文档回填**: PHASE9_SPEC §10.1 H4 → ❌ CLOSED/FALSIFIED、Q11 → ✅ CLOSED (含锚与校准数值); [PHASE9_FINAL_ACCEPTANCE §9](./phases/phase9/PHASE9_FINAL_ACCEPTANCE.md) 遗留表行 2 关闭 (新增行 2b 登记 H1/H5 仍 OPEN, H1 依赖 P2-2); USAGE_GUIDE §3.11 补 `block_rule` 优先级/PW 推荐场景/`block_length_used` 诊断/H4 未采纳说明与 PW 数值锚。
   - **本地验证**: Release MSVC TE 套件 **18/18 绿 (56.4s)**; 默认 kSqrt 路径既有 13 例锚零漂移 (p 值与 te 完全不变)。
+  - **CI 收口**: run 44040068232 十 job 全绿 (MSVC/GCC 双平台 Build&Test + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job), P2 第 1 批闭环。剩余 P2: P2-4 k-d tree (第 2 批) / P2-2 SJ-ISJ + H1 (第 3 批) / 密度扩展项冻结。
 
 
