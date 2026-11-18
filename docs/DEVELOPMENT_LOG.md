@@ -3227,5 +3227,11 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **锚**: 权重 KDE vs statsmodels 0.14.4 五点 (C++ ≤1e-14); 反射正支撑夹具 (C++ ≤1e-14, 含加权反射); 质量恒等式梯形积分 1±1e-6。
   - **文档回填**: SPEC §3.2 (API/语义/证据) + §3.3 + D9-8 + §10.2 P2-1/P2-5; FINAL_ACCEPTANCE §9 行 2e + 行 4; USAGE_GUIDE §3.11 语义与锚表。
   - **CI 收口**: run 44113759506 十 job 全绿 (MSVC/GCC Build&Test + Debug compile guard + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job)。首次 Python (windows-2022, py3.11) 因 GitLab eigen 子模块拉取瞬时负载失败 (`fatal: remote error: GitLab is currently unable to handle this request due to load`), 与改动无关; `gh run rerun --failed` 后该 job 通过。P2 第 4 批闭环; 剩余 P2-3 (多变量 KDE/条件 TE) / P2-6 (KSG Alg2, H5) / P2-7 (多核 KDE) / P2-8 (滑窗 TE) 维持冻结。
+- **P2 第 5 批: P2-3 多变量 KDE + 条件 TE (2026-11-18, verify 期)**: 两项落地并冻结语义。
+  - **多变量 KDE**: 新 [kde_nd.hpp](../include/cpphub/timeseries/density/kde_nd.hpp) `KernelDensityND(points, n, dim, cfg)` — 全协方差 Gaussian KDE, 镜像 scipy `gaussian_kde`: `factor=n^(-1/(d+4))` (Scott) / `(n(d+2)/4)^(-1/(d+4))` (Silverman) / 用户因子, `H=factor²·S`, Cholesky 求值 (无 Eigen3), 奇异协方差抛 `invalid_argument`; 与 1D statsmodels 绝对 h 语义显式区分。
+  - **条件 TE**: [transfer_entropy.hpp](../include/cpphub/timeseries/information/transfer_entropy.hpp) 新增 `ConditionalTransferEntropyConfig` + `conditional_transfer_entropy(x,y,z,cfg)` = `CMI(Y_t; X_past | Y_past, Z_past)`; 嵌入 `[X_past(k), Y_t, Y_past(l), Z_past(m)]`, `n_eff=T−max(k,l,m)·delay`; 普通 TE 重构为 m=0 共享实现, JIDT/GC 锚零漂移。
+  - **证据**: 新 [probe_multivariate_kde.py](../tests/fixtures/timeseries/probe_multivariate_kde.py) W1-W3 全 PASS (scipy vs Cholesky ≤1e-14); 2D/3D 确定性 LCG 锚写入 test_kde_nd (pdf 1e-12 / log_pdf 1e-10)。条件 TE 用独立暴力 CMI oracle (列子集 + digamma 口径) 交叉验证 1e-12; 介导效应 Z 中介下条件 TE < 0.5×无条件; 独立条件 ≈ 无条件 (35%+0.03); 标准化缩放不变 1e-12。
+  - **测试**: 新 test_kde_nd 10 例 (Release/Debug 全绿); test_transfer_entropy 18→23 例 (条件 5 例), Release 23/23 + Debug 条件 5/5; test_integration_phase9 2/2 零漂移。
+  - **文档回填**: SPEC §1.1/§1.2/§3.4/§5.1/§5.3/D9-7/§10.2 P2-3; FINAL_ACCEPTANCE 行 2f + 行 4; USAGE_GUIDE KDE/TE 语义与锚表。
 
 

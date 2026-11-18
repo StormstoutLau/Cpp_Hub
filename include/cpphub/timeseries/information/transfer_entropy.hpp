@@ -5,6 +5,8 @@
 // 定义 (Schreiber 2000; Barnett 2009 Eq. 10):
 //   TE(X→Y) = CMI(Y_t ; X_{t−delay}, …, X_{t−k·delay} | Y_{t−delay}, …, Y_{t−l·delay})
 //           = I(Y_t ; X_past | Y_past)
+// 条件版 (P2-3):
+//   TE(X→Y | Z_hist) = CMI(Y_t ; X_past | Y_past, Z_past)   (Z_past m 阶)
 // 内部固定调用顺序 CMI(target_t, source_past, target_past) (spec §5.1),
 // 避免 source/target 写反; 输出 nats.
 //
@@ -16,11 +18,11 @@
 //   p_value       块置换零分布 (Dimpfl-Peter 2013, circular block shuffle
 //                 只打乱 source, 保两序列各自自相关), 与 n_shuffles 独立抽样
 //                 (审计 B3): p = (1 + #{null >= te}) / (1 + n_block_boot)
-//   n_effective   T − max(k,l)·delay
+//   n_effective   T − max(k,l[,m])·delay
 //
 // 不提供 "因果" 字段: TE 是条件 MI 的估计, 不是因果发现工具
 // (James-Barnett-Crutchfield 2016; Smirnov 2013).
-// 每次 TE 评估 O(N log N · (k+l)) 典型 (k-d tree, P2-4; 高维退化最坏 O(N²)),
+// 每次 TE 评估 O(N log N · (k+l+m)) 典型 (k-d tree, P2-4; 高维退化最坏 O(N²)),
 // N = n_effective; 每次 cmi 调用构建 4 棵 Chebyshev k-d tree.
 // =============================================================================
 
@@ -67,6 +69,11 @@ struct TransferEntropyConfig {
     std::uint64_t seed = 0;
 };
 
+/// 条件迁移熵配置 (P2-3): 在 Y 历史之外再条件化 Z 历史
+struct ConditionalTransferEntropyConfig : TransferEntropyConfig {
+    std::size_t condition_history = 1;  ///< 条件序列嵌入阶 m (>= 1)
+};
+
 /// 迁移熵结果
 struct TransferEntropyResult {
     Real te = 0.0;            ///< nats
@@ -79,7 +86,7 @@ struct TransferEntropyResult {
 
 namespace detail {
 
-/// 嵌入后的连续坐标块; 行布局 [X_past(k), Y_t, Y_past(l)] 使 CMI 的
+/// 嵌入后的连续坐标块; 行布局 [X_past(k), Y_t, Y_past(l), Z_past(m)] 使 CMI 的
 /// 四个空间 (联合 / x-z / y-z / z) 都对应连续坐标区间
 struct EmbeddedSeries {
     std::vector<Real> points;  ///< n × dim
@@ -91,12 +98,14 @@ struct EmbeddedSeries {
 
 inline EmbeddedSeries build_embedding(std::span<const Real> source,
                                       std::span<const Real> target, Size k, Size l,
-                                      Size delay, Size start, Size n_eff) {
+                                      Size delay, Size start, Size n_eff,
+                                      std::span<const Real> condition = {},
+                                      Size m = 0) {
     EmbeddedSeries e;
     e.n = n_eff;
     e.k = k;
     e.l = l;
-    e.dim = k + l + 1;
+    e.dim = k + l + 1 + m;
     e.points.resize(n_eff * e.dim);
     for (Size i = 0; i < n_eff; ++i) {
         const Size t = start + i;
@@ -107,6 +116,9 @@ inline EmbeddedSeries build_embedding(std::span<const Real> source,
         row[k] = target[t];
         for (Size j = 0; j < l; ++j) {
             row[k + 1 + j] = target[t - (j + 1) * delay];
+        }
+        for (Size j = 0; j < m; ++j) {
+            row[k + 1 + l + j] = condition[t - (j + 1) * delay];
         }
     }
     return e;
@@ -282,14 +294,19 @@ inline Size politis_white_block_length(std::span<const Real> x) {
     return std::max<Size>(1, static_cast<Size>(std::ceil(b)));
 }
 
-/// @brief KSG-CMI 迁移熵 TE(X→Y), nats
-/// @throws std::invalid_argument 长度不等 / 空序列 / 参数非法 /
-///         非有限值 / 有效样本不足 (T − max(k,l)·delay < ksg_neighbors+1)
-inline TransferEntropyResult transfer_entropy(std::span<const Real> source,
-                                              std::span<const Real> target,
-                                              const TransferEntropyConfig& config = {}) {
+namespace detail {
+
+/// 普通/条件 TE 共用实现; m = 0 时退化为 TE(X→Y)
+inline TransferEntropyResult te_impl(std::span<const Real> source,
+                                     std::span<const Real> target,
+                                     std::span<const Real> condition, Size m,
+                                     const TransferEntropyConfig& config) {
     if (source.size() != target.size()) {
         throw std::invalid_argument("TE: source and target must have equal length");
+    }
+    if (m > 0 && condition.size() != source.size()) {
+        throw std::invalid_argument(
+            "TE: condition must have equal length as source");
     }
     if (config.source_history < 1 || config.target_history < 1 || config.delay < 1 ||
         config.ksg_neighbors < 1) {
@@ -298,10 +315,14 @@ inline TransferEntropyResult transfer_entropy(std::span<const Real> source,
     }
     detail::require_finite(source);
     detail::require_finite(target);
+    if (m > 0) {
+        detail::require_finite(condition);
+    }
 
     const Size T = source.size();
     const Size start =
-        std::max(config.source_history, config.target_history) * config.delay;
+        std::max(std::max(config.source_history, config.target_history), m) *
+        config.delay;
     if (T <= start) {
         throw std::invalid_argument("TE: insufficient observations for embedding");
     }
@@ -312,15 +333,21 @@ inline TransferEntropyResult transfer_entropy(std::span<const Real> source,
 
     std::vector<Real> xs(source.begin(), source.end());
     std::vector<Real> ys(target.begin(), target.end());
+    std::vector<Real> zs(condition.begin(), condition.end());
     if (config.standardize) {
         detail::standardize_inplace(xs);
         detail::standardize_inplace(ys);
+        if (m > 0) {
+            detail::standardize_inplace(zs);
+        }
     }
+    const std::span<const Real> cond_span =
+        (m > 0) ? std::span<const Real>(zs) : std::span<const Real>();
 
     const auto build = [&](std::span<const Real> src) {
         return detail::build_embedding(src, std::span<const Real>(ys),
                                        config.source_history, config.target_history,
-                                       config.delay, start, n_eff);
+                                       config.delay, start, n_eff, cond_span, m);
     };
 
     TransferEntropyResult result;
@@ -376,6 +403,33 @@ inline TransferEntropyResult transfer_entropy(std::span<const Real> source,
     }
 
     return result;
+}
+
+}  // namespace detail
+
+/// @brief KSG-CMI 迁移熵 TE(X→Y), nats
+/// @throws std::invalid_argument 长度不等 / 空序列 / 参数非法 /
+///         非有限值 / 有效样本不足 (T − max(k,l)·delay < ksg_neighbors+1)
+inline TransferEntropyResult transfer_entropy(std::span<const Real> source,
+                                              std::span<const Real> target,
+                                              const TransferEntropyConfig& config = {}) {
+    return detail::te_impl(source, target, std::span<const Real>(), 0, config);
+}
+
+/// @brief 条件迁移熵 TE(X→Y | Z_hist), nats (P2-3)
+///
+/// 嵌入 [X_past(k), Y_t, Y_past(l), Z_past(m)], 估计
+/// CMI(Y_t; X_past | Y_past, Z_past); 置换零分布仍只打乱 source.
+/// @throws std::invalid_argument 长度不等 / condition_history < 1 / 其他同 TE
+inline TransferEntropyResult conditional_transfer_entropy(
+    std::span<const Real> source, std::span<const Real> target,
+    std::span<const Real> condition,
+    const ConditionalTransferEntropyConfig& config = {}) {
+    if (config.condition_history < 1) {
+        throw std::invalid_argument("TE: condition_history must be >= 1");
+    }
+    return detail::te_impl(source, target, condition, config.condition_history,
+                           config);
 }
 
 }  // namespace information

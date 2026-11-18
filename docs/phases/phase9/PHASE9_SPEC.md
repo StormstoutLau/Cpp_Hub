@@ -31,6 +31,7 @@
 include/cpphub/timeseries/density/
 ├── bandwidth.hpp          # 新增: 带宽类型 (AbsoluteH / DimensionlessFactor / Rule)
 ├── kde.hpp                # 新增: 1D Gaussian KDE + 选择器 + 敏感性网格
+├── kde_nd.hpp             # 新增 (P2-3): 多维 Gaussian KDE (全协方差, scipy 语义)
 └── knn_density.hpp        # 新增: 暴力 Chebyshev kNN 搜索 + Loftsgaarden-Quesenberry 密度
 
 include/cpphub/timeseries/information/
@@ -39,15 +40,19 @@ include/cpphub/timeseries/information/
 
 tests/unit/timeseries/
 ├── test_kde.cpp
+├── test_kde_nd.cpp        # P2-3 多维 KDE
 ├── test_knn_density.cpp
 ├── test_ksg.cpp
 ├── test_transfer_entropy.cpp
 └── test_integration_phase9.cpp
 
 tests/fixtures/timeseries/
-├── probe_sklearn_kde.py   # ✅ 已落地 (8/8 PASS)
-├── probe_ksg.py           # ✅ 已落地 (9 PASS / 1 SKIP)
-└── gen_phase9_baselines.py  # 新增: 生成 C++ 测试用黄金值 (.inc / JSON)
+├── probe_sklearn_kde.py       # ✅ 已落地 (8/8 PASS)
+├── probe_ksg.py               # ✅ 已落地 (9 PASS / 1 SKIP)
+├── probe_sj_isj.py            # ✅ P2-2 (SJ/ISJ 参考实现)
+├── probe_weighted_kde.py      # ✅ P2-5 (加权 KDE 语义)
+├── probe_multivariate_kde.py  # ✅ P2-3 (多维 KDE 语义)
+└── gen_phase9_baselines.py    # 新增: 生成 C++ 测试用黄金值 (.inc / JSON)
 ```
 
 **依赖**: 仅 `cpphub_core` (Real/Size/异常) + 标准库; **不依赖 Eigen3** (与 garch/unit_root 同层, header-only)。不新增 CMake target, 挂入既有 `cpphub_timeseries` INTERFACE 库。
@@ -57,9 +62,10 @@ tests/fixtures/timeseries/
 | 套件 | 覆盖 |
 |------|------|
 | `test_kde.cpp` | 带宽规则/类型、pdf/log_pdf、与 scipy 黄金值、敏感性网格、边界输入 |
+| `test_kde_nd.cpp` | 多维 KDE 全协方差 scott/silverman/user factor、带宽矩阵、奇异协方差/维度校验 (P2-3) |
 | `test_knn_density.cpp` | 暴力参考实现逐位、k 边界、Chebyshev 距离、密度积分近似 |
 | `test_ksg.cpp` | Gaussian 解析 MI、sklearn 黄金值、缩放不变性、ties/jitter、负值截断 |
-| `test_transfer_entropy.cpp` | Gaussian VAR TE=GC/2、effective TE、块置换 p 值、缩放不变性、零假设 |
+| `test_transfer_entropy.cpp` | Gaussian VAR TE=GC/2、effective TE、块置换 p 值、缩放不变性、零假设、条件 TE (P2-3) |
 | `test_integration_phase9.cpp` | KDE → KSG → TE 端到端 + 与 7C Granger 内部互检 |
 
 ### 1.3 必须达到的数值基准 (容差分层)
@@ -97,7 +103,7 @@ tests/fixtures/timeseries/
 | D9-4 | KSG **仅 Algorithm 1** (与 sklearn 一致); Algorithm 2 P2 (H5) | probe 三变体未复现解析值, 语义未冻结 |
 | D9-5 | TE = KSG-CMI + 嵌入 (k,l,delay); 单位 **nats 规范**, 提供 bits 视图; effective TE + 块置换 surrogate | 调研 §4.1/§4.5; nats 与 Barnett TE=½GC 对齐 |
 | D9-6 | KSG/TE **默认标准化** (内部 z-score; 关闭须显式 `standardize=false` 且文档警告缩放敏感性) | Chebyshev 混合单位缩放敏感性 ±35% (probe K3/A41); 审计 C1 统一"强制"措辞 |
-| D9-7 | 不做多变量 KDE / 多变量条件 TE / 离散 TE / Rényi TE | v1.9 聚焦连续双变量; 多变量条件化 P2 |
+| D9-7 | 不做多变量 KDE / 多变量条件 TE / 离散 TE / Rényi TE | v1.9 聚焦连续双变量; 多变量条件化 P2。**P2-3 已落地 (2026-11-18, P2 第 5 批)**: `KernelDensityND` + `conditional_transfer_entropy`, 见 §3.4/§5.1 |
 | D9-8 | 不做边界修正 (正支撑数据) / 权重 KDE | 边界偏倚列入开放问题; 权重 P2。**P2-1/P2-5 已落地 (2026-11-17, P2 第 4 批)**: 0 处反射边界修正 + 权重混合 (带宽仍按未加权样本), 见 §3.2 |
 | D9-9 | 不新增 C ABI / Python 绑定 | Phase 9 纯 C++ 内部模块; 未来按需 |
 | D9-10 | 性能预算: KDE N=10k/M=1k < 50 ms; KSG N=5k < 0.5 s; TE N=2k, ETE 100 + 块置换 100 (**共 ~200 次 TE 评估**) < 10 s | 单线程, MSVC Release; 审计 C6 明确预算含 p 值置换。**[2026-11-11 G 门禁修订, 经用户批准]** KDE 预算 50→150 ms: 实测 52-58 ms (UCRT 标量 exp ~5.5 ns/次硬下限, 暴力算法已最优; exp2 变换实测慢 8× 禁用), 150 ms 留 CI runner 1.5-2× 慢速余量; KSG 实测 35 ms / TE 实测 4.1 s 均达标不动。**[2026-11-14 CI 修订]** 预算口径仅适用于优化构建: 覆盖率 CI job 为 Debug + `--coverage -O0` 插桩构建 (run 43465160758: KSG 1.3 s / TE 98.9 s 超预算) → `tests/CMakeLists.txt` 检测 `--coverage` 定义 `CPPHUB_COVERAGE_BUILD`, 三个 perf 用例在该构建下 `GTEST_SKIP()` (Release 仍断言预算) |
@@ -208,6 +214,39 @@ std::vector<BandwidthSensitivityPoint> bandwidth_sensitivity(
 8. 权重: statsmodels 锚 (1e-14) / 权重尺度不变 / 0 权重 = 子样本 / neff / 非法权重 (P2-5)。
 9. 权重 + 反射叠加锚 (1e-14)。
 10. `bandwidth_sensitivity` 的 3 个 h 结果有限且峰值 > 0。
+
+### 3.4 M1b: 多维 KDE (`density/kde_nd.hpp`, P2-3)
+
+```cpp
+enum class MultivariateBandwidthRule { kScott, kSilverman, kUserFactor };
+
+struct MultivariateKdeConfig {
+    MultivariateBandwidthRule rule = MultivariateBandwidthRule::kScott;
+    Real factor = 0.0;  // kUserFactor: H = factor²·S
+};
+
+class KernelDensityND {
+public:
+    KernelDensityND(std::span<const Real> points, Size n, Size dim,
+                    MultivariateKdeConfig config = {});
+    Real pdf(std::span<const Real> x) const;
+    Real log_pdf(std::span<const Real> x) const;
+    Real bandwidth(Size i, Size j) const;  // H_ij = factor²·S_ij
+    Real factor() const noexcept;
+    Size dimension() const noexcept;
+    Size size() const noexcept;
+};
+```
+
+**语义** (scipy `gaussian_kde` 同款, probe_multivariate_kde.py):
+
+- `factor = n^(-1/(d+4))` (kScott) / `(n(d+2)/4)^(-1/(d+4))` (kSilverman) / 用户因子。
+- `H = factor²·S`, `S` = 样本协方差 (ddof=1); `pdf(x) = (2π)^(-d/2)|H|^(-1/2)/n Σ exp(−½ (x−x_i)ᵀH⁻¹(x−x_i))`。
+- Cholesky `H = LLᵀ` 求值 (header-only, 不依赖 Eigen3); 协方差奇异 → `invalid_argument`。
+- **与 1D 语义不同**: `KernelDensity1D` 用 statsmodels/R 绝对 h (`1.059·A·n^(-1/5)`), 本类用 scipy 的协方差缩放因子; d=1 时数值不同, 不可互相替代。
+- d=2 时 kScott 与 kSilverman 因子恒等 (`(d+2)/4 = 1`)。
+
+**P2-3 证据**: [probe_multivariate_kde.py](../../../tests/fixtures/timeseries/probe_multivariate_kde.py) W1-W3 全 PASS (scipy 与 Cholesky 参考 max|diff| ≤1e-14); 2D n=120 / 3D n=150 确定性 LCG 夹具锚写入 `test_kde_nd.cpp` (pdf 1e-12, log_pdf 1e-10)。
 
 ---
 
@@ -321,12 +360,22 @@ struct TransferEntropyResult {
     Real te_effective = 0.0;  // te - mean(shuffled te)
     Real te_bits = 0.0;       // te / ln 2
     Real p_value = 1.0;       // 块置换零分布
-    std::size_t n_effective = 0;  // T - max(k,l)*delay
+    std::size_t n_effective = 0;  // T - max(k,l[,m])*delay
+};
+
+// P2-3: 条件化 Z 历史 (m = condition_history)
+struct ConditionalTransferEntropyConfig : TransferEntropyConfig {
+    std::size_t condition_history = 1;  // m >= 1
 };
 
 TransferEntropyResult transfer_entropy(std::span<const Real> source,
                                        std::span<const Real> target,
                                        const TransferEntropyConfig& config = {});
+
+TransferEntropyResult conditional_transfer_entropy(
+    std::span<const Real> source, std::span<const Real> target,
+    std::span<const Real> condition,
+    const ConditionalTransferEntropyConfig& config = {});
 
 }  // namespace information
 ```
@@ -343,6 +392,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 - `p_value`: **块置换** (circular block shuffle, 保目标自相关) 抽样 `n_block_boot` 次, 与 `n_shuffles` 相互独立 (审计 B3); 块长默认 `ceil(sqrt(T))`; `p = (1 + #{null >= te}) / (1 + n_block_boot)`。
 - `te_bits`: `te / ln 2`; 不改变 `te` 的 nats 语义。
 - **不提供** "因果" 字段; 文档注明 TE 是条件 MI 的估计, 不是因果发现工具 (James-Barnett-Crutchfield 2016; Smirnov 2013)。
+- **条件 TE (P2-3)**: `TE(X→Y | Z_hist) = CMI(Y_t; X_past | Y_past, Z_past)`, 嵌入 `[X_past(k), Y_t, Y_past(l), Z_past(m)]`; 有效样本 `T − max(k,l,m)·delay`; `condition_history=m >= 1`; 置换零分布仍只打乱 source。普通 TE 为 `m=0` 的特例 (共享 `detail::te_impl`), 既有锚零漂移。
 
 ### 5.2 与 7C Granger 的内部互检
 
@@ -357,8 +407,11 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 3. 标准化后缩放不变性 (1e-12); 关闭标准化时变化 (文档化)。
 4. effective TE: 独立 AR(1) 零假设下**记录型断言, 不判红** (审计 B1: probe K5 实测 naive/effective 同为负, 符号随种子波动, "\|eff\|<\|naive\|"不可靠); 零假设推断以 p_value 为准。
 5. p 值: (a) i.i.d. 数据 20 条, 断言 p>0.05 的比例 ≥ 60%; (b) 耦合 VAR 数据 5 seeds, 断言 p < 0.1; (c) p 值分布均匀性 (KS) 留手动检查, 不进单测 (审计 B2: 100 shuffles 粒度 0.01, 均匀性检验成本 ~200×200 次 TE)。
-6. 嵌入边界: k=l=1/delay=1; k=3/l=2/delay=2; T 过小抛错。
-7. 零假设: i.i.d. MI≈0; AR(1) TE 非零 (不宣称正负)。
+6. 条件 TE (P2-3): 嵌入布局 `[X_past, Y_t, Y_past, Z_past]` 与独立暴力 CMI oracle 1e-12。
+7. 条件 TE: 介导效应 (Z 中介) 下 `TE(X→Y)>0` 且 `TE(X→Y|Z_past) < 0.5×无条件`; 独立条件 ≈ 无条件 (35%+0.03)。
+8. 条件 TE: 标准化后缩放不变 1e-12; condition 长度/`condition_history`/非有限值/有效样本不足校验。
+9. 嵌入边界: k=l=1/delay=1; k=3/l=2/delay=2; T 过小抛错。
+10. 零假设: i.i.d. MI≈0; AR(1) TE 非零 (不宣称正负)。
 
 ---
 
@@ -506,7 +559,7 @@ TransferEntropyResult transfer_entropy(std::span<const Real> source,
 |----|--------|---------|
 | P2-1 | KDE 正支撑边界修正 (反射/变换) | ✅ **已落地 (2026-11-17, P2 第 4 批)**: `KdeConfig::reflection=true` 启用 0 处反射 (支撑 [0,∞), 样本严格正), 解析恒等式 ∫_0^∞=1 / f_R(0)=2f(0) + 探针锚; 见 §3.2 |
 | P2-2 | SJ/ISJ plug-in 带宽选择器 | ✅ **已落地 (2026-11-17, P2 第 3 批)**: `BandwidthRule::kSj` (Sheather-Jones 1991 ste, R `bw.SJ` 同算法) + `kIsj` (Botev 2010 diffusion, KDEpy 同算法); 证据 [probe_sj_isj.py](../../../tests/fixtures/timeseries/probe_sj_isj.py) 三组确定性夹具锚, C++ 对齐 1e-10/1e-8; test_kde 11→17 例。见 §3.1 公式与 H1 关闭说明 |
-| P2-3 | 多变量 KDE / 多变量条件 TE | D9-7 |
+| P2-3 | 多变量 KDE / 多变量条件 TE | ✅ **已落地 (2026-11-18, P2 第 5 批)**: `KernelDensityND` (全协方差, scipy gaussian_kde 语义, Cholesky, 锚 1e-12) + `conditional_transfer_entropy` (Z_past 条件化, 复用 KSG-CMI; 暴力 oracle 1e-12); test_kde_nd 10 例 + 条件 TE 5 例; 见 §3.4/§5.1 |
 | P2-4 | k-d tree / BallTree | ✅ **已落地 (2026-11-17, P2 第 2 批)**: 新增 [`density/kdtree.hpp`](../../../include/cpphub/timeseries/density/kdtree.hpp) — 固定维 Chebyshev k-d tree (列子集, 非拥有视图), 提供含自身的第 k 距离与半径精确计数; KSG MI/CMI (联合 kNN + 边际计数) 与 TE `cmi_embedded` (联合 + 3 边际) 全部接入, 典型 O(N log N) 每次评估。**等价性**: 独立暴力 oracle (test_kdtree 1-5 维 + 列子集 + 重复点; test_ksg MI/CMI 交叉验证) 逐位一致, sklearn 黄金值 1e-12 与 JIDT 锚零漂移。**实测** (Release MSVC): KSG N=5000 37→7 ms; TE N=2000 3871→1606 ms; TE 套件 53.2→9.3 s。1D kNN 密度维持有序数组二分 (已最优, 不用树) |
 | P2-5 | 权重 KDE / neff 语义 | ✅ **已落地 (2026-11-17, P2 第 4 批)**: `KernelDensity1D(sample, weights, config)`; 权重仅比例/允许 0; 带宽按未加权样本 (statsmodels/sklearn 同语义), `effective_sample_size()` 诊断; 见 §3.2 |
 | P2-6 | KSG Algorithm 2 | D9-4 / H5 |

@@ -165,8 +165,9 @@
 | 2c | P2-4 k-d tree 加速 (风险 ③) | ✅ **已关闭 (2026-11-17, P2 第 2 批)** | `density/kdtree.hpp` (Chebyshev, 列子集) 接入 KSG MI/CMI + TE 嵌入; 与独立暴力 oracle 逐位一致 (test_kdtree 6 例 + test_ksg MI/CMI 交叉验证), sklearn 1e-12 / JIDT 锚零漂移; 实测 KSG N=5000 37→7 ms, TE N=2000 3871→1606 ms; 详见 spec §10.2 P2-4 |
 | 2d | P2-2 SJ/ISJ 带宽选择器 | ✅ **已关闭 (2026-11-17, P2 第 3 批)** | `BandwidthRule::kSj`/`kIsj` 落地 (R bw.SJ ste / KDEpy ISJ 同算法); probe_sj_isj.py 三组夹具锚, C++ 对齐 1e-10/1e-8; test_kde 11→17 例; 详见 spec §3.1/§10.2 |
 | 2e | P2-1 反射边界修正 / P2-5 权重 KDE | ✅ **已关闭 (2026-11-17, P2 第 4 批)** | `KdeConfig::reflection` 启用 0 处反射 (样本严格正, ∫_0^∞=1 恒等式); `KernelDensity1D(sample, weights, cfg)` 权重仅进混合 (带宽按未加权样本, statsmodels/sklearn 同语义), `effective_sample_size()` 诊断; probe_weighted_kde.py W1-W5 + test_kde 17→28 例; 详见 spec §3.2 |
+| 2f | P2-3 多变量 KDE / 条件 TE | ✅ **已关闭 (2026-11-18, P2 第 5 批)** | `KernelDensityND` (scipy 全协方差语义, Cholesky, 锚 1e-12) + `conditional_transfer_entropy` (Z_past 嵌入, 暴力 CMI 交叉验证 1e-12); probe_multivariate_kde.py W1-W3 + test_kde_nd 10 例 + 条件 TE 5 例; 详见 spec §3.4/§5.1 |
 | 3 | H3 (sklearn 'scott' 裸因子) / Q12 (normal_reference C 出处) | ✅ 已关闭 | H3 不影响实现 (文档记录); Q12 gen 阶段冻结 C=1.059223840025653 |
-| 4 | P2-1..P2-8 (多元 / Alg2 / 多核 / 滑窗; **P2-1/P2-2/P2-4/P2-5 已关闭, 见行 2c/2d/2e**) | 登记 | spec §10.2 对应 D9 决策 |
+| 4 | P2-1..P2-8 (P2-6 Alg2 / P2-7 多核 / P2-8 滑窗; **P2-1/P2-2/P2-3/P2-4/P2-5 已关闭, 见行 2c/2d/2e/2f**) | 登记 | spec §10.2 对应 D9 决策 |
 | 5 | P1 工程项: RISK-033 `URL_HASH` / RISK-034 json_min 上限 / EXTERNAL_REVIEW 表回填 | ✅ **已关闭 (2026-11-16, P1 清零批)** | URL_HASH SHA256 钉死 + CI 双重守卫; json_min 入口 8 MiB + 节点预算 1e6 (既有实现复核, test_json_min 19/19 + test_c_api_tools 11/11); 审计主表 14/14 回填 (RISK-034 安全口径复核保留为独立安全评审动作) |
 | 6 | tag v1.9.0 | ✅ 本验收后执行 | 打于验收 commit 并推送 origin |
 

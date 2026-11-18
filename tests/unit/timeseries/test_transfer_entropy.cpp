@@ -15,6 +15,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -443,4 +444,268 @@ TEST(TransferEntropy, PValueCalibrationPersistentNull) {
         << "PW rejection = " << rejected_pw << "/" << kSeeds;
     EXPECT_LE(rejected_pw, rejected_sqrt)
         << "PW " << rejected_pw << " vs sqrt " << rejected_sqrt;
+}
+
+// ---- P2-3: 条件迁移熵 TE(X→Y | Z_hist) ----
+
+namespace {
+
+Real cheb_distance(const std::vector<Real>& pts, Size dim, Size i, Size j) {
+    Real m = 0.0;
+    for (Size c = 0; c < dim; ++c) {
+        m = std::max(m, std::fabs(pts[i * dim + c] - pts[j * dim + c]));
+    }
+    return m;
+}
+
+Real cheb_subset(const std::vector<Real>& pts, Size dim, Size i, Size j,
+                 std::span<const Size> cols) {
+    Real m = 0.0;
+    for (Size c : cols) {
+        m = std::max(m, std::fabs(pts[i * dim + c] - pts[j * dim + c]));
+    }
+    return m;
+}
+
+Size count_subset(const std::vector<Real>& pts, Size n, Size dim, Size i,
+                  std::span<const Size> cols, Real radius) {
+    Size cnt = 0;
+    for (Size j = 0; j < n; ++j) {
+        if (cheb_subset(pts, dim, i, j, cols) <= radius) {
+            ++cnt;
+        }
+    }
+    return cnt;
+}
+
+// 独立暴力 CMI oracle: 复刻 cmi_embedded 的列子集与 digamma 口径
+Real brute_cmi(const std::vector<Real>& pts, Size n, Size dim, Size k,
+               Size k_nn) {
+    std::vector<Size> xz;
+    std::vector<Size> yz;
+    std::vector<Size> z;
+    for (Size c = k; c < dim; ++c) {
+        xz.push_back(c);
+    }
+    for (Size c = 0; c < k; ++c) {
+        yz.push_back(c);
+    }
+    for (Size c = k + 1; c < dim; ++c) {
+        yz.push_back(c);
+        z.push_back(c);
+    }
+    std::vector<Real> d(n);
+    Real sum = 0.0;
+    for (Size i = 0; i < n; ++i) {
+        for (Size j = 0; j < n; ++j) {
+            d[j] = cheb_distance(pts, dim, i, j);
+        }
+        std::nth_element(d.begin(), d.begin() + k_nn, d.end());
+        const Real radius = std::nextafter(d[k_nn], 0.0);
+        const Size nxz = count_subset(pts, n, dim, i, xz, radius);
+        const Size nyz = count_subset(pts, n, dim, i, yz, radius);
+        const Size nz = count_subset(pts, n, dim, i, z, radius);
+        sum += inf::detail::digamma(static_cast<Real>(nxz)) +
+               inf::detail::digamma(static_cast<Real>(nyz)) -
+               inf::detail::digamma(static_cast<Real>(nz));
+    }
+    return inf::detail::digamma(static_cast<Real>(k_nn)) -
+           sum / static_cast<Real>(n);
+}
+
+struct CondSample {
+    std::vector<Real> x;
+    std::vector<Real> y;
+    std::vector<Real> z;
+};
+
+CondSample generate_mediated(Size n, std::uint64_t seed) {
+    std::mt19937_64 rng(seed);
+    std::normal_distribution<Real> nd(0.0, 1.0);
+    CondSample s;
+    s.x.resize(n);
+    s.y.resize(n);
+    s.z.resize(n);
+    s.x[0] = nd(rng);
+    s.y[0] = nd(rng);
+    s.z[0] = nd(rng);
+    for (Size t = 1; t < n; ++t) {
+        s.x[t] = 0.6 * s.x[t - 1] + nd(rng);
+        s.z[t] = 0.8 * s.x[t - 1] + nd(rng);
+        s.y[t] = 0.8 * s.z[t - 1] + nd(rng);
+    }
+    return s;
+}
+
+CondSample generate_independent_condition(Size n, std::uint64_t seed) {
+    std::mt19937_64 rng(seed);
+    std::normal_distribution<Real> nd(0.0, 1.0);
+    CondSample s;
+    s.x.resize(n);
+    s.y.resize(n);
+    s.z.resize(n);
+    s.x[0] = nd(rng);
+    s.y[0] = nd(rng);
+    s.z[0] = nd(rng);
+    for (Size t = 1; t < n; ++t) {
+        s.x[t] = 0.5 * s.x[t - 1] + nd(rng);
+        s.y[t] = 0.5 * s.y[t - 1] + 0.3 * s.x[t - 1] + nd(rng);
+        s.z[t] = 0.3 * s.z[t - 1] + nd(rng);
+    }
+    return s;
+}
+
+inf::ConditionalTransferEntropyConfig cond_config(Size m) {
+    inf::ConditionalTransferEntropyConfig cfg;
+    cfg.source_history = 1;
+    cfg.target_history = 1;
+    cfg.condition_history = m;
+    cfg.delay = 1;
+    cfg.ksg_neighbors = 3;
+    cfg.standardize = true;
+    cfg.n_shuffles = 0;
+    cfg.n_block_boot = 0;
+    cfg.seed = 42;
+    return cfg;
+}
+
+}  // namespace
+
+TEST(ConditionalTransferEntropy, EmbeddingLayoutAndBruteForceMatch) {
+    constexpr Size n = 60;
+    constexpr Size k = 1;
+    constexpr Size l = 1;
+    constexpr Size m = 2;
+    constexpr Size dim = k + l + 1 + m;  // 5
+    constexpr Size start = 2;
+    const auto s = generate_mediated(n, 777);
+
+    inf::ConditionalTransferEntropyConfig cfg = cond_config(m);
+    cfg.standardize = false;
+    const auto res = inf::conditional_transfer_entropy(
+        std::span<const Real>(s.x), std::span<const Real>(s.y),
+        std::span<const Real>(s.z), cfg);
+
+    const Size n_eff = n - start;
+    EXPECT_EQ(res.n_effective, n_eff);
+
+    // 手工构建 [X_past, Y_t, Y_past, Z_past] (独立于 build_embedding)
+    std::vector<Real> pts(n_eff * dim);
+    for (Size i = 0; i < n_eff; ++i) {
+        const Size t = start + i;
+        Real* row = &pts[i * dim];
+        row[0] = s.x[t - 1];
+        row[1] = s.y[t];
+        row[2] = s.y[t - 1];
+        row[3] = s.z[t - 1];
+        row[4] = s.z[t - 2];
+    }
+    EXPECT_DOUBLE_EQ(pts[0], s.x[start - 1]);
+    EXPECT_DOUBLE_EQ(pts[1], s.y[start]);
+    EXPECT_DOUBLE_EQ(pts[2], s.y[start - 1]);
+    EXPECT_DOUBLE_EQ(pts[3], s.z[start - 1]);
+    EXPECT_DOUBLE_EQ(pts[4], s.z[start - 2]);
+
+    EXPECT_NEAR(res.te, brute_cmi(pts, n_eff, dim, k, cfg.ksg_neighbors), 1e-12);
+}
+
+TEST(ConditionalTransferEntropy, ConditioningRemovesMediatedEffect) {
+    constexpr Size n = 3000;
+    const auto s = generate_mediated(n, 4242);
+    inf::TransferEntropyConfig plain_cfg;
+    plain_cfg.source_history = 1;
+    plain_cfg.target_history = 1;
+    plain_cfg.ksg_neighbors = 3;
+    plain_cfg.n_shuffles = 0;
+    plain_cfg.n_block_boot = 0;
+
+    const Real te_plain = inf::transfer_entropy(
+                              std::span<const Real>(s.x), std::span<const Real>(s.y),
+                              plain_cfg)
+                              .te;
+    const Real te_cond = inf::conditional_transfer_entropy(
+                             std::span<const Real>(s.x), std::span<const Real>(s.y),
+                             std::span<const Real>(s.z), cond_config(1))
+                             .te;
+    EXPECT_GT(te_plain, 0.02) << "plain TE=" << te_plain;
+    EXPECT_LT(te_cond, 0.5 * te_plain)
+        << "cond=" << te_cond << " plain=" << te_plain;
+}
+
+TEST(ConditionalTransferEntropy, IndependentConditionNearPlainTe) {
+    constexpr Size n = 3000;
+    const auto s = generate_independent_condition(n, 31415);
+    inf::TransferEntropyConfig plain_cfg;
+    plain_cfg.source_history = 1;
+    plain_cfg.target_history = 1;
+    plain_cfg.ksg_neighbors = 3;
+    plain_cfg.n_shuffles = 0;
+    plain_cfg.n_block_boot = 0;
+
+    const Real te_plain = inf::transfer_entropy(
+                              std::span<const Real>(s.x), std::span<const Real>(s.y),
+                              plain_cfg)
+                              .te;
+    const Real te_cond = inf::conditional_transfer_entropy(
+                             std::span<const Real>(s.x), std::span<const Real>(s.y),
+                             std::span<const Real>(s.z), cond_config(1))
+                             .te;
+    EXPECT_NEAR(te_cond, te_plain, 0.35 * std::fabs(te_plain) + 0.03)
+        << "cond=" << te_cond << " plain=" << te_plain;
+}
+
+TEST(ConditionalTransferEntropy, ScaleInvariance) {
+    constexpr Size n = 400;
+    const auto s = generate_mediated(n, 2718);
+    std::vector<Real> x10 = s.x;
+    std::vector<Real> y10 = s.y;
+    std::vector<Real> z10 = s.z;
+    for (Size i = 0; i < n; ++i) {
+        x10[i] *= 10.0;
+        y10[i] *= 10.0;
+        z10[i] *= 10.0;
+    }
+    const auto cfg = cond_config(1);
+    const Real base = inf::conditional_transfer_entropy(
+                          std::span<const Real>(s.x), std::span<const Real>(s.y),
+                          std::span<const Real>(s.z), cfg)
+                          .te;
+    const Real scaled = inf::conditional_transfer_entropy(
+                            std::span<const Real>(x10), std::span<const Real>(y10),
+                            std::span<const Real>(z10), cfg)
+                            .te;
+    EXPECT_NEAR(scaled, base, 1e-12) << "base=" << base << " scaled=" << scaled;
+}
+
+TEST(ConditionalTransferEntropy, Validation) {
+    constexpr Size n = 40;
+    const auto s = generate_mediated(n, 5);
+    inf::ConditionalTransferEntropyConfig cfg = cond_config(1);
+
+    std::vector<Real> short_z(s.z.begin(), s.z.end() - 1);
+    EXPECT_THROW(inf::conditional_transfer_entropy(
+                     std::span<const Real>(s.x), std::span<const Real>(s.y),
+                     std::span<const Real>(short_z), cfg),
+                 std::invalid_argument);
+
+    inf::ConditionalTransferEntropyConfig bad = cfg;
+    bad.condition_history = 0;
+    EXPECT_THROW(inf::conditional_transfer_entropy(
+                     std::span<const Real>(s.x), std::span<const Real>(s.y),
+                     std::span<const Real>(s.z), bad),
+                 std::invalid_argument);
+
+    std::vector<Real> nan_z = s.z;
+    nan_z[3] = std::numeric_limits<Real>::quiet_NaN();
+    EXPECT_THROW(inf::conditional_transfer_entropy(
+                     std::span<const Real>(s.x), std::span<const Real>(s.y),
+                     std::span<const Real>(nan_z), cfg),
+                 std::invalid_argument);
+
+    inf::ConditionalTransferEntropyConfig deep = cfg;
+    deep.condition_history = n;  // start = n → 有效样本 0
+    EXPECT_THROW(inf::conditional_transfer_entropy(
+                     std::span<const Real>(s.x), std::span<const Real>(s.y),
+                     std::span<const Real>(s.z), deep),
+                 std::invalid_argument);
 }

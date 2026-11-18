@@ -838,6 +838,9 @@ cpphub_discover_tests(test_integration_phase8)
 # test_kde: 带宽规则 vs 公式 1e-15 + Absolute/Factor 语义 + pdf/log_pdf
 # vs scipy gaussian_kde 黄金值 1e-14 + 敏感性网格 + 边界输入
 cpphub_add_test(test_kde unit/timeseries/test_kde.cpp)
+# test_kde_nd (P2-3): 多维 Gaussian KDE 全协方差带宽 vs scipy 锚 1e-12 +
+# scott/silverman/user factor + 带宽矩阵 + 奇异协方差/维度校验
+cpphub_add_test(test_kde_nd unit/timeseries/test_kde_nd.cpp)
 # test_knn_density: Loftsgaarden-Quesenberry k/(n·2r_k) 黄金值 1e-15 +
 # k=n−1 边界 + 范围外有限 + 非法输入
 cpphub_add_test(test_knn_density unit/timeseries/test_knn_density.cpp)
