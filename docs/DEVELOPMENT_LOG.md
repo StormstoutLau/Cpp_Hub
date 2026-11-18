@@ -3233,5 +3233,6 @@ core/linalg_dynamic.hpp  # 动态尺寸矩阵 (计量专用, 封装 Eigen3)
   - **证据**: 新 [probe_multivariate_kde.py](../tests/fixtures/timeseries/probe_multivariate_kde.py) W1-W3 全 PASS (scipy vs Cholesky ≤1e-14); 2D/3D 确定性 LCG 锚写入 test_kde_nd (pdf 1e-12 / log_pdf 1e-10)。条件 TE 用独立暴力 CMI oracle (列子集 + digamma 口径) 交叉验证 1e-12; 介导效应 Z 中介下条件 TE < 0.5×无条件; 独立条件 ≈ 无条件 (35%+0.03); 标准化缩放不变 1e-12。
   - **测试**: 新 test_kde_nd 10 例 (Release/Debug 全绿); test_transfer_entropy 18→23 例 (条件 5 例), Release 23/23 + Debug 条件 5/5; test_integration_phase9 2/2 零漂移。
   - **文档回填**: SPEC §1.1/§1.2/§3.4/§5.1/§5.3/D9-7/§10.2 P2-3; FINAL_ACCEPTANCE 行 2f + 行 4; USAGE_GUIDE KDE/TE 语义与锚表。
+  - **CI 收口**: run 44248338730 十 job 全绿 (MSVC/GCC Build&Test + Debug compile guard + Coverage + C ABI 双平台 + Python 3.11/3.12 四 job)。观测期间 watch 进程一次网络断连 (`connected host has failed to respond`), 与 CI 无关, 重新挂起后完成。P2 第 5 批闭环; 剩余 P2-6 (KSG Alg2, H5) / P2-7 (多核 KDE) / P2-8 (滑窗 TE) 维持冻结。
 
 
